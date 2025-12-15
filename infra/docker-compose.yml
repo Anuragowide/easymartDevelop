@@ -1,0 +1,102 @@
+# Docker Compose - EasyMart v1 Multi-Service Architecture
+version: '3.8'
+
+services:
+  # Node.js Backend - Web Layer + Shopify Adapter
+  backend-node:
+    build:
+      context: ../backend-node
+      dockerfile: Dockerfile
+    container_name: easymart-node
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - PYTHON_BASE_URL=http://backend-python:8000
+      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2024-01}
+    depends_on:
+      - backend-python
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Python Backend - Assistant + Retrieval + Catalog
+  backend-python:
+    build:
+      context: ../backend-python
+      dockerfile: Dockerfile
+    container_name: easymart-python
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - MISTRAL_MODEL=${MISTRAL_MODEL:-mistral-large-latest}
+      - INDEX_STORE_URL=http://search-index:9200
+    depends_on:
+      - search-index
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Elasticsearch - Search Index Store
+  search-index:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: easymart-search
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - search-data:/usr/share/elasticsearch/data
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Next.js Frontend (Optional)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: easymart-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+    depends_on:
+      - backend-node
+    networks:
+      - easymart-network
+    restart: unless-stopped
+
+networks:
+  easymart-network:
+    driver: bridge
+
+volumes:
+  search-data:
+    driver: local

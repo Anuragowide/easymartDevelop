@@ -1,0 +1,4 @@
+# Python dependencies
+fastapi
+uvicorn
+pydantic

@@ -1,0 +1,479 @@
+openapi: 3.0.3
+info:
+  title: EasyMart Assistant API
+  version: "1.0.0"
+  description: |
+    API contract between Node.js backend and Python assistant service.
+    The Python assistant handles natural language processing, RAG-based product search,
+    and specification answering using LLMs and Elasticsearch.
+  contact:
+    name: EasyMart Team
+    email: dev@easymart.com
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: http://python:8000
+    description: Docker Compose internal
+
+paths:
+  /assistant/message:
+    post:
+      summary: Process user message
+      description: |
+        Processes a user message using NLP and RAG to generate a conversational response
+        with optional actions (product cards, cart operations, spec answers).
+      operationId: postAssistantMessage
+      tags:
+        - Assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+            examples:
+              productSearch:
+                summary: Product search query
+                value:
+                  sessionId: "550e8400-e29b-41d4-a716-446655440000"
+                  message: "Show me running shoes under $100"
+                  context:
+                    conversationHistory: []
+              specQuestion:
+                summary: Specification question
+                value:
+                  sessionId: "550e8400-e29b-41d4-a716-446655440000"
+                  message: "What are the specs of the MacBook Pro?"
+                  context:
+                    conversationHistory:
+                      - role: "user"
+                        content: "Show me laptops"
+                        timestamp: "2024-01-15T10:25:00.000Z"
+                      - role: "assistant"
+                        content: "Here are some laptops we have..."
+                        timestamp: "2024-01-15T10:25:05.000Z"
+                    lastIntent: "product_search"
+      responses:
+        '200':
+          description: Successfully processed message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantResponse'
+              examples:
+                productSearchResponse:
+                  summary: Product search with results
+                  value:
+                    replyText: "I found several running shoes under $100 for you!"
+                    actions:
+                      - type: "search_results"
+                        data:
+                          query: "running shoes"
+                          results:
+                            - id: "prod_123"
+                              title: "Nike Air Zoom Pegasus"
+                              description: "Responsive cushioning for everyday runs"
+                              price: "$89.99"
+                              image: "https://cdn.shopify.com/..."
+                              url: "https://yourstore.myshopify.com/products/nike-air-zoom"
+                              inStock: true
+                          totalCount: 12
+                    sessionId: "550e8400-e29b-41d4-a716-446655440000"
+                specAnswerResponse:
+                  summary: Specification answer
+                  value:
+                    replyText: "The MacBook Pro features an M3 chip, 16GB RAM, and a stunning Retina display."
+                    actions:
+                      - type: "spec_answer"
+                        data:
+                          question: "MacBook Pro specs"
+                          answer: "M3 chip, 16GB RAM, 512GB SSD, 14-inch Retina display"
+                          sourceProducts: ["prod_macbook_123"]
+                      - type: "product_card"
+                        data:
+                          id: "prod_macbook_123"
+                          title: "MacBook Pro 14-inch M3"
+                          price: "$1,999.00"
+                          image: "https://cdn.shopify.com/..."
+                          url: "https://yourstore.myshopify.com/products/macbook-pro"
+                          inStock: true
+                    sessionId: "550e8400-e29b-41d4-a716-446655440000"
+        '400':
+          description: Bad request - invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingSessionId:
+                  summary: Missing sessionId
+                  value:
+                    error: "ValidationError"
+                    message: "sessionId is required"
+                    statusCode: 400
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                elasticsearchError:
+                  summary: Elasticsearch connection error
+                  value:
+                    error: "InternalError"
+                    message: "Failed to connect to Elasticsearch"
+                    statusCode: 500
+                    details:
+                      service: "elasticsearch"
+                      reason: "Connection timeout"
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status of the Python assistant service and its dependencies
+      operationId: getHealth
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: All systems operational
+                  value:
+                    status: "ok"
+                    service: "easymart-python-assistant"
+                    timestamp: "2024-01-15T10:30:00.000Z"
+                    elasticsearch: "connected"
+                    llm: "ready"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                degraded:
+                  summary: Service degraded
+                  value:
+                    status: "degraded"
+                    service: "easymart-python-assistant"
+                    timestamp: "2024-01-15T10:30:00.000Z"
+                    elasticsearch: "disconnected"
+                    llm: "ready"
+
+components:
+  schemas:
+    AssistantRequest:
+      type: object
+      required:
+        - sessionId
+        - message
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          description: Unique session identifier for conversation tracking
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        message:
+          type: string
+          description: User's message text
+          example: "Show me ergonomic office chairs under $500"
+          minLength: 1
+          maxLength: 1000
+        context:
+          $ref: '#/components/schemas/AssistantContext'
+
+    AssistantContext:
+      type: object
+      description: Conversation context for maintaining state across turns
+      properties:
+        conversationHistory:
+          type: array
+          description: Previous conversation turns
+          items:
+            $ref: '#/components/schemas/ConversationTurn'
+          maxItems: 20
+        userPreferences:
+          type: object
+          description: User preferences and settings
+          additionalProperties: true
+        lastIntent:
+          type: string
+          description: Intent detected in previous turn
+          example: "product_search"
+        metadata:
+          type: object
+          description: Additional metadata
+          additionalProperties: true
+
+    ConversationTurn:
+      type: object
+      required:
+        - role
+        - content
+        - timestamp
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+          description: Who sent this message
+        content:
+          type: string
+          description: Message content
+        timestamp:
+          type: string
+          format: date-time
+          description: When the message was sent
+
+    AssistantResponse:
+      type: object
+      properties:
+        replyText:
+          type: string
+          description: Primary conversational response text
+          example: "I found several products matching your criteria!"
+        actions:
+          type: array
+          description: Actions to be executed by the frontend
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/ProductCardAction'
+              - $ref: '#/components/schemas/AddToCartAction'
+              - $ref: '#/components/schemas/SearchResultsAction'
+              - $ref: '#/components/schemas/SpecAnswerAction'
+            discriminator:
+              propertyName: type
+        context:
+          $ref: '#/components/schemas/AssistantContext'
+        sessionId:
+          type: string
+          format: uuid
+          description: Session ID echoed back
+
+    ProductCardAction:
+      type: object
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          enum: [product_card]
+        data:
+          $ref: '#/components/schemas/ProductCard'
+
+    AddToCartAction:
+      type: object
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          enum: [add_to_cart]
+        data:
+          type: object
+          required:
+            - productId
+            - variantId
+            - quantity
+          properties:
+            productId:
+              type: string
+              example: "prod_123"
+            variantId:
+              type: string
+              example: "var_456"
+            quantity:
+              type: integer
+              minimum: 1
+              example: 1
+
+    SearchResultsAction:
+      type: object
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          enum: [search_results]
+        data:
+          type: object
+          required:
+            - query
+            - results
+            - totalCount
+          properties:
+            query:
+              type: string
+              example: "running shoes"
+            results:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductCard'
+            totalCount:
+              type: integer
+              example: 25
+
+    SpecAnswerAction:
+      type: object
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+          enum: [spec_answer]
+        data:
+          type: object
+          required:
+            - question
+            - answer
+          properties:
+            question:
+              type: string
+              example: "What are the specs of the MacBook Pro?"
+            answer:
+              type: string
+              example: "M3 chip, 16GB RAM, 512GB SSD, 14-inch Retina display"
+            sourceProducts:
+              type: array
+              description: Product IDs used to answer the question
+              items:
+                type: string
+              example: ["prod_macbook_123"]
+
+    ProductCard:
+      type: object
+      required:
+        - id
+        - title
+        - price
+        - image
+        - url
+      properties:
+        id:
+          type: string
+          description: Product identifier
+          example: "prod_123"
+        title:
+          type: string
+          description: Product name
+          example: "Nike Air Zoom Pegasus"
+        description:
+          type: string
+          description: Product description
+          example: "Responsive cushioning for everyday runs"
+        price:
+          type: string
+          description: Formatted price string
+          example: "$89.99"
+        image:
+          type: string
+          format: uri
+          description: Product image URL
+          example: "https://cdn.shopify.com/s/files/1/..."
+        url:
+          type: string
+          format: uri
+          description: Product page URL
+          example: "https://yourstore.myshopify.com/products/nike-air-zoom"
+        variants:
+          type: array
+          description: Available product variants
+          items:
+            $ref: '#/components/schemas/ProductVariant'
+        inStock:
+          type: boolean
+          description: Whether product is currently in stock
+          example: true
+
+    ProductVariant:
+      type: object
+      required:
+        - id
+        - title
+        - price
+        - available
+      properties:
+        id:
+          type: string
+          example: "var_456"
+        title:
+          type: string
+          example: "Size 10 / Black"
+        price:
+          type: string
+          example: "$89.99"
+        available:
+          type: boolean
+          example: true
+        sku:
+          type: string
+          example: "NIKE-AIR-BLK-10"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, error]
+          description: Overall health status
+        service:
+          type: string
+          description: Service name
+          example: "easymart-python-assistant"
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+        elasticsearch:
+          type: string
+          description: Elasticsearch connection status
+          enum: [connected, disconnected, unknown]
+        llm:
+          type: string
+          description: LLM availability status
+          enum: [ready, unavailable, degraded]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "ValidationError"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "sessionId is required"
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 400
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+tags:
+  - name: Assistant
+    description: Natural language processing and conversation management
+  - name: Health
+    description: Service health and monitoring
