@@ -13,7 +13,7 @@ httpx==0.26.0
 # Catalog Indexing (Core Dependencies)
 sqlalchemy>=2.0.0
 sentence-transformers>=2.2.0
-chromadb>=0.4.22
+chromadb>=0.5.15
 rank-bm25==0.2.2
 
 # LLM Integration (TODO: Uncomment when implementing)

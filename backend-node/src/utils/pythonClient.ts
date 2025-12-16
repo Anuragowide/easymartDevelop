@@ -70,17 +70,34 @@ class PythonAssistantClient {
         messageLength: request.message.length,
       });
 
-      const response = await this.client.post<AssistantResponse>(
+      // Transform request to match Python API format
+      const pythonRequest = {
+        message: request.message,
+        session_id: request.sessionId,
+      };
+
+      const response = await this.client.post<any>(
         "/assistant/message",
-        request
+        pythonRequest
       );
 
       logger.info("Assistant response received", { 
         sessionId: request.sessionId,
-        hasActions: !!response.data.actions,
+        hasActions: !!response.data.suggested_actions,
       });
 
-      return response.data;
+      // Transform Python response to match Node backend format
+      const transformedResponse: AssistantResponse = {
+        replyText: response.data.message,
+        actions: response.data.suggested_actions || [],
+        context: {
+          sessionId: response.data.session_id,
+          intent: response.data.intent,
+          products: response.data.products || [],
+        },
+      };
+
+      return transformedResponse;
     } catch (error: any) {
       logger.error("Failed to get assistant response", {
         sessionId: request.sessionId,

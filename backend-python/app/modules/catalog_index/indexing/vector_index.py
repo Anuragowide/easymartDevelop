@@ -70,7 +70,7 @@ class VectorIndex:
             
             embeddings = self._generate_embeddings(texts)
             
-            self.collection.add(
+            self.collection.upsert(
                 ids=ids,
                 embeddings=embeddings,
                 documents=texts,

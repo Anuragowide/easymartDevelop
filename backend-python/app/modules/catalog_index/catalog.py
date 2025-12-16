@@ -118,16 +118,25 @@ class CatalogIndexer:
                 - title (required)
                 - handle, price, currency, vendor, tags, image_url, description
         """
+        # Deduplicate products by SKU before indexing
+        seen_skus = set()
         documents = []
         for product in products:
+            sku = product.get('sku')
+            if not sku or sku in seen_skus:
+                continue
+            seen_skus.add(sku)
+            
             content = f"{product.get('title', '')} {' '.join(product.get('tags', []))} {product.get('description', '')}"
             
             doc = IndexDocument(
-                id=product['sku'],
+                id=sku,
                 content=content,
                 metadata=product
             )
             documents.append(doc)
+        
+        print(f"[Catalog] Indexing {len(documents)} unique products (from {len(products)} total)")
         
         self.products_bm25.add_documents(documents)
         self.products_bm25.save()
