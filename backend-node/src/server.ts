@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import fastifyCors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import path from "path";
 import { registerWebModule } from "./modules/web/web.module";
@@ -10,6 +11,12 @@ export async function startServer() {
     logger: {
       level: config.NODE_ENV === "production" ? "info" : "debug",
     },
+  });
+
+  // Register CORS
+  await fastify.register(fastifyCors, {
+    origin: true, // Allow all origins in development
+    credentials: true,
   });
 
   // Register static file serving for widget

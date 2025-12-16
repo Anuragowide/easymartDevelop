@@ -11,26 +11,31 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "type-check": "tsc --noEmit"
   },
-  "keywords": ["easymart", "shopify", "conversational-commerce"],
+  "keywords": [
+    "easymart",
+    "shopify",
+    "conversational-commerce"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
-    "fastify": "^4.25.1",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^6.12.0",
     "axios": "^1.6.2",
     "dotenv": "^16.3.1",
-    "@fastify/static": "^6.12.0",
+    "fastify": "^4.25.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
-    "ts-node": "^10.9.2",
     "@types/node": "^20.10.5",
     "@types/uuid": "^9.0.7",
-    "nodemon": "^3.0.2",
-    "eslint": "^8.56.0",
-    "prettier": "^3.1.1",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
-    "@typescript-eslint/eslint-plugin": "^6.15.0"
+    "eslint": "^8.56.0",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }
