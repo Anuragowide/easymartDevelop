@@ -1,4 +1,29 @@
-# Python dependencies
-fastapi
-uvicorn
-pydantic
+# Backend Python Requirements
+
+# FastAPI and Server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+
+# HTTP Client
+httpx==0.26.0
+
+# Catalog Indexing (Core Dependencies)
+sqlalchemy>=2.0.0
+sentence-transformers>=2.2.0
+chromadb>=0.4.22
+rank-bm25==0.2.2
+
+# LLM Integration (TODO: Uncomment when implementing)
+# openai>=1.0.0
+
+# Utilities
+tqdm>=4.65.0
+python-dotenv==1.0.0
+
+# Development
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio==0.21.1
