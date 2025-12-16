@@ -132,13 +132,29 @@ class IntentDetector:
         if message_lower in greeting_exact:
             return IntentType.GREETING
         
-        # PRIORITY 2: Check greeting patterns
+        # PRIORITY 2: Check for context-dependent questions (referring to previously shown products)
+        # These should be PRODUCT_SPEC_QA, not PRODUCT_SEARCH
+        context_references = [
+            r'\b(this|that|the|it)\s+(one|chair|table|desk|sofa|bed|product|item)',
+            r'\b(first|second|third|last|option)\s+(one|chair|table|product)',
+            r'\b(option|number)\s+\d+',
+            r'\b(the|this|that)\s+\$?\d+',
+            r'\bmore (info|information|details|about)\s+(this|that|the|it)',
+            r'\b(feature|spec|dimension|detail)s?\s+of\s+(this|that|the|it)',
+        ]
+        for pattern in context_references:
+            if re.search(pattern, message_lower):
+                return IntentType.PRODUCT_SPEC_QA
+            if re.search(pattern, message_lower):
+                return IntentType.PRODUCT_SPEC_QA
+        
+        # PRIORITY 3: Check greeting patterns
         if IntentType.GREETING in self.PATTERNS:
             for pattern in self.PATTERNS[IntentType.GREETING]:
                 if re.search(pattern, message_lower):
                     return IntentType.GREETING
         
-        # PRIORITY 3: Check other intent patterns
+        # PRIORITY 4: Check other intent patterns
         for intent, patterns in self.PATTERNS.items():
             if intent == IntentType.GREETING:  # Already checked
                 continue
