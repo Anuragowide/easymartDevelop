@@ -18,7 +18,8 @@ services:
       - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
       - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2024-01}
     depends_on:
-      - backend-python
+      backend-python:
+        condition: service_healthy
     networks:
       - easymart-network
     restart: unless-stopped
@@ -38,44 +39,57 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - APP_NAME=Easymart Assistant
+      - APP_VERSION=1.0.0
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - HOST=0.0.0.0
       - PORT=8000
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
-      - MISTRAL_MODEL=${MISTRAL_MODEL:-mistral-large-latest}
-      - INDEX_STORE_URL=http://search-index:9200
-    depends_on:
-      - search-index
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://frontend:3000,http://backend-node:3001
+      - NODE_BACKEND_URL=http://backend-node:3001
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - HUGGINGFACE_MODEL=${HUGGINGFACE_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
+      - HUGGINGFACE_BASE_URL=https://router.huggingface.co
+      - HUGGINGFACE_TIMEOUT=30
+      - HUGGINGFACE_MAX_RETRIES=3
+      - EMBEDDING_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
+      - EMBEDDING_DIMENSION=384
+      - HYBRID_SEARCH_ALPHA=0.5
+      - MAX_SEARCH_RESULTS=10
+    volumes:
+      - python-data:/app/data
     networks:
       - easymart-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
-
-  # Elasticsearch - Search Index Store
-  search-index:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: easymart-search
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - search-data:/usr/share/elasticsearch/data
-    networks:
-      - easymart-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 60s
+      retries: 3
+      start_period: 40s
+
+  # Elasticsearch - Search Index Store (Optional - not currently used by Python backend)
+  # search-index:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+  #   container_name: easymart-search
+  #   environment:
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+  #   ports:
+  #     - "9200:9200"
+  #     - "9300:9300"
+  #   volumes:
+  #     - search-data:/usr/share/elasticsearch/data
+  #   networks:
+  #     - easymart-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 60s
 
   # Next.js Frontend (Optional)
   frontend:
@@ -98,5 +112,7 @@ networks:
     driver: bridge
 
 volumes:
-  search-data:
+  python-data:
     driver: local
+  # search-data:
+  #   driver: local
