@@ -1,1 +1,712 @@
-# search, specs, cart tool wrappers
+"""
+Easymart Assistant Tools
+
+Implements 8 tools for furniture search, specs, cart, policies, and contact.
+"""
+
+import asyncio
+from typing import Dict, Any, Callable, List, Optional
+from pydantic import BaseModel
+
+# Import catalog indexer
+from ..catalog_index.catalog import CatalogIndexer
+from ...core.dependencies import get_catalog_indexer
+
+# Import retrieval modules
+from ..retrieval.product_search import ProductSearcher
+from ..retrieval.spec_search import SpecSearcher
+
+# Import prompts for policy info
+from .prompts import POLICIES, STORE_INFO, get_policy_text, get_contact_text
+
+
+# Tool definitions in OpenAI format (compatible with Mistral)
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_products",
+            "description": "Search Easymart furniture catalog by keyword, category, style, material, or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query or keywords (e.g., 'office chair', 'modern dining table')"
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["chair", "table", "sofa", "bed", "desk", "shelf", "stool", "storage", "locker"],
+                        "description": "Product category filter"
+                    },
+                    "material": {
+                        "type": "string",
+                        "enum": ["wood", "metal", "leather", "fabric", "glass", "rattan", "plastic"],
+                        "description": "Material filter"
+                    },
+                    "style": {
+                        "type": "string",
+                        "enum": ["modern", "contemporary", "industrial", "minimalist", "rustic", "scandinavian", "classic"],
+                        "description": "Style filter"
+                    },
+                    "room_type": {
+                        "type": "string",
+                        "enum": ["office", "bedroom", "living_room", "dining_room", "outdoor"],
+                        "description": "Room type filter"
+                    },
+                    "price_max": {
+                        "type": "number",
+                        "description": "Maximum price in AUD"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum results to return (default 5, max 10)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_product_specs",
+            "description": "Get detailed specifications for a specific product. IMPORTANT: Always use this tool when asked about product specs - NEVER make up specifications. Returns dimensions, materials, colors, weight capacity, assembly info, care instructions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Product SKU or ID (e.g., 'CHR-001')"
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Specific question about the product (optional, for Q&A search in specs)"
+                    }
+                },
+                "required": ["product_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_availability",
+            "description": "Check if a product is in stock and available for purchase.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Product SKU or ID"
+                    }
+                },
+                "required": ["product_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_products",
+            "description": "Compare specifications and features of 2-4 products side-by-side.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of 2-4 product IDs to compare",
+                        "minItems": 2,
+                        "maxItems": 4
+                    }
+                },
+                "required": ["product_ids"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_cart",
+            "description": "Add, remove, or update quantity of items in shopping cart. This communicates with the Node.js backend cart service.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "remove", "update_quantity", "view"],
+                        "description": "Cart action to perform"
+                    },
+                    "product_id": {
+                        "type": "string",
+                        "description": "Product SKU (required for add/remove/update)"
+                    },
+                    "quantity": {
+                        "type": "integer",
+                        "description": "Quantity (required for add/update)",
+                        "minimum": 1
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "User session ID (provided by system)"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_policy_info",
+            "description": "Get detailed information about Easymart policies: returns, shipping, payment options, warranty.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "policy_type": {
+                        "type": "string",
+                        "enum": ["returns", "shipping", "payment", "warranty"],
+                        "description": "Type of policy information requested"
+                    }
+                },
+                "required": ["policy_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_contact_info",
+            "description": "Get Easymart contact information: phone, email, live chat, business hours, store location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "info_type": {
+                        "type": "string",
+                        "enum": ["all", "phone", "email", "hours", "location", "chat"],
+                        "description": "Type of contact info (default: all)",
+                        "default": "all"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_shipping",
+            "description": "Calculate shipping cost based on order total and delivery postcode. Returns cost, delivery time estimate, and free shipping eligibility.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_total": {
+                        "type": "number",
+                        "description": "Order subtotal in AUD"
+                    },
+                    "postcode": {
+                        "type": "string",
+                        "description": "Australian postcode (4 digits)",
+                        "pattern": "^\\d{4}$"
+                    }
+                },
+                "required": ["order_total"]
+            }
+        }
+    }
+]
+
+
+class EasymartAssistantTools:
+    """
+    Tool executor for Easymart assistant.
+    Implements all 8 tool functions.
+    """
+    
+    def __init__(self):
+        """Initialize tools with dependencies"""
+        self.product_searcher = ProductSearcher()
+        self.spec_searcher = SpecSearcher()
+    
+    async def search_products(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        material: Optional[str] = None,
+        style: Optional[str] = None,
+        room_type: Optional[str] = None,
+        color: Optional[str] = None,  # NEW: Add color parameter
+        price_max: Optional[float] = None,
+        limit: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Search products with filters.
+        
+        Returns:
+            {
+                "products": [
+                    {
+                        "id": "CHR-001",
+                        "name": "Modern Office Chair",
+                        "price": 199.00,
+                        "description": "...",
+                        "category": "chair",
+                        "image_url": "..."
+                    }
+                ],
+                "total": 15,
+                "showing": 5
+            }
+        """
+        try:
+            # Build filters
+            filters = {}
+            if category:
+                filters["category"] = category
+            if material:
+                filters["material"] = material
+            if style:
+                filters["style"] = style
+            if room_type:
+                filters["room_type"] = room_type
+            if color:
+                filters["color"] = color  # NEW: Add color to filters
+            if price_max:
+                filters["price_max"] = price_max
+            
+            # Search using product searcher
+            results = await self.product_searcher.search(
+                query=query,
+                filters=filters,
+                limit=min(limit, 10)
+            )
+            
+            # FIX: Ensure all products have proper names (not product_1, product_2, etc.)
+            formatted_products = []
+            for idx, product in enumerate(results):
+                # Use title as name, fallback to description or generic name
+                if not product.get("name") or product.get("name").startswith("product_"):
+                    product["name"] = product.get("title") or product.get("description", f"Product {idx + 1}")
+                
+                # Ensure we have all required fields
+                product["id"] = product.get("sku") or product.get("id")
+                product["price"] = product.get("price", 0.00)
+                product["description"] = product.get("description", "")
+                
+                formatted_products.append(product)
+            
+            return {
+                "products": formatted_products,
+                "total": len(formatted_products),
+                "showing": len(formatted_products)
+            }
+        
+        except Exception as e:
+            return {
+                "error": f"Search failed: {str(e)}",
+                "products": [],
+                "total": 0
+            }
+    
+    async def get_product_specs(
+        self,
+        product_id: str,
+        question: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get product specifications.
+        CRITICAL: Never make up specs - always use actual data.
+        
+        Returns:
+            {
+                "product_id": "CHR-001",
+                "product_name": "Modern Office Chair",
+                "specs": {
+                    "dimensions": {"width": 60, "depth": 58, "height": 95, "unit": "cm"},
+                    "weight": 12.5,
+                    "material": "Mesh back, fabric seat, metal frame",
+                    "color": "Black, Grey",
+                    "weight_capacity": 120,
+                    "assembly_required": true,
+                    "care_instructions": "...",
+                    "warranty": "12 months"
+                },
+                "answer": "..." (if question provided)
+            }
+        """
+        try:
+            # Get product details
+            product = await self.product_searcher.get_product(product_id)
+            if not product:
+                return {
+                    "error": f"Product '{product_id}' not found",
+                    "product_id": product_id
+                }
+            
+            # Get specs document
+            specs_doc = await self.spec_searcher.get_specs_for_product(product_id)
+            
+            # If question provided, use Q&A search
+            answer = None
+            if question and specs_doc:
+                qa_result = await self.spec_searcher.answer_question(
+                    product_id=product_id,
+                    question=question
+                )
+                answer = qa_result.get("answer")
+            
+            return {
+                "product_id": product_id,
+                "product_name": product.get("name"),
+                "specs": specs_doc.get("specs", {}) if specs_doc else {},
+                "answer": answer,
+                "full_spec_text": specs_doc.get("spec_text", "") if specs_doc else ""
+            }
+        
+        except Exception as e:
+            return {
+                "error": f"Failed to get specs: {str(e)}",
+                "product_id": product_id
+            }
+    
+    async def check_availability(self, product_id: str) -> Dict[str, Any]:
+        """
+        Check product availability.
+        
+        Returns:
+            {
+                "product_id": "CHR-001",
+                "in_stock": true,
+                "quantity_available": 15,
+                "estimated_delivery": "5-10 business days"
+            }
+        """
+        try:
+            product = await getProductById(product_id)
+            if not product:
+                return {
+                    "error": f"Product '{product_id}' not found",
+                    "product_id": product_id,
+                    "in_stock": False
+                }
+            
+            # TODO: Integrate with actual inventory system
+            # For now, assume in stock
+            return {
+                "product_id": product_id,
+                "product_name": product.get("name"),
+                "in_stock": True,
+                "quantity_available": 10,  # Mock data
+                "estimated_delivery": "5-10 business days"
+            }
+        
+        except Exception as e:
+            return {
+                "error": f"Availability check failed: {str(e)}",
+                "product_id": product_id,
+                "in_stock": False
+            }
+    
+    async def compare_products(self, product_ids: List[str]) -> Dict[str, Any]:
+        """
+        Compare multiple products side-by-side.
+        
+        Returns:
+            {
+                "products": [
+                    {
+                        "id": "CHR-001",
+                        "name": "...",
+                        "price": 199.00,
+                        "specs": {...}
+                    }
+                ],
+                "comparison": {
+                    "price_range": "199.00 - 349.00 AUD",
+                    "common_features": [...],
+                    "differences": [...]
+                }
+            }
+        """
+        if len(product_ids) < 2 or len(product_ids) > 4:
+            return {"error": "Can only compare 2-4 products"}
+        
+        try:
+            # Get all products
+            products = []
+            for pid in product_ids:
+                product = await self.product_searcher.get_product(pid)
+                if product:
+                    specs = await self.spec_searcher.get_specs_for_product(pid)
+                    products.append({
+                        "id": pid,
+                        "name": product.get("name"),
+                        "price": product.get("price"),
+                        "specs": specs.get("specs", {}) if specs else {}
+                    })
+            
+            if not products:
+                return {"error": "No valid products found for comparison"}
+            
+            # Basic comparison
+            prices = [p["price"] for p in products if p.get("price")]
+            price_range = f"${min(prices):.2f} - ${max(prices):.2f} AUD" if prices else "N/A"
+            
+            return {
+                "products": products,
+                "comparison": {
+                    "price_range": price_range,
+                    "count": len(products)
+                }
+            }
+        
+        except Exception as e:
+            return {"error": f"Comparison failed: {str(e)}"}
+    
+    async def update_cart(
+        self,
+        action: str,
+        product_id: Optional[str] = None,
+        quantity: Optional[int] = None,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Update shopping cart.
+        NOTE: This is a placeholder - needs integration with Node.js cart service.
+        
+        Returns:
+            {
+                "action": "add",
+                "success": true,
+                "cart": {
+                    "items": [...],
+                    "subtotal": 498.00,
+                    "shipping": 0.00,
+                    "total": 498.00
+                },
+                "message": "Added Modern Office Chair to cart"
+            }
+        """
+        # TODO: Integrate with Node.js backend cart service via HTTP API
+        # For now, return mock success
+        
+        if action == "view":
+            return {
+                "action": "view",
+                "success": True,
+                "cart": {
+                    "items": [],
+                    "subtotal": 0.00,
+                    "shipping": 0.00,
+                    "total": 0.00
+                },
+                "message": "Cart is empty"
+            }
+        
+        if not product_id:
+            return {"error": "product_id required for this action"}
+        
+        if action in ["add", "update_quantity"] and not quantity:
+            return {"error": "quantity required for this action"}
+        
+        # Mock response
+        return {
+            "action": action,
+            "success": True,
+            "product_id": product_id,
+            "quantity": quantity,
+            "message": f"Cart {action} successful (mock - needs Node.js integration)"
+        }
+    
+    def get_policy_info(self, policy_type: str) -> Dict[str, Any]:
+        """
+        Get policy information.
+        
+        Returns:
+            {
+                "policy_type": "returns",
+                "policy_text": "...",
+                "details": {...}
+            }
+        """
+        policy_text = get_policy_text(policy_type)
+        policy_details = POLICIES.get(policy_type, {})
+        
+        return {
+            "policy_type": policy_type,
+            "policy_text": policy_text,
+            "details": policy_details
+        }
+    
+    def get_contact_info(self, info_type: str = "all") -> Dict[str, Any]:
+        """
+        Get contact information.
+        
+        Returns:
+            {
+                "contact_text": "...",
+                "phone": "...",
+                "email": "...",
+                "hours": "...",
+                "location": "..."
+            }
+        """
+        contact = STORE_INFO["contact"]
+        location = STORE_INFO["location"]
+        
+        if info_type == "phone":
+            return {
+                "info_type": "phone",
+                "phone": contact["phone"],
+                "text": f"You can call us at {contact['phone']}"
+            }
+        
+        elif info_type == "email":
+            return {
+                "info_type": "email",
+                "email": contact["email"],
+                "response_time": contact["response_time"],
+                "text": f"Email us at {contact['email']}. Response time: {contact['response_time']}"
+            }
+        
+        elif info_type == "hours":
+            return {
+                "info_type": "hours",
+                "hours": contact["hours"],
+                "text": f"Business hours: {contact['hours']}"
+            }
+        
+        elif info_type == "location":
+            return {
+                "info_type": "location",
+                "address": location["warehouse"],
+                "showroom": location["showroom"],
+                "pickup": location["pickup"],
+                "text": f"Location: {location['warehouse']}. {location['showroom']}. {location['pickup']}"
+            }
+        
+        elif info_type == "chat":
+            return {
+                "info_type": "chat",
+                "available": contact["live_chat"],
+                "text": f"Live chat: {contact['live_chat']}"
+            }
+        
+        else:  # "all"
+            return {
+                "info_type": "all",
+                "contact_text": get_contact_text(),
+                "phone": contact["phone"],
+                "email": contact["email"],
+                "hours": contact["hours"],
+                "location": location["warehouse"]
+            }
+    
+    def calculate_shipping(
+        self,
+        order_total: float,
+        postcode: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculate shipping cost.
+        
+        Returns:
+            {
+                "order_total": 150.00,
+                "shipping_cost": 15.00,
+                "total": 165.00,
+                "free_shipping": false,
+                "free_shipping_threshold": 199.00,
+                "amount_to_free_shipping": 49.00,
+                "delivery_time": "5-10 business days",
+                "express_available": true,
+                "express_cost": 35.00
+            }
+        """
+        shipping_policy = POLICIES["shipping"]
+        free_threshold = shipping_policy["free_threshold"]
+        
+        # Check for free shipping
+        if order_total >= free_threshold:
+            shipping_cost = 0.00
+            free_shipping = True
+            amount_to_free = 0.00
+        else:
+            shipping_cost = shipping_policy["standard_cost"]
+            free_shipping = False
+            amount_to_free = free_threshold - order_total
+        
+        # Regional surcharge check (simplified - real implementation would use postcode)
+        delivery_time = shipping_policy["delivery_time"]
+        if postcode and int(postcode) > 4000:  # Rough check for regional
+            delivery_time = "10-15 business days"
+        
+        return {
+            "order_total": order_total,
+            "shipping_cost": shipping_cost,
+            "total": order_total + shipping_cost,
+            "free_shipping": free_shipping,
+            "free_shipping_threshold": free_threshold,
+            "amount_to_free_shipping": amount_to_free if not free_shipping else 0,
+            "delivery_time": delivery_time,
+            "express_available": shipping_policy["express_available"],
+            "express_cost": shipping_policy["express_cost"],
+            "express_time": shipping_policy["express_time"]
+        }
+
+
+async def execute_tool(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    tools_instance: Optional[EasymartAssistantTools] = None
+) -> Dict[str, Any]:
+    """
+    Execute a tool by name with given arguments.
+    
+    Args:
+        tool_name: Name of the tool to execute
+        arguments: Tool arguments
+        tools_instance: Optional EasymartAssistantTools instance (creates new if None)
+    
+    Returns:
+        Tool execution result
+    
+    Example:
+        >>> result = await execute_tool(
+        ...     "search_products",
+        ...     {"query": "office chair", "price_max": 300}
+        ... )
+        >>> print(result["products"])
+    """
+    if not tools_instance:
+        tools_instance = EasymartAssistantTools()
+    
+    # Map tool names to methods
+    tool_map = {
+        "search_products": tools_instance.search_products,
+        "get_product_specs": tools_instance.get_product_specs,
+        "check_availability": tools_instance.check_availability,
+        "compare_products": tools_instance.compare_products,
+        "update_cart": tools_instance.update_cart,
+        "get_policy_info": tools_instance.get_policy_info,
+        "get_contact_info": tools_instance.get_contact_info,
+        "calculate_shipping": tools_instance.calculate_shipping
+    }
+    
+    tool_func = tool_map.get(tool_name)
+    if not tool_func:
+        return {"error": f"Unknown tool: {tool_name}"}
+    
+    try:
+        # Execute tool (handle both sync and async)
+        if asyncio.iscoroutinefunction(tool_func):
+            result = await tool_func(**arguments)
+        else:
+            result = tool_func(**arguments)
+        
+        return result
+    
+    except Exception as e:
+        return {"error": f"Tool execution failed: {str(e)}"}

@@ -1,1 +1,0 @@
-# Index store client
