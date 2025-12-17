@@ -331,9 +331,13 @@ class EasymartAssistantHandler:
                 messages.append(Message(
                     role="user",
                     content=(
-                        "Now respond to the user with ONLY a brief 1-2 sentence friendly intro. "
-                        "DO NOT list products - the UI will show them automatically. "
-                        "Example: 'I found 5 great chairs for you!'"
+                        "Now respond to the user with ONLY a brief, professional 1-2 sentence intro. "
+                        "DO NOT list products - they will be displayed below your message. "
+                        "DO NOT mention 'UI', 'screen', 'list', or 'display'. "
+                        "Examples:\n"
+                        "- 'I found 5 great office chairs for you!'\n"
+                        "- 'Here are some excellent locker options that match your search.'\n"
+                        "- 'I've found several red lockers that might work perfectly for you.'"
                     )
                 ))
                 
@@ -354,12 +358,52 @@ class EasymartAssistantHandler:
                 assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 assistant_message = assistant_message.strip()
                 
-                # VALIDATION: Block hallucinated product lists
+                # VALIDATION: Block hallucinated product lists and check if results match query
                 assistant_message = self._validate_response(
                     assistant_message, 
                     had_tool_calls=True,
-                    tool_results=tool_results
+                    tool_results=tool_results,
+                    original_query=request.message
                 )
+                
+                # Additional validation: Check if search results actually match the query
+                if 'search_products' in tool_results:
+                    products = tool_results['search_products'].get('products', [])
+                    if products:
+                        # Extract important nouns from query
+                        query_lower = request.message.lower()
+                        important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
+                                          'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
+                                          'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes'}
+                        
+                        query_nouns = set(query_lower.split()) & important_nouns
+                        
+                        if query_nouns:
+                            # Check if ANY product name contains the query nouns
+                            matching_products = []
+                            for product in products:
+                                product_name = product.get('name', '').lower()
+                                if any(noun in product_name for noun in query_nouns):
+                                    matching_products.append(product)
+                            
+                            # If NO products match the key nouns, update message
+                            if len(matching_products) == 0:
+                                # Extract attributes (colors, materials) from query
+                                attributes = []
+                                color_keywords = ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow']
+                                for color in color_keywords:
+                                    if color in query_lower:
+                                        attributes.append(color)
+                                
+                                noun_str = ' '.join(query_nouns)
+                                if attributes:
+                                    attr_str = ' '.join(attributes)
+                                    assistant_message = f"I couldn't find any {noun_str} in {attr_str}. Would you like to try a different color or see all available {noun_str}?"
+                                else:
+                                    assistant_message = f"I couldn't find any {noun_str} matching your search. Here are some related products that might interest you."
+                                
+                                logger.warning(f"[VALIDATION] ⚠️ No products matched query nouns: {query_nouns}")
+                                logger.warning(f"[VALIDATION] Returned products were: {[p.get('name') for p in products[:3]]}")
                 
                 logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
@@ -371,7 +415,8 @@ class EasymartAssistantHandler:
                 assistant_message = self._validate_response(
                     assistant_message,
                     had_tool_calls=False,
-                    tool_results={}
+                    tool_results={},
+                    original_query=request.message
                 )
             
             # Add assistant response to history
@@ -474,6 +519,44 @@ class EasymartAssistantHandler:
         if not last_search_query:
             return message  # No previous search found, return as-is
         
+        # Clean up the last search query - extract just the product/subject
+        # Remove common action phrases to get the core search term
+        last_query_clean = last_search_query.lower()
+        for prefix in ['show me ', 'find me ', 'get me ', 'search for ', 'looking for ', 'i want ', 'i need ']:
+            if last_query_clean.startswith(prefix):
+                last_query_clean = last_query_clean[len(prefix):]
+                break
+        
+        # Remove common suffixes
+        for suffix in [' please', ' thanks', ' thank you']:
+            if last_query_clean.endswith(suffix):
+                last_query_clean = last_query_clean[:-len(suffix)]
+                break
+        
+        last_query_clean = last_query_clean.strip()
+        
+        # CRITICAL: Remove any attributes that may have been hallucinated by LLM
+        # Only keep attributes that were explicitly in the original user query
+        # This prevents "show me lockers" → LLM says "in black" → next query picks up "black"
+        original_had_attributes = {}
+        for category, keywords in attribute_groups.items():
+            for keyword in keywords:
+                if keyword in last_search_query.lower():  # Check ORIGINAL user message
+                    original_had_attributes[category] = keyword
+                    break
+        
+        # Remove any attribute words that weren't in the original query
+        for category, keywords in attribute_groups.items():
+            if category not in original_had_attributes:
+                # This category wasn't in original query - remove all its keywords
+                for keyword in keywords:
+                    if keyword in last_query_clean:
+                        last_query_clean = last_query_clean.replace(keyword, '').strip()
+                        logger.info(f"[CONTEXT] Removed hallucinated attribute '{keyword}' from context")
+        
+        # Clean up multiple spaces
+        last_query_clean = ' '.join(last_query_clean.split())
+        
         # Remove common prefixes from current message
         clean_message = message_lower
         for prefix in ['for ', 'in ', 'with ', 'show me ', 'find me ', 'get me ']:
@@ -495,19 +578,17 @@ class EasymartAssistantHandler:
         
         # If we detected a new attribute, check if we need to REPLACE an existing one
         if new_attribute_category and new_attribute_value:
-            last_query_lower = last_search_query.lower()
-            
             # Check if the last query contains an attribute from the same category
             for existing_keyword in attribute_groups[new_attribute_category]:
-                if existing_keyword in last_query_lower and existing_keyword != new_attribute_value:
+                if existing_keyword in last_query_clean and existing_keyword != new_attribute_value:
                     # Found a conflicting attribute - REPLACE it
-                    refined_query = last_search_query.lower().replace(existing_keyword, new_attribute_value)
-                    logger.info(f"[CONTEXT] Filter replacement detected. Replacing '{existing_keyword}' with '{new_attribute_value}' in '{last_search_query}' → '{refined_query}'")
+                    refined_query = last_query_clean.replace(existing_keyword, new_attribute_value)
+                    logger.info(f"[CONTEXT] Filter replacement detected. Replacing '{existing_keyword}' with '{new_attribute_value}' in '{last_query_clean}' → '{refined_query}'")
                     return refined_query
         
         # No conflict found - ADD the new filter to existing context
-        refined_query = f"{clean_message} {last_search_query}"
-        logger.info(f"[CONTEXT] Filter addition detected. Base: '{last_search_query}', Addition: '{message}', Combined: '{refined_query}'")
+        refined_query = f"{clean_message} {last_query_clean}"
+        logger.info(f"[CONTEXT] Filter addition detected. Base: '{last_query_clean}', Addition: '{clean_message}', Combined: '{refined_query}'")
         
         return refined_query
     
@@ -553,15 +634,17 @@ class EasymartAssistantHandler:
         self, 
         response: str, 
         had_tool_calls: bool,
-        tool_results: Dict[str, Any]
+        tool_results: Dict[str, Any],
+        original_query: str = ""
     ) -> str:
         """
-        Validate response to prevent hallucinated product listings.
+        Validate response to prevent hallucinated product listings and attributes.
         
         Args:
             response: LLM response text
             had_tool_calls: Whether tools were called
             tool_results: Results from tool execution
+            original_query: Original user query to check for attribute mentions
         
         Returns:
             Validated (possibly modified) response
@@ -592,6 +675,38 @@ class EasymartAssistantHandler:
                 # LLM tried to hallucinate products without tool call
                 logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
                 return "Let me search our catalog for you."
+        
+        # Block hallucinated attributes in response that weren't in user's query
+        # Common attributes: colors, materials, sizes, age groups
+        attribute_keywords = {
+            'colors': ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow', 'pink', 'purple', 'orange', 'beige', 'navy', 'silver', 'gold'],
+            'materials': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel'],
+            'sizes': ['small', 'large', 'big', 'tiny', 'medium', 'compact'],
+            'age_groups': ['kids', 'children', 'child', 'baby', 'adult', 'teen']
+        }
+        
+        if had_tool_calls and original_query:
+            query_lower = original_query.lower()
+            response_lower = response.lower()
+            
+            # Check if response mentions attributes that weren't in the query
+            for attr_type, keywords in attribute_keywords.items():
+                for keyword in keywords:
+                    # If attribute is in response but NOT in original query
+                    if keyword in response_lower and keyword not in query_lower:
+                        # Check if it's in a meaningful context (not just "in black")
+                        attr_patterns = [
+                            rf'\bin {keyword}\b',           # "in black"
+                            rf'\b{keyword} \w+',            # "black lockers"  
+                            rf'\w+ {keyword}\b',            # "office black"
+                        ]
+                        if any(re.search(p, response_lower) for p in attr_patterns):
+                            logger.warning(f"[VALIDATION] ⚠️ Blocked hallucinated attribute '{keyword}' not in query!")
+                            logger.warning(f"[VALIDATION] Query: '{original_query}', Response mentioned: '{keyword}'")
+                            # Remove the hallucinated attribute mention
+                            response = re.sub(rf'\s*in {keyword}', '', response, flags=re.IGNORECASE)
+                            response = re.sub(rf'{keyword} ', '', response, flags=re.IGNORECASE, count=1)
+                            response = response.strip()
         
         # Block hallucinated product specifications (dimensions, materials, colors)
         # These should ONLY come from get_product_specs tool, not LLM imagination

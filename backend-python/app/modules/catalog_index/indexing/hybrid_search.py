@@ -34,6 +34,23 @@ class HybridSearch:
         combined_scores = {}
         query_terms = set(query.lower().split())
         
+        # Extract important nouns from query (with singular/plural normalization)
+        important_query_terms = query_terms & self.IMPORTANT_NOUNS
+        
+        # Normalize to base forms for better matching
+        # Map plural to singular for consistent matching
+        noun_bases = {}
+        for noun in important_query_terms:
+            if noun.endswith('s') and noun[:-1] in self.IMPORTANT_NOUNS:
+                noun_bases[noun] = noun[:-1]  # chairs -> chair
+            elif noun + 's' in self.IMPORTANT_NOUNS:
+                noun_bases[noun] = noun  # chair stays chair
+            else:
+                noun_bases[noun] = noun
+        
+        # Get unique base nouns (e.g., {chair, locker} not {chair, chairs, locker, lockers})
+        unique_base_nouns = set(noun_bases.values())
+        
         # BM25 scores
         for rank, result in enumerate(bm25_results, start=1):
             doc_id = result['id']
@@ -91,9 +108,6 @@ class HybridSearch:
         # Format results with stricter filtering
         final_results = []
         
-        # Find important nouns in query
-        important_query_terms = query_terms & self.IMPORTANT_NOUNS
-        
         for doc_id, data in sorted_results[:limit * 3]:  # Get more for filtering
             result_item = {
                 'id': doc_id,
@@ -106,19 +120,40 @@ class HybridSearch:
             title = data['result'].get('content', {}).get('title', '').lower()
             title_words = set(title.split())
             
-            # Check if important query terms (nouns) appear in title
-            if important_query_terms:
-                # If query has important nouns, require at least ONE in title
-                has_important_match = len(important_query_terms & title_words) > 0
+            # Check if important query nouns appear in title (with singular/plural flexibility)
+            if unique_base_nouns:
+                # Check how many base nouns are matched in the title
+                matched_bases = set()
+                for base_noun in unique_base_nouns:
+                    # Check for both singular and plural forms in title
+                    if base_noun in title or (base_noun + 's') in title or base_noun in ' '.join(title_words):
+                        matched_bases.add(base_noun)
+                
+                # STRICT: Require ALL base nouns to be present
+                match_ratio = len(matched_bases) / len(unique_base_nouns) if unique_base_nouns else 0
+                has_important_match = match_ratio >= 1.0  # 100% required
+                
+                # BOOST: If ALL nouns match, boost score
+                if len(matched_bases) == len(unique_base_nouns):
+                    result_item['score'] *= 2.0
+                
+                # PENALTY: If some but not all nouns match, heavily penalize
+                elif match_ratio > 0 and match_ratio < 1.0:
+                    result_item['score'] *= 0.1  # Reduce to 10% for partial matches
             else:
-                # If no important nouns in query, require ANY term match
+                # If no important nouns, require ANY term match
                 has_important_match = len(query_terms & title_words) > 0
             
-            # Only add if has required match OR we don't have enough results yet
-            if has_important_match or len(final_results) < 3:
+            # Only add if has required match
+            if has_important_match:
+                final_results.append(result_item)
+            elif len(final_results) < 2:  # Only as fallback if we have < 2 results
                 final_results.append(result_item)
             
             if len(final_results) >= limit:
                 break
         
-        return final_results
+        # Re-sort after applying strict boosts
+        final_results = sorted(final_results, key=lambda x: x['score'], reverse=True)
+        
+        return final_results[:limit]

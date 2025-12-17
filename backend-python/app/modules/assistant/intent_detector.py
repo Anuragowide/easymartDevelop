@@ -144,10 +144,12 @@ class IntentDetector:
         broad_product_patterns = [
             r'\b(show|find|search|looking for|want|need|get me)\b',  # Action verbs
             r'\b(something|anything|items|products|furniture)\b',     # Generic nouns
-            r'\bfor\s+(kids|children|baby|office|home|bedroom|living room|kitchen|dining)\b',  # Context
-            r'\b(cheap|affordable|expensive|best|good|quality|nice)\b',  # Adjectives
+            r'\bfor\s+(kids|children|baby|toddler|adult|teen|gaming|office|home|bedroom|living room|kitchen|dining|study|outdoor)\b',  # Context - expanded!
+            r'\bin\s+(black|white|red|blue|green|brown|grey|gray|wood|metal|leather|fabric)\b',  # Colors/materials with "in"
+            r'\bwith\s+(storage|drawers|wheels|cushion|armrest)\b',  # Features with "with"
+            r'\b(cheap|affordable|expensive|best|good|quality|nice|premium|luxury|budget)\b',  # Adjectives
             r'\bunder\s+\$?\d+\b',  # Price queries
-            r'\b(small|large|big|compact|modern|classic)\b',  # Size/style
+            r'\b(small|large|big|compact|modern|classic|vintage|contemporary)\b',  # Size/style
         ]
         
         # If ANY broad pattern matches, assume PRODUCT_SEARCH
