@@ -274,6 +274,12 @@ class EasymartAssistantHandler:
                 # Products are already stored in session from tool execution
                 assistant_message = final_response.content
                 
+                # SAFETY: Strip any leaked tool call syntax from message
+                # Remove [TOOL_CALLS], [TOOLCALLS], and their content
+                import re
+                assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+                assistant_message = assistant_message.strip()
+                
                 logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
             else:

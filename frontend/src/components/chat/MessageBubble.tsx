@@ -18,9 +18,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
     return (
       <div className="mt-3 space-y-3">
-        <div className="text-sm text-gray-600 font-medium">
-          Found {action.data.totalCount} product{action.data.totalCount !== 1 ? 's' : ''}:
-        </div>
+        {/* Remove "Found X products" label - cards speak for themselves */}
         <div className="grid grid-cols-1 gap-3">
           {action.data.results.map((product) => (
             <ProductCard key={product.id} product={product} />
