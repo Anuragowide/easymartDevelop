@@ -135,7 +135,6 @@ CRITICAL FORMAT RULES:
 - Just output the tool call, nothing else
 
 WRONG FORMATS (DO NOT USE):
-❌ [TOOL\_CALLS] (escaped underscores - WRONG!)
 ❌ [TOOL_CALLS] (underscores - WRONG!)
 ❌ [TOOLCALLS] [...] [TOOLCALLS] (missing slash - WRONG!)
 
