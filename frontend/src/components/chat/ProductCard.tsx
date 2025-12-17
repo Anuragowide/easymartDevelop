@@ -10,8 +10,10 @@ export function ProductCard({ product, onAddToCart }: ProductCardProps) {
     }
   };
 
-  // Extract price number for display
-  const priceValue = product.price.replace(/[^0-9.]/g, '');
+  // Extract price number for display - handle both string and number types
+  const priceValue = typeof product.price === 'string' 
+    ? product.price.replace(/[^0-9.]/g, '') 
+    : String(product.price);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow duration-200">

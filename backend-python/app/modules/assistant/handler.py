@@ -263,78 +263,19 @@ class EasymartAssistantHandler:
                         name=tool_name
                     ))
                 
-                # Call LLM again to generate final response
+                # Call LLM again to generate final response with tool results
                 final_response = await self.llm_client.chat(
                     messages=messages,
                     temperature=0.7,
                     max_tokens=512
                 )
+                
+                # Let LLM generate natural, conversational response
+                # Products are already stored in session from tool execution
                 assistant_message = final_response.content
                 
-                # ===== STRICT RULE: ONLY USE REAL PRODUCTS FROM DATABASE =====
-                # NEVER display LLM-generated fake products
-                # ALWAYS override LLM response with actual search results
-                print(f"[DEBUG] tool_results keys: {list(tool_results.keys())}")
-                print(f"[DEBUG] Checking if 'search_products' in tool_results: {'search_products' in tool_results}")
-                
-                if "search_products" in tool_results:
-                    print(f"[DEBUG] ===== OVERRIDE TRIGGERED =====")
-                    search_result = tool_results["search_products"]
-                    products = search_result.get("products", [])
-                    
-                    print(f"[DEBUG] search_result type: {type(search_result)}")
-                    print(f"[DEBUG] search_result keys: {list(search_result.keys()) if isinstance(search_result, dict) else 'N/A'}")
-                    print(f"[DEBUG] Number of products: {len(products)}")
-                    
-                    logger.info(f"[HANDLER] ===== SEARCH RESULTS =====")
-                    logger.info(f"[HANDLER] Found {len(products)} ACTUAL products from database")
-                    
-                    if not products or len(products) == 0:
-                        # NO PRODUCTS FOUND - Show polite unavailable message
-                        search_term = request.message if len(request.message) < 50 else request.message[:50] + "..."
-                        assistant_message = f"""I'm sorry, but we don't currently have "{search_term}" available in our catalog.
-
-Would you like to:
-- Search for something similar?
-- Browse our popular categories (chairs, tables, desks, sofas, storage)?
-- See our featured products?
-
-Feel free to search for other products!"""
-                        logger.info(f"[HANDLER] NO PRODUCTS - Using polite unavailable message")
-                    else:
-                        # BUILD RESPONSE STRICTLY FROM ACTUAL DATABASE PRODUCTS
-                        # DO NOT use LLM-generated names or prices
-                        print(f"[DEBUG] Building response from {len(products)} REAL database products")
-                        print(f"[DEBUG] First product: {products[0]}")
-                        
-                        logger.info(f"[HANDLER] Building response with {len(products)} REAL products")
-                        
-                        product_lines = []
-                        for i, product in enumerate(products, 1):
-                            # Use ONLY fields from database
-                            name = product.get("name", "Unknown Product")
-                            price = product.get("price", "N/A")
-                            description = product.get("description", "")
-                            
-                            print(f"[DEBUG] Product {i}: name='{name}', price={price}")
-                            
-                            # Strict format: only show what's in the database
-                            if description and description.strip() and description.upper() != "FEATURES":
-                                product_lines.append(f"{i}. **{name}** - ${price}")
-                            else:
-                                product_lines.append(f"{i}. **{name}** - ${price}")
-                            
-                            logger.info(f"[HANDLER] Product {i}: {name} | ${price}")
-                        
-                        products_text = "\n".join(product_lines)
-                        # STRICT MESSAGE - no LLM embellishment
-                        assistant_message = f"Here are the results I found:\n\n{products_text}\n\nWould you like more information about any of these items?"
-                        
-                        print(f"[DEBUG] OVERRIDDEN assistant_message (first 200 chars):")
-                        print(f"[DEBUG] {assistant_message[:200]}")
-                        
-                        logger.info(f"[HANDLER] Response built from {len(products)} ACTUAL products")
-                        logger.info(f"[HANDLER] OVERRIDING any LLM-generated fake products")
+                logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
+                logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
             else:
                 # No function calls, use content directly
                 assistant_message = llm_response.content

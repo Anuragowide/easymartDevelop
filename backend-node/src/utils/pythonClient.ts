@@ -19,7 +19,7 @@ class PythonAssistantClient {
   constructor() {
     this.client = axios.create({
       baseURL: config.PYTHON_BASE_URL,
-      timeout: 30000, // 30 seconds for LLM responses
+      timeout: 60000, // 60 seconds for LLM + embedding generation
       headers: {
         "Content-Type": "application/json",
       },
@@ -87,13 +87,41 @@ class PythonAssistantClient {
       });
 
       // Transform Python response to match Node backend format
+      // Also transform product fields: name→title, image_url→image, add url
+      const transformedProducts = (response.data.products || []).map((product: any) => ({
+        id: product.id,
+        title: product.name,           // name → title
+        price: product.price,
+        image: product.image_url,       // image_url → image
+        url: product.url || `/products/${product.id}`,  // add url field
+        description: product.description,
+      }));
+
+      // Transform actions from strings to proper action objects
+      const transformedActions = (response.data.suggested_actions || []).map((action: string) => {
+        // If action is "search_results", create search_results action with products
+        if (action === "search_results") {
+          return {
+            type: "search_results",
+            data: {
+              results: transformedProducts,
+              totalCount: transformedProducts.length,
+              query: ""  // Could extract from context if needed
+            }
+          };
+        }
+        
+        // Other actions are just button labels (not rendered as actions currently)
+        return null;
+      }).filter(Boolean);  // Remove null actions
+
       const transformedResponse: AssistantResponse = {
         replyText: response.data.message,
-        actions: response.data.suggested_actions || [],
+        actions: transformedActions,  // Use transformed actions
         context: {
           sessionId: response.data.session_id,
           intent: response.data.intent,
-          products: response.data.products || [],
+          products: transformedProducts,  // keep for context
         },
       };
 

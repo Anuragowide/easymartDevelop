@@ -66,7 +66,8 @@ async def handle_message(
                     "name": p.get("name"),
                     "price": p.get("price"),
                     "description": p.get("description", ""),
-                    "image_url": p.get("image_url")
+                    "image_url": p.get("image_url"),
+                    "url": f"/products/{p.get('id')}"  # Add product URL
                 }
                 for p in assistant_response.products
             ] if assistant_response.products else None,
@@ -112,29 +113,36 @@ def _get_suggested_actions(intent: str, products: list) -> list:
     Returns:
         List of suggested action strings
     """
+    # Add "search_results" action to trigger product card display
+    actions = []
+    
     if intent == "product_search":
         if products:
-            return ["Ask about specifications", "Add to cart", "Compare products", "Refine search"]
+            # Trigger product cards in frontend
+            actions.append("search_results")
+            actions.extend(["Ask about specifications", "Add to cart", "Compare products", "Refine search"])
         else:
-            return ["Try different keywords", "Browse categories", "Get help"]
+            actions.extend(["Try different keywords", "Browse categories", "Get help"])
     
     elif intent == "product_spec_qa":
-        return ["Add to cart", "Compare with others", "Check availability", "View similar products"]
+        actions.extend(["Add to cart", "Compare with others", "Check availability", "View similar products"])
     
     elif intent in ["cart_add", "cart_update_quantity"]:
-        return ["View cart", "Continue shopping", "Proceed to checkout", "Apply discount"]
+        actions.extend(["View cart", "Continue shopping", "Proceed to checkout", "Apply discount"])
     
     elif intent == "cart_show":
-        return ["Update quantities", "Remove items", "Proceed to checkout", "Continue shopping"]
+        actions.extend(["Update quantities", "Remove items", "Proceed to checkout", "Continue shopping"])
     
     elif intent in ["return_policy", "shipping_info", "payment_options", "warranty_info"]:
-        return ["Contact support", "Browse products", "Check order status"]
+        actions.extend(["Contact support", "Browse products", "Check order status"])
     
     elif intent in ["contact_info", "store_hours", "store_location"]:
-        return ["Call us", "Visit showroom", "Browse products", "Get shipping info"]
+        actions.extend(["Call us", "Visit showroom", "Browse products", "Get shipping info"])
     
     else:
-        return ["Search products", "View policies", "Contact us", "Get help"]
+        actions.extend(["Search products", "View policies", "Contact us", "Get help"])
+    
+    return actions
 
 
 @router.get("/session/{session_id}")
