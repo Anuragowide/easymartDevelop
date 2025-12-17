@@ -232,7 +232,7 @@ class EasymartAssistantHandler:
                 print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
                 
                 # Create forced tool call
-                from .tools import FunctionCall
+                from .hf_llm_client import FunctionCall
                 llm_response.function_calls = [
                     FunctionCall(
                         name="search_products",
