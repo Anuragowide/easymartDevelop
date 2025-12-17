@@ -202,11 +202,11 @@ class EasymartAssistantHandler:
                     intent = IntentType.PRODUCT_SEARCH
             
             # Detect if this is a refinement query and inject context
+            original_message = request.message  # Save original before modification
             refined_message = self._apply_context_refinement(request.message, session)
             if refined_message != request.message:
                 logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
                 # Temporarily update the message for search
-                original_message = request.message
                 request.message = refined_message
             
             # Build conversation messages for LLM
@@ -363,7 +363,8 @@ class EasymartAssistantHandler:
                     assistant_message, 
                     had_tool_calls=True,
                     tool_results=tool_results,
-                    original_query=request.message
+                    original_query=original_message,  # Use saved original message
+                    search_query=request.message  # What was actually searched (after refinement)
                 )
                 
                 # Additional validation: Check if search results actually match the query
@@ -416,7 +417,8 @@ class EasymartAssistantHandler:
                     assistant_message,
                     had_tool_calls=False,
                     tool_results={},
-                    original_query=request.message
+                    original_query=original_message,
+                    search_query=""
                 )
             
             # Add assistant response to history
@@ -635,7 +637,8 @@ class EasymartAssistantHandler:
         response: str, 
         had_tool_calls: bool,
         tool_results: Dict[str, Any],
-        original_query: str = ""
+        original_query: str = "",
+        search_query: str = ""
     ) -> str:
         """
         Validate response to prevent hallucinated product listings and attributes.
@@ -644,12 +647,45 @@ class EasymartAssistantHandler:
             response: LLM response text
             had_tool_calls: Whether tools were called
             tool_results: Results from tool execution
-            original_query: Original user query to check for attribute mentions
+            original_query: Original user query (before context refinement)
+            search_query: Actual search query used (after context refinement)
         
         Returns:
             Validated (possibly modified) response
         """
         import re
+        
+        # Check if response mentions wrong product type
+        # Extract important nouns from search query
+        if search_query and had_tool_calls:
+            important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
+                              'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
+                              'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes'}
+            
+            search_nouns = set(search_query.lower().split()) & important_nouns
+            response_lower = response.lower()
+            
+            if search_nouns:
+                # Check if response mentions WRONG product type
+                # E.g., search for "lockers" but response says "desks"
+                for search_noun in search_nouns:
+                    # Normalize to singular
+                    base_noun = search_noun.rstrip('s')
+                    
+                    # Check if response mentions this noun or its plural
+                    has_correct_noun = base_noun in response_lower or (base_noun + 's') in response_lower
+                    
+                    if not has_correct_noun:
+                        # Response doesn't mention the searched product type at all!
+                        # Check if it mentions a DIFFERENT product type
+                        wrong_nouns = important_nouns - {base_noun, base_noun + 's'}
+                        mentioned_wrong = [noun for noun in wrong_nouns if noun in response_lower]
+                        
+                        if mentioned_wrong:
+                            logger.warning(f"[VALIDATION] ⚠️ Response mentions wrong product type!")
+                            logger.warning(f"[VALIDATION] Searched for: {search_noun}, Response mentions: {mentioned_wrong}")
+                            # Replace with generic response
+                            return f"I found several options that match your search."
         
         # Check if response contains product listings
         listing_patterns = [
