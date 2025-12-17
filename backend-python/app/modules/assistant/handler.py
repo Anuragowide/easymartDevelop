@@ -224,23 +224,35 @@ class EasymartAssistantHandler:
             )
             logger.info(f"[HANDLER] LLM response received, function_calls: {len(llm_response.function_calls) if llm_response.function_calls else 0}")
             
-            # SAFETY CHECK: If product search intent but NO tool calls → LLM hallucinated!
-            # Force a tool call to prevent fake products
+            # Check if query is out-of-scope (non-furniture)
+            out_of_scope_keywords = [
+                "car", "vehicle", "laptop", "computer", "phone", "mobile", 
+                "clothing", "clothes", "shoes", "electronics", "tv", "television"
+            ]
+
             if intent == IntentType.PRODUCT_SEARCH and not llm_response.function_calls:
-                logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
-                logger.warning(f"[HANDLER] Forcing search_products call to prevent hallucination")
-                print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
+                # Check if it's an out-of-scope query
+                is_out_of_scope = any(keyword in request.message.lower() for keyword in out_of_scope_keywords)
                 
-                # Create forced tool call
-                from .hf_llm_client import FunctionCall
-                llm_response.function_calls = [
-                    FunctionCall(
-                        name="search_products",
-                        arguments={"query": request.message}
-                    )
-                ]
-                # Clear the hallucinated content
-                llm_response.content = ""
+                if not is_out_of_scope:
+                    # Only force tool call for furniture-related queries
+                    logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
+                    logger.warning(f"[HANDLER] Forcing search_products call to prevent hallucination")
+                    print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
+                    
+                    # Create forced tool call
+                    from .hf_llm_client import FunctionCall
+                    llm_response.function_calls = [
+                        FunctionCall(
+                            name="search_products",
+                            arguments={"query": request.message}
+                        )
+                    ]
+                    # Clear the hallucinated content
+                    llm_response.content = ""
+                else:
+                    # Out of scope - let LLM's response stand
+                    logger.info(f"[HANDLER] Out-of-scope query detected, skipping safety catch")
             
             # Process function calls if any
             if llm_response.function_calls:

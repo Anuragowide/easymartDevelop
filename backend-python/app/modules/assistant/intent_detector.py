@@ -98,6 +98,11 @@ class IntentDetector:
             r'^\s*how\s+are\s+you\s*\??$',
             r'^\s*what\'?s\s+up\s*\??$',
             r'^\s*howdy\s*$',
+            # Flexible patterns for greetings
+            r'^hi+$',           # hi, hii, hiii
+            r'^hey+$',          # hey, heyy, heyyy
+            r'^hello+$',        # hello, hellooo
+            r'^h[ie]+y*$',      # hi, hii, hey, heyyy
         ],
         IntentType.GENERAL_HELP: [
             r'\b(help|assist|support)\b',
