@@ -29,7 +29,9 @@ def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Ensures every product has a valid URL.
     """
     processed = []
-    base_url = "https://easymart.com.au/products/"
+    # Use Shopify store domain from environment or default
+    shopify_domain = os.getenv("SHOPIFY_STORE_DOMAIN", "easymartdummy.myshopify.com")
+    base_url = f"https://{shopify_domain}/products/"
 
     for p in products:
         # Ensure specs and tags are parsed if they are strings
@@ -50,7 +52,8 @@ def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 slug = p['title'].lower().replace(' ', '-')
                 p['product_url'] = f"{base_url}{slug}"
             else:
-                p['product_url'] = "https://easymart.com.au/"
+                shopify_domain = os.getenv("SHOPIFY_STORE_DOMAIN", "easymartdummy.myshopify.com")
+                p['product_url'] = f"https://{shopify_domain}/"
 
         processed.append(p)
     return processed

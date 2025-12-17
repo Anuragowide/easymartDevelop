@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { getAllProducts } from "../../shopify_adapter/products";
 import { logger } from "../../observability/logger";
+import { config } from "../../../config";
 
 interface NormalizedProduct {
   sku: string;
@@ -36,7 +37,7 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
     image_url: firstImage?.src,
     vendor: product.vendor || "EasyMart",
     handle: product.handle,
-    product_url: `https://easymart.com.au/products/${product.handle}`,
+    product_url: `https://${config.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`,
     stock_status: firstVariant.inventory_quantity > 0 ? "in_stock" : "out_of_stock",
     specs: {
       weight: firstVariant.weight,
