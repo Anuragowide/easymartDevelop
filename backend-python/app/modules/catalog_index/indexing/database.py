@@ -24,6 +24,7 @@ class ProductDB(Base):
     price = Column(Float)
     currency = Column(String)
     image_url = Column(String)
+    product_url = Column(String)  # Full Shopify URL
     vendor = Column(String, index=True)
     tags = Column(JSON)
     description = Column(Text)
@@ -37,6 +38,7 @@ class ProductDB(Base):
             'price': self.price,
             'currency': self.currency,
             'image_url': self.image_url,
+            'product_url': self.product_url,
             'vendor': self.vendor,
             'tags': self.tags,
             'description': self.description

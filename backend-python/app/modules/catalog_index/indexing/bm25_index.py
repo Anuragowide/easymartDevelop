@@ -59,6 +59,7 @@ class BM25Index:
                         price=doc.metadata.get('price', 0.0),
                         currency=doc.metadata.get('currency', 'USD'),
                         image_url=doc.metadata.get('image_url', ''),
+                        product_url=doc.metadata.get('product_url', ''),
                         vendor=doc.metadata.get('vendor', ''),
                         tags=doc.metadata.get('tags', []),
                         description=doc.metadata.get('description', ''),

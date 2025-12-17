@@ -52,8 +52,9 @@ def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 slug = p['title'].lower().replace(' ', '-')
                 p['product_url'] = f"{base_url}{slug}"
             else:
-                shopify_domain = os.getenv("SHOPIFY_STORE_DOMAIN", "easymartdummy.myshopify.com")
-                p['product_url'] = f"https://{shopify_domain}/"
+                # Last resort: use SKU as handle
+                sku = p.get('sku', 'unknown')
+                p['product_url'] = f"{base_url}{sku}"
 
         processed.append(p)
     return processed

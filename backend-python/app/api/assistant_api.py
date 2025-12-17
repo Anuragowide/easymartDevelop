@@ -67,7 +67,7 @@ async def handle_message(
                     "price": p.get("price"),
                     "description": p.get("description", ""),
                     "image_url": p.get("image_url"),
-                    "url": p.get("product_url", f"/products/{p.get('id')}")  # Use actual Shopify URL
+                    "url": p.get("product_url") or f"/products/{p.get('id')}"
                 }
                 for p in assistant_response.products
             ] if assistant_response.products else None,
