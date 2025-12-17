@@ -62,7 +62,7 @@ class EasymartAssistantHandler:
     def __init__(
         self,
         llm_client: Optional[HuggingFaceLLMClient] = None,
-        session_store: Optional[SessionStore] = None
+        session_store: Optional[SessionStore] = None  # ✅ Correct
     ):
         """
         Initialize assistant handler.
@@ -201,6 +201,14 @@ class EasymartAssistantHandler:
                     logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
                     intent = IntentType.PRODUCT_SEARCH
             
+            # Detect if this is a refinement query and inject context
+            refined_message = self._apply_context_refinement(request.message, session)
+            if refined_message != request.message:
+                logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
+                # Temporarily update the message for search
+                original_message = request.message
+                request.message = refined_message
+            
             # Build conversation messages for LLM
             logger.info(f"[HANDLER] Building conversation messages...")
             messages = self._build_messages(session)
@@ -214,28 +222,38 @@ class EasymartAssistantHandler:
                 self.llm_client = await create_llm_client()
                 logger.info(f"[HANDLER] LLM client created")
             
-            # Call LLM with function calling (LOW temperature for factual responses)
+            # Call LLM with function calling
             logger.info(f"[HANDLER] Calling LLM...")
             llm_response = await self.llm_client.chat(
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
-                temperature=0.1,
-                max_tokens=512
+                temperature=0.3,  # Increased to allow tool calling flexibility
+                max_tokens=200    # Reduced - we just need tool call or short response
             )
             logger.info(f"[HANDLER] LLM response received, function_calls: {len(llm_response.function_calls) if llm_response.function_calls else 0}")
             
-            # Check if query is out-of-scope (non-furniture)
+            # SAFETY CHECK: If product search intent but NO tool calls → LLM hallucinated!
+            # Force a tool call to prevent fake products
+            # BUT: Check if query is out-of-scope (non-furniture) first
             out_of_scope_keywords = [
-                "car", "vehicle", "laptop", "computer", "phone", "mobile", 
-                "clothing", "clothes", "shoes", "electronics", "tv", "television"
+                "car", "cars", "vehicle", "automobile", "motorcycle", "bike",
+                "laptop", "computer", "pc", "mac", "tablet", "ipad",
+                "phone", "mobile", "iphone", "smartphone", "cell",
+                "clothing", "clothes", "shirt", "pants", "dress", "shoes",
+                "electronics", "tv", "television", "camera", "watch",
+                "food", "drink", "groceries", "book", "toy", "game"
             ]
 
             if intent == IntentType.PRODUCT_SEARCH and not llm_response.function_calls:
                 # Check if it's an out-of-scope query
-                is_out_of_scope = any(keyword in request.message.lower() for keyword in out_of_scope_keywords)
+                query_lower = request.message.lower()
+                is_out_of_scope = any(keyword in query_lower for keyword in out_of_scope_keywords)
                 
-                if not is_out_of_scope:
-                    # Only force tool call for furniture-related queries
+                if is_out_of_scope:
+                    # Out of scope - let LLM's "we don't sell X" response stand
+                    logger.info(f"[HANDLER] Out-of-scope query detected: '{request.message}', skipping safety catch")
+                else:
+                    # Furniture-related but LLM didn't call tool - force it
                     logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
                     logger.warning(f"[HANDLER] Forcing search_products call to prevent hallucination")
                     print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
@@ -250,9 +268,6 @@ class EasymartAssistantHandler:
                     ]
                     # Clear the hallucinated content
                     llm_response.content = ""
-                else:
-                    # Out of scope - let LLM's response stand
-                    logger.info(f"[HANDLER] Out-of-scope query detected, skipping safety catch")
             
             # Process function calls if any
             if llm_response.function_calls:
@@ -267,19 +282,30 @@ class EasymartAssistantHandler:
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
                 
                 # Add tool results to conversation
+                # Note: HuggingFace doesn't support role="tool", so we use role="user"
                 for tool_name, result in tool_results.items():
                     result_str = json.dumps(result)
                     messages.append(Message(
-                        role="tool",
-                        content=result_str,
-                        name=tool_name
+                        role="user",  # Changed from "tool" to "user" for HF compatibility
+                        content=f"[Tool result from {tool_name}]: {result_str}"
                     ))
+                
+                # Add strict instruction for final response as user message
+                # (HuggingFace doesn't support multiple system messages)
+                messages.append(Message(
+                    role="user",
+                    content=(
+                        "Now respond to the user with ONLY a brief 1-2 sentence friendly intro. "
+                        "DO NOT list products - the UI will show them automatically. "
+                        "Example: 'I found 5 great chairs for you!'"
+                    )
+                ))
                 
                 # Call LLM again to generate final response with tool results
                 final_response = await self.llm_client.chat(
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=512
+                    max_tokens=150  # Short response only
                 )
                 
                 # Let LLM generate natural, conversational response
@@ -292,11 +318,25 @@ class EasymartAssistantHandler:
                 assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 assistant_message = assistant_message.strip()
                 
+                # VALIDATION: Block hallucinated product lists
+                assistant_message = self._validate_response(
+                    assistant_message, 
+                    had_tool_calls=True,
+                    tool_results=tool_results
+                )
+                
                 logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
             else:
                 # No function calls, use content directly
                 assistant_message = llm_response.content
+                
+                # VALIDATION: Block responses that list fake products without tool calls
+                assistant_message = self._validate_response(
+                    assistant_message,
+                    had_tool_calls=False,
+                    tool_results={}
+                )
             
             # Add assistant response to history
             session.add_message("assistant", assistant_message)
@@ -337,6 +377,104 @@ class EasymartAssistantHandler:
                 metadata={"error": str(e)}
             )
     
+    def _apply_context_refinement(self, message: str, session: SessionContext) -> str:
+        """
+        Detect if the current message is a refinement of a previous query
+        and combine it with context from conversation history.
+        Handles both adding new filters and replacing conflicting filters.
+        
+        Args:
+            message: Current user message
+            session: Session context with conversation history
+        
+        Returns:
+            Refined message with context applied, or original if not a refinement
+        """
+        message_lower = message.lower().strip()
+        
+        # Attribute categories for filter replacement
+        attribute_groups = {
+            'color': ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow', 'pink', 'purple', 'orange', 'beige', 'navy', 'silver', 'gold'],
+            'age_group': ['kids', 'children', 'child', 'toddler', 'baby', 'infant', 'teen', 'teenager', 'adult'],
+            'size': ['small', 'large', 'big', 'huge', 'tiny', 'medium', 'tall', 'short', 'wide', 'narrow', 'compact', 'spacious'],
+            'material': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel', 'oak', 'pine', 'velvet', 'cotton'],
+            'price': ['cheap', 'expensive', 'affordable', 'budget', 'luxury', 'premium', 'economy', 'high-end', 'low-cost'],
+        }
+        
+        # Refinement patterns: short queries that modify previous search
+        refinement_patterns = [
+            r'^(for|in|with)\s+',  # "for kids", "in black", "with storage"
+            r'^(show|find|get)\s+(me\s+)?(some|the|a|an)?\s*$',  # "show me some", "find the"
+        ]
+        
+        import re
+        is_refinement = any(re.match(pattern, message_lower) for pattern in refinement_patterns)
+        
+        # Also check if message is very short (likely a refinement)
+        words = message_lower.split()
+        all_refinement_keywords = [keyword for keywords in attribute_groups.values() for keyword in keywords]
+        
+        if len(words) <= 3 and not is_refinement:
+            if any(keyword in message_lower for keyword in all_refinement_keywords):
+                is_refinement = True
+        
+        if not is_refinement:
+            return message  # Not a refinement, return as-is
+        
+        # Extract context from recent conversation
+        # Look for the last product search query
+        last_search_query = None
+        for msg in reversed(session.messages[-10:]):  # Check last 10 messages
+            if msg["role"] == "user":
+                # Check if this was a product search (not Q&A or greeting)
+                user_msg = msg["content"].lower()
+                # Skip if it's a question about a specific product
+                if any(word in user_msg for word in ['option', 'number', 'tell me about', 'what is', 'describe']):
+                    continue
+                # This is likely a search query
+                last_search_query = msg["content"]
+                break
+        
+        if not last_search_query:
+            return message  # No previous search found, return as-is
+        
+        # Remove common prefixes from current message
+        clean_message = message_lower
+        for prefix in ['for ', 'in ', 'with ', 'show me ', 'find me ', 'get me ']:
+            if clean_message.startswith(prefix):
+                clean_message = clean_message[len(prefix):]
+                break
+        
+        # Detect what attribute category the new refinement belongs to
+        new_attribute_category = None
+        new_attribute_value = None
+        for category, keywords in attribute_groups.items():
+            for keyword in keywords:
+                if keyword in clean_message:
+                    new_attribute_category = category
+                    new_attribute_value = keyword
+                    break
+            if new_attribute_category:
+                break
+        
+        # If we detected a new attribute, check if we need to REPLACE an existing one
+        if new_attribute_category and new_attribute_value:
+            last_query_lower = last_search_query.lower()
+            
+            # Check if the last query contains an attribute from the same category
+            for existing_keyword in attribute_groups[new_attribute_category]:
+                if existing_keyword in last_query_lower and existing_keyword != new_attribute_value:
+                    # Found a conflicting attribute - REPLACE it
+                    refined_query = last_search_query.lower().replace(existing_keyword, new_attribute_value)
+                    logger.info(f"[CONTEXT] Filter replacement detected. Replacing '{existing_keyword}' with '{new_attribute_value}' in '{last_search_query}' → '{refined_query}'")
+                    return refined_query
+        
+        # No conflict found - ADD the new filter to existing context
+        refined_query = f"{clean_message} {last_search_query}"
+        logger.info(f"[CONTEXT] Filter addition detected. Base: '{last_search_query}', Addition: '{message}', Combined: '{refined_query}'")
+        
+        return refined_query
+    
     def _build_messages(self, session: SessionContext) -> List[Message]:
         """
         Build message list for LLM from session history.
@@ -351,6 +489,20 @@ class EasymartAssistantHandler:
             Message(role="system", content=self.system_prompt)
         ]
         
+        # Add few-shot examples to teach LLM the correct format
+        # These examples show the LLM how to call tools properly AND handle context
+        few_shot_examples = [
+            Message(role="user", content="show me office chairs"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "office chairs"}}] [/TOOLCALLS]'),
+            Message(role="user", content="for kids"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "kids office chairs"}}] [/TOOLCALLS]'),
+            Message(role="user", content="show me desks"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "desks"}}] [/TOOLCALLS]'),
+            Message(role="user", content="in black"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "black desks"}}] [/TOOLCALLS]'),
+        ]
+        messages.extend(few_shot_examples)
+        
         # Add conversation history (last 10 messages for context window)
         for msg in session.messages[-10:]:
             messages.append(Message(
@@ -359,6 +511,52 @@ class EasymartAssistantHandler:
             ))
         
         return messages
+    
+    def _validate_response(
+        self, 
+        response: str, 
+        had_tool_calls: bool,
+        tool_results: Dict[str, Any]
+    ) -> str:
+        """
+        Validate response to prevent hallucinated product listings.
+        
+        Args:
+            response: LLM response text
+            had_tool_calls: Whether tools were called
+            tool_results: Results from tool execution
+        
+        Returns:
+            Validated (possibly modified) response
+        """
+        import re
+        
+        # Check if response contains product listings
+        listing_patterns = [
+            r'\d+\.\s+[A-Z].*\$\d+',          # "1. Product Name - $99"
+            r'Artiss\s+[A-Z][a-z]+',           # Brand name with product
+            r'Here are (five|\d+) (chairs|desks|tables|products|items)',
+            r'\$\d+\.\d+\)',                  # Prices in parentheses
+            r'(Black|White|Blue|Red|Green)\s+\(\$',  # Color with price
+        ]
+        
+        has_product_listing = any(re.search(p, response) for p in listing_patterns)
+        
+        if has_product_listing:
+            if had_tool_calls and 'search_products' in tool_results:
+                # LLM listed products after tool call - replace with short intro
+                product_count = len(tool_results['search_products'].get('products', []))
+                if product_count > 0:
+                    logger.warning(f"[VALIDATION] Blocked product listing, replacing with short intro")
+                    return f"I found {product_count} great options for you!"
+                else:
+                    return "I couldn't find any products matching that search."
+            else:
+                # LLM tried to hallucinate products without tool call
+                logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
+                return "Let me search our catalog for you."
+        
+        return response
     
     async def _execute_function_calls(
         self,

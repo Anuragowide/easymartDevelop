@@ -137,7 +137,22 @@ class IntentDetector:
         if message_lower in greeting_exact:
             return IntentType.GREETING
         
-        # PRIORITY 2: Check for context-dependent questions (referring to previously shown products)
+        # PRIORITY 2: Check for BROAD product search patterns (catch vague queries)
+        # This must come before specific patterns to catch "something for kids", etc.
+        broad_product_patterns = [
+            r'\b(show|find|search|looking for|want|need|get me)\b',  # Action verbs
+            r'\b(something|anything|items|products|furniture)\b',     # Generic nouns
+            r'\bfor\s+(kids|children|baby|office|home|bedroom|living room|kitchen|dining)\b',  # Context
+            r'\b(cheap|affordable|expensive|best|good|quality|nice)\b',  # Adjectives
+            r'\bunder\s+\$?\d+\b',  # Price queries
+            r'\b(small|large|big|compact|modern|classic)\b',  # Size/style
+        ]
+        
+        # If ANY broad pattern matches, assume PRODUCT_SEARCH
+        if any(re.search(pattern, message_lower) for pattern in broad_product_patterns):
+            return IntentType.PRODUCT_SEARCH
+        
+        # PRIORITY 3: Check for context-dependent questions (referring to previously shown products)
         # These should be PRODUCT_SPEC_QA, not PRODUCT_SEARCH
         context_references = [
             r'\b(this|that|the|it)\s+(one|chair|table|desk|sofa|bed|product|item)',
@@ -148,8 +163,6 @@ class IntentDetector:
             r'\b(feature|spec|dimension|detail)s?\s+of\s+(this|that|the|it)',
         ]
         for pattern in context_references:
-            if re.search(pattern, message_lower):
-                return IntentType.PRODUCT_SPEC_QA
             if re.search(pattern, message_lower):
                 return IntentType.PRODUCT_SPEC_QA
         
