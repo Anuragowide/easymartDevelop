@@ -38,6 +38,8 @@ class IntentDetector:
             r'\bwhat (is|are) (the|its)\b.*\b(dimensions?|sizes?|material|color|weight)\b',
             r'\b(made of|assembly|care instruction|warranty)\b',
             r'\b(seat|weight capacity|load)\b',
+            r'\btell me (about|more about)\s+(product|option|number|item|the)\s+\d+',
+            r'\b(product|option|number|item)\s+\d+',
         ],
         IntentType.CART_ADD: [
             r'\b(add|put)\b.*\b(to|in|into)\b.*\b(cart|basket)\b',
@@ -155,9 +157,10 @@ class IntentDetector:
         # PRIORITY 3: Check for context-dependent questions (referring to previously shown products)
         # These should be PRODUCT_SPEC_QA, not PRODUCT_SEARCH
         context_references = [
+            r'\btell me (about|more about)\s+(product|option|number|item)',  # "tell me about product 3"
+            r'\b(product|option|number|item)\s+\d+',  # "product 3", "option 1"
             r'\b(this|that|the|it)\s+(one|chair|table|desk|sofa|bed|product|item)',
             r'\b(first|second|third|last|option)\s+(one|chair|table|product)',
-            r'\b(option|number)\s+\d+',
             r'\b(the|this|that)\s+\$?\d+',
             r'\bmore (info|information|details|about)\s+(this|that|the|it)',
             r'\b(feature|spec|dimension|detail)s?\s+of\s+(this|that|the|it)',

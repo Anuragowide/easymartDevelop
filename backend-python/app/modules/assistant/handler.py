@@ -269,6 +269,42 @@ class EasymartAssistantHandler:
                     # Clear the hallucinated content
                     llm_response.content = ""
             
+            # SAFETY CHECK: If product spec Q&A intent but NO tool calls → force get_product_specs!
+            if intent == IntentType.PRODUCT_SPEC_QA and not llm_response.function_calls:
+                # Extract product reference from query (option 5, product 3, etc.)
+                import re
+                product_ref_match = re.search(r'\b(option|product|number|item)\s+(\d+)', request.message.lower())
+                
+                if product_ref_match:
+                    product_num = int(product_ref_match.group(2))
+                    
+                    # Get product from session (1-indexed in user query, 0-indexed in list)
+                    if session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                        product = session.last_shown_products[product_num - 1]
+                        product_id = product.get('id')
+                        
+                        if product_id:
+                            logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product Q&A but LLM didn't call tool!")
+                            logger.warning(f"[HANDLER] Forcing get_product_specs call for product {product_num} (ID: {product_id})")
+                            print(f"[DEBUG] ⚠️ FORCING get_product_specs - LLM tried to hallucinate specs!")
+                            
+                            # Create forced tool call
+                            from .hf_llm_client import FunctionCall
+                            llm_response.function_calls = [
+                                FunctionCall(
+                                    name="get_product_specs",
+                                    arguments={"product_id": product_id}
+                                )
+                            ]
+                            # Clear the hallucinated content
+                            llm_response.content = ""
+                        else:
+                            logger.error(f"[HANDLER] Product {product_num} has no ID, cannot fetch specs")
+                    else:
+                        logger.warning(f"[HANDLER] Product {product_num} not in session or out of range")
+                else:
+                    logger.warning(f"[HANDLER] Could not extract product number from: {request.message}")
+            
             # Process function calls if any
             if llm_response.function_calls:
                 logger.info(f"[HANDLER] Processing {len(llm_response.function_calls)} function calls")
@@ -491,6 +527,7 @@ class EasymartAssistantHandler:
         
         # Add few-shot examples to teach LLM the correct format
         # These examples show the LLM how to call tools properly AND handle context
+        # CRITICAL: Show COMPLETE format with [/TOOLCALLS] closing tag
         few_shot_examples = [
             Message(role="user", content="show me office chairs"),
             Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "office chairs"}}] [/TOOLCALLS]'),
@@ -555,6 +592,26 @@ class EasymartAssistantHandler:
                 # LLM tried to hallucinate products without tool call
                 logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
                 return "Let me search our catalog for you."
+        
+        # Block hallucinated product specifications (dimensions, materials, colors)
+        # These should ONLY come from get_product_specs tool, not LLM imagination
+        spec_hallucination_patterns = [
+            r'\b\d+\s*cm\s*\(width\)|\b\d+\s*cm\s*\(height\)|\b\d+\s*cm\s*\(depth\)',  # Specific dimensions
+            r'\bmade of\s+(plastic|wood|metal|fabric|leather)',  # Material claims
+            r'\bcomes in\s+(various|vibrant|different)\s+colors?',  # Color variety claims
+            r'\bapproximately\s+\d+\s*cm',  # "approximately X cm"
+            r'\bseat is (comfortable|padded|cushioned)',  # Comfort claims
+            r'\bbackrest provides (adequate|good|excellent) support',  # Support claims
+            r'\bperfect for (a kid|children|kids)',  # Usage claims
+        ]
+        
+        # Only validate if NO tool calls were made (LLM is making things up)
+        if not had_tool_calls:
+            for pattern in spec_hallucination_patterns:
+                if re.search(pattern, response, re.IGNORECASE):
+                    logger.warning(f"[VALIDATION] ⚠️ Blocked hallucinated product specification!")
+                    logger.warning(f"[VALIDATION] Spec pattern matched: {pattern}")
+                    return "I need to look up the specific details for that product. Could you specify which product number you're asking about?"
         
         return response
     

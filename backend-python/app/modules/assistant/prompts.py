@@ -103,6 +103,8 @@ TOOL USAGE RULE:
 - For product queries, respond ONLY with a tool call.
 - Use the user's query EXACTLY as written.
 - Do not include any text outside the tool call.
+- Tool call format: [TOOLCALLS] [{"name": "tool_name", "arguments": {...}}] [/TOOLCALLS]
+- CRITICAL: Always close with [/TOOLCALLS] - do NOT continue generating after it!
 
 AFTER TOOL RESULTS:
 - If products are returned:
