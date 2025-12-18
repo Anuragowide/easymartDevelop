@@ -12,7 +12,7 @@ export function ChatWindow() {
   };
 
   return (
-    <div className="h-full flex flex-col max-w-5xl mx-auto bg-black relative overflow-hidden">
+    <div className="h-full flex flex-col bg-gradient-to-b from-gray-50 to-white">
       {/* Messages */}
       <MessageList messages={messages} isLoading={isLoading} />
 

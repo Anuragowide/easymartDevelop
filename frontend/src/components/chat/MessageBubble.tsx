@@ -38,36 +38,28 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   };
 
   return (
-    <div className={`flex items-start gap-4 px-8 py-5 max-w-4xl mx-auto ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar with gradient */}
-      <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-lg ${
+    <div className={`flex items-start gap-3 px-4 py-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+      {/* Avatar */}
+      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
         isUser 
-          ? 'bg-gradient-to-br from-gray-600 to-gray-800' 
-          : 'bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500'
+          ? 'bg-gray-200 text-gray-700' 
+          : 'bg-gradient-to-br from-red-500 to-red-600 text-white'
       }`}>
-        {isUser ? (
-          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-          </svg>
-        ) : (
-          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        )}
+        {isUser ? 'U' : 'E'}
       </div>
 
       {/* Message Content */}
       <div className={`flex-1 ${isUser ? 'flex flex-col items-end' : ''}`}>
-        <div className={`inline-block rounded-2xl px-6 py-3.5 max-w-2xl shadow-lg ${
+        <div className={`inline-block rounded-2xl px-4 py-2.5 max-w-[85%] ${
           isUser 
-            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white' 
-            : 'bg-gradient-to-br from-zinc-800 to-zinc-900 border border-zinc-700/50 text-white'
+            ? 'bg-red-500 text-white rounded-br-sm' 
+            : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm'
         }`}>
-          <p className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
         </div>
 
         {/* Timestamp */}
-        <div className={`mt-2 px-2 text-xs text-gray-500 ${isUser ? 'text-right' : ''}`}>
+        <div className={`mt-1 px-1 text-xs text-gray-400 ${isUser ? 'text-right' : ''}`}>
           {time}
         </div>
 

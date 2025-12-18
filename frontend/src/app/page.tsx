@@ -1,92 +1,87 @@
-import Link from 'next/link';
+'use client';
+
+import { ChatWidget } from '@/components/chat/ChatWidget';
 
 export default function Home() {
-  const menuItems = [
-    {
-      href: '/chat',
-      icon: '💬',
-      title: 'Chat Interface',
-      description: 'Try the AI-powered shopping assistant',
-      gradient: 'from-blue-500/10 to-purple-500/10'
-    },
-    {
-      href: '/products',
-      icon: '📦',
-      title: 'Products',
-      description: 'Browse all available products',
-      gradient: 'from-purple-500/10 to-pink-500/10'
-    },
-    {
-      href: '/admin',
-      icon: '📊',
-      title: 'Admin Dashboard',
-      description: 'View analytics and manage settings',
-      gradient: 'from-pink-500/10 to-orange-500/10'
-    },
-    {
-      href: '/admin/widget-config',
-      icon: '⚙️',
-      title: 'Widget Config',
-      description: 'Configure and embed the chat widget',
-      gradient: 'from-orange-500/10 to-blue-500/10'
-    }
-  ];
-
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-black px-8 py-12">
-      {/* Header */}
-      <div className="text-center mb-16">
-        <div className="inline-flex items-center gap-3 mb-6">
-          <div className="text-6xl">🛒</div>
-        </div>
-        <h1 className="text-5xl md:text-6xl font-bold text-white mb-4 font-mono tracking-tight">
-          EasyMart - AI Shopping Assistant
-        </h1>
-      </div>
-      
-      {/* Menu Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl w-full">
-        {menuItems.map((item, index) => (
-          <Link 
-            key={index}
-            href={item.href} 
-            className="group relative overflow-hidden rounded-2xl p-8 transition-all duration-300 hover:scale-[1.02] border border-white/10"
-            style={{
-              background: 'linear-gradient(135deg, rgba(30, 30, 40, 0.9) 0%, rgba(20, 20, 30, 0.8) 100%)'
-            }}
-          >
-            {/* Gradient overlay on hover */}
-            <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
-            
-            <div className="relative z-10 flex items-start gap-4">
-              <div className="text-5xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
-                {item.icon}
+    <main className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-red-50">
+      {/* Hero Section */}
+      <div className="container mx-auto px-4 py-16">
+        <div className="max-w-4xl mx-auto text-center">
+          {/* Logo/Brand */}
+          <div className="mb-8">
+            <h1 className="text-5xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent">
+              EasyMart
+            </h1>
+            <p className="text-xl text-gray-600 mt-2">AI Shopping Assistant</p>
+          </div>
+
+          {/* Main Description */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 mb-12">
+            <div className="mb-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-red-500 to-pink-500 rounded-full mx-auto mb-4 flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
               </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-white mb-2 font-mono">
-                  {item.title}
-                </h2>
-                <p className="text-gray-400 text-sm leading-relaxed">
-                  {item.description}
-                </p>
+              <h2 className="text-3xl font-bold text-gray-800 mb-4">
+                Your Personal Shopping Assistant
+              </h2>
+              <p className="text-lg text-gray-600 leading-relaxed mb-6">
+                Discover the perfect furniture for your space with our AI-powered chat assistant. 
+                Get instant product recommendations, compare prices, and find exactly what you're looking for.
+              </p>
+              
+              {/* What I Can Help With */}
+              <div className="bg-gradient-to-r from-red-50 to-pink-50 rounded-xl p-6 mb-6 border-2 border-red-100">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">How Can I Help You?</h3>
+                <ul className="text-left space-y-3 text-gray-700">
+                  <li className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Find Products:</strong> Search for furniture by name, category, or style</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Get Recommendations:</strong> Tell me your preferences and budget</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Answer Questions:</strong> Ask about product details, materials, or specifications</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Manage Cart:</strong> Add items, view cart, and checkout assistance</span>
+                  </li>
+                </ul>
               </div>
-              <svg className="w-6 h-6 text-gray-600 group-hover:text-white group-hover:translate-x-1 transition-all duration-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+
+              {/* CTA */}
+              <p className="text-gray-600 text-lg font-medium">
+                Click the chat button below to start shopping! 
+                <span className="ml-2">👇</span>
+              </p>
             </div>
-          </Link>
-        ))}
+          </div>
+
+          {/* Additional Info */}
+          <div className="text-center text-gray-600">
+            <p className="text-sm">
+              Available 24/7 • Instant Responses • Powered by AI
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="mt-16 text-center">
-        <p className="text-gray-500 text-sm font-mono mb-3">
-          Backend API: <span className="text-gray-400">http://localhost:3001</span>
-        </p>
-        <p className="text-gray-600 text-xs font-mono">
-          Node.js + Python + Elasticsearch + Next.js
-        </p>
-      </div>
+      {/* Chat Widget */}
+      <ChatWidget />
     </main>
   );
 }
