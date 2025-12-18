@@ -357,12 +357,25 @@ class EasymartAssistantTools:
                 )
                 answer = qa_result.get("answer")
             
+            # If no specs available, provide basic product info as fallback
+            if not specs_doc or not specs_doc.get("specs"):
+                return {
+                    "product_id": product_id,
+                    "product_name": product.get("name"),
+                    "price": product.get("price"),
+                    "description": product.get("description", ""),
+                    "specs": {},
+                    "message": "Detailed specifications not available. Basic product information provided above.",
+                    "answer": answer
+                }
+            
             return {
                 "product_id": product_id,
                 "product_name": product.get("name"),
-                "specs": specs_doc.get("specs", {}) if specs_doc else {},
+                "price": product.get("price"),
+                "specs": specs_doc.get("specs", {}),
                 "answer": answer,
-                "full_spec_text": specs_doc.get("spec_text", "") if specs_doc else ""
+                "full_spec_text": specs_doc.get("spec_text", "")
             }
         
         except Exception as e:
