@@ -3,13 +3,17 @@ Assistant API endpoints.
 Main chatbot interaction endpoint with Easymart Assistant integration.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from app.core.schemas import MessageRequest, MessageResponse, ErrorResponse
 from app.core.dependencies import get_session_id
 from app.core.exceptions import EasymartException
 from app.modules.assistant import get_assistant_handler, AssistantRequest
 from datetime import datetime
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
 
@@ -211,3 +215,71 @@ async def get_greeting(session_id: str = Depends(get_session_id)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting greeting: {str(e)}")
+
+
+@router.post("/cart")
+async def update_cart_endpoint(request: Request):
+    """
+    Add/update/remove items from cart
+    """
+    try:
+        body = await request.json()
+        product_id = body.get("product_id")
+        quantity = body.get("quantity", 1)
+        action = body.get("action", "add")  # add, remove, set
+        session_id = body.get("session_id")
+        
+        logger.info(f"Cart request: product_id={product_id}, quantity={quantity}, action={action}, session_id={session_id}")
+        
+        if not product_id:
+            raise ValueError("product_id is required")
+        
+        if not session_id:
+            raise ValueError("session_id is required")
+        
+        # Get the tools instance
+        from app.modules.assistant.tools import EasymartAssistantTools
+        tools = EasymartAssistantTools()
+        
+        # Call update_cart method
+        result = await tools.update_cart(
+            action=action,
+            product_id=product_id,
+            quantity=quantity,
+            session_id=session_id
+        )
+        
+        logger.info(f"Cart update result: {result}")
+        
+        # Get updated cart from session
+        from app.modules.assistant.session_store import get_session_store
+        session_store = get_session_store()
+        session = session_store.get_session(session_id)
+        
+        # Build cart items from session
+        cart_items = []
+        if session and session.cart_items:
+            cart_items = session.cart_items
+        
+        # Calculate total
+        total = sum(item.get("price", 0) * item.get("quantity", 1) for item in cart_items)
+        
+        response_data = {
+            "success": True,
+            "message": result.get("message", "Cart updated"),
+            "cart": {
+                "items": cart_items,
+                "item_count": len(cart_items),
+                "total": total
+            }
+        }
+        
+        logger.info(f"Returning cart response: {response_data}")
+        return response_data
+        
+    except Exception as e:
+        logger.error(f"Cart update error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )

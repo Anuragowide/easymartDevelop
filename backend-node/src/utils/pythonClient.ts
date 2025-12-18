@@ -157,6 +157,23 @@ class PythonAssistantClient {
       return false;
     }
   }
+
+  /**
+   * Generic request method for custom endpoints
+   */
+  async request<T = any>(method: string, endpoint: string, data?: any): Promise<{ data: T }> {
+    try {
+      const response = await this.client.request<T>({
+        method,
+        url: endpoint,
+        data,
+      });
+      return { data: response.data };
+    } catch (error) {
+      logger.error(`Python ${method} ${endpoint} failed`, { error });
+      throw error;
+    }
+  }
 }
 
 // Singleton instance

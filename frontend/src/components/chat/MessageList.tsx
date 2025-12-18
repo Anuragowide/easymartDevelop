@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Message } from '@/lib/types';
+import { useCartStore } from '@/store/cartStore';
 
 interface MessageListProps {
   messages: Message[];
@@ -10,6 +11,8 @@ interface MessageListProps {
 
 export function MessageList({ messages, isLoading }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { addToCart } = useCartStore();
+  const [addingToCart, setAddingToCart] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -18,6 +21,19 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  const handleAddToCart = async (product: any) => {
+    setAddingToCart(product.id);
+    try {
+      await addToCart(product.id, 1);
+      // Simple success feedback
+      alert(`✅ ${product.title} added to cart!`);
+    } catch (error: any) {
+      alert(`❌ Failed to add to cart: ${error.message}`);
+    } finally {
+      setAddingToCart(null);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
@@ -100,12 +116,13 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                                 </a>
                               )}
                               <button
-                                onClick={() => {
-                                  console.log('Add to cart:', product);
-                                }}
-                                className="flex-1 text-center text-sm font-semibold text-red-600 bg-white border-2 border-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-all"
+                                onClick={() => handleAddToCart(product)}
+                                disabled={addingToCart === product.id}
+                                className={`flex-1 text-center text-sm font-semibold text-red-600 bg-white border-2 border-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-all ${
+                                  addingToCart === product.id ? 'opacity-50 cursor-wait' : ''
+                                }`}
                               >
-                                Add to Cart
+                                {addingToCart === product.id ? 'Adding...' : 'Add to Cart'}
                               </button>
                             </div>
                           </div>

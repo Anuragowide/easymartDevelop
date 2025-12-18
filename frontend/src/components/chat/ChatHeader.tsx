@@ -1,10 +1,19 @@
-import React from 'react';
+'use client';
+
+import React, { useEffect } from 'react';
+import { useCartStore } from '@/store/cartStore';
 
 interface ChatHeaderProps {
   onClose: () => void;
 }
 
 export function ChatHeader({ onClose }: ChatHeaderProps) {
+  const { itemCount, getCart } = useCartStore();
+
+  useEffect(() => {
+    getCart(); // Load cart on mount
+  }, [getCart]);
+
   return (
     <div className="h-16 bg-gradient-to-r from-red-600 to-pink-600 flex items-center justify-between px-6">
       <div className="flex items-center gap-3">
@@ -21,15 +30,31 @@ export function ChatHeader({ onClose }: ChatHeaderProps) {
           </p>
         </div>
       </div>
-      <button
-        onClick={onClose}
-        className="w-8 h-8 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-colors"
-        aria-label="Close chat"
-      >
-        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+      
+      <div className="flex items-center gap-3">
+        {/* Cart Badge */}
+        {itemCount > 0 && (
+          <div className="relative">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-400 text-red-600 text-xs font-bold rounded-full flex items-center justify-center">
+              {itemCount}
+            </span>
+          </div>
+        )}
+        
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="w-8 h-8 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-colors"
+          aria-label="Close chat"
+        >
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

@@ -131,5 +131,65 @@ export const analyticsApi = {
   },
 };
 
+// ============================================================================
+// Cart API
+// ============================================================================
+
+function generateSessionId(): string {
+  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('chatSessionId', sessionId);
+  }
+  return sessionId;
+}
+
+function getSessionId(): string {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('chatSessionId') || generateSessionId();
+  }
+  return generateSessionId();
+}
+
+export interface CartItem {
+  id: string;
+  title: string;
+  price: number;
+  quantity: number;
+  image?: string;
+}
+
+export interface CartResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+  cart: {
+    items: CartItem[];
+    item_count: number;
+    total: number;
+  };
+}
+
+export const cartApi = {
+  addToCart: async (productId: string, quantity: number = 1): Promise<CartResponse> => {
+    const sessionId = getSessionId();
+    
+    const response = await apiClient.post<CartResponse>('/api/cart/add', {
+      product_id: productId,
+      quantity,
+      session_id: sessionId,
+    });
+    return response.data;
+  },
+
+  getCart: async (): Promise<CartResponse> => {
+    const sessionId = getSessionId();
+    
+    const response = await apiClient.get<CartResponse>('/api/cart', {
+      params: { session_id: sessionId },
+    });
+    return response.data;
+  },
+};
+
 // Export default client
 export default apiClient;
