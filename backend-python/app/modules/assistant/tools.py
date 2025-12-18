@@ -474,51 +474,77 @@ class EasymartAssistantTools:
     ) -> Dict[str, Any]:
         """
         Update shopping cart.
-        NOTE: This is a placeholder - needs integration with Node.js cart service.
+        Actually stores items in session store.
         
         Returns:
             {
                 "action": "add",
                 "success": true,
-                "cart": {
-                    "items": [...],
-                    "subtotal": 498.00,
-                    "shipping": 0.00,
-                    "total": 498.00
-                },
-                "message": "Added Modern Office Chair to cart"
+                "message": "Added to cart"
             }
         """
-        # TODO: Integrate with Node.js backend cart service via HTTP API
-        # For now, return mock success
+        from app.modules.assistant.session_store import get_session_store
+        
+        session_store = get_session_store()
+        session = session_store.get_or_create_session(session_id)
         
         if action == "view":
             return {
                 "action": "view",
                 "success": True,
                 "cart": {
-                    "items": [],
-                    "subtotal": 0.00,
-                    "shipping": 0.00,
+                    "items": session.cart_items,
+                    "item_count": len(session.cart_items),
                     "total": 0.00
                 },
-                "message": "Cart is empty"
+                "message": "Cart retrieved" if session.cart_items else "Cart is empty"
             }
         
         if not product_id:
-            return {"error": "product_id required for this action"}
+            return {"error": "product_id required for this action", "success": False}
         
-        if action in ["add", "update_quantity"] and not quantity:
-            return {"error": "quantity required for this action"}
+        if action == "add":
+            if not quantity or quantity < 1:
+                quantity = 1
+            session.add_to_cart(product_id, quantity)
+            return {
+                "action": "add",
+                "success": True,
+                "product_id": product_id,
+                "quantity": quantity,
+                "message": f"Added to cart"
+            }
         
-        # Mock response
-        return {
-            "action": action,
-            "success": True,
-            "product_id": product_id,
-            "quantity": quantity,
-            "message": f"Cart {action} successful (mock - needs Node.js integration)"
-        }
+        elif action == "remove":
+            session.remove_from_cart(product_id)
+            return {
+                "action": "remove",
+                "success": True,
+                "product_id": product_id,
+                "message": "Removed from cart"
+            }
+        
+        elif action == "set":
+            if quantity is None:
+                return {"error": "quantity required for set action", "success": False}
+            
+            # Remove item first
+            session.remove_from_cart(product_id)
+            
+            # Add back with new quantity if > 0
+            if quantity > 0:
+                session.add_to_cart(product_id, quantity)
+            
+            return {
+                "action": "set",
+                "success": True,
+                "product_id": product_id,
+                "quantity": quantity,
+                "message": f"Updated quantity to {quantity}" if quantity > 0 else "Removed from cart"
+            }
+        
+        else:
+            return {"error": f"Unknown action: {action}", "success": False}
     
     def get_policy_info(self, policy_type: str) -> Dict[str, Any]:
         """

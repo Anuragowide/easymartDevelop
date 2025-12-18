@@ -152,6 +152,7 @@ function getSessionId(): string {
 
 export interface CartItem {
   id: string;
+  product_id?: string;  // Backend uses product_id field
   title: string;
   price: number;
   quantity: number;
@@ -176,6 +177,18 @@ export const cartApi = {
     const response = await apiClient.post<CartResponse>('/api/cart/add', {
       product_id: productId,
       quantity,
+      session_id: sessionId,
+    });
+    return response.data;
+  },
+
+  updateQuantity: async (productId: string, quantity: number): Promise<CartResponse> => {
+    const sessionId = getSessionId();
+    
+    const response = await apiClient.post<CartResponse>('/api/cart/add', {
+      product_id: productId,
+      quantity,
+      action: 'set', // Set to exact quantity
       session_id: sessionId,
     });
     return response.data;

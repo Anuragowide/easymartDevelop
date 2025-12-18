@@ -68,14 +68,10 @@ export default async function cartRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Get session cart from Python backend
+      // Get cart from Python backend using direct GET endpoint
       const response = await pythonAssistantClient.request(
-        'POST',
-        '/assistant/message',
-        {
-          message: 'show cart',
-          session_id
-        }
+        'GET',
+        `/assistant/cart?session_id=${session_id}`
       );
 
       return reply.send({

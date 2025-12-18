@@ -9,6 +9,7 @@ from app.core.schemas import MessageRequest, MessageResponse, ErrorResponse
 from app.core.dependencies import get_session_id
 from app.core.exceptions import EasymartException
 from app.modules.assistant import get_assistant_handler, AssistantRequest
+from app.modules.assistant.session_store import get_session_store
 from datetime import datetime
 import time
 import logging
@@ -253,13 +254,40 @@ async def update_cart_endpoint(request: Request):
         
         # Get updated cart from session
         from app.modules.assistant.session_store import get_session_store
+        from app.core.dependencies import get_catalog_indexer
+        
         session_store = get_session_store()
         session = session_store.get_session(session_id)
+        catalog = get_catalog_indexer()
         
-        # Build cart items from session
+        # Build cart items from session with product details
         cart_items = []
         if session and session.cart_items:
-            cart_items = session.cart_items
+            for item in session.cart_items:
+                pid = item.get("product_id")
+                # Fetch product details from catalog
+                product = catalog.getProductById(pid)
+                if product:
+                    cart_items.append({
+                        "product_id": pid,
+                        "id": pid,  # Add 'id' for frontend compatibility
+                        "title": product.get("title") or product.get("name", "Unknown Product"),  # Frontend expects 'title'
+                        "name": product.get("title") or product.get("name", "Unknown Product"),
+                        "price": product.get("price", 0.0),
+                        "image_url": product.get("image_url", ""),
+                        "image": product.get("image_url", ""),  # Frontend expects 'image'
+                        "inventory_quantity": product.get("inventory_quantity", 0),
+                        "quantity": item.get("quantity", 1),
+                        "added_at": item.get("added_at")
+                    })
+                else:
+                    # Product not found, keep basic info
+                    cart_items.append({
+                        "product_id": pid,
+                        "id": pid,
+                        "title": "Unknown Product",
+                        "quantity": item.get("quantity", 1)
+                    })
         
         # Calculate total
         total = sum(item.get("price", 0) * item.get("quantity", 1) for item in cart_items)
@@ -279,6 +307,74 @@ async def update_cart_endpoint(request: Request):
         
     except Exception as e:
         logger.error(f"Cart update error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.get("/cart")
+async def get_cart_endpoint(session_id: str):
+    """
+    Get cart contents for a session without triggering LLM.
+    Direct session store query for efficient cart retrieval.
+    """
+    try:
+        logger.info(f"Getting cart for session: {session_id}")
+        
+        # Get session from session store
+        from app.core.dependencies import get_catalog_indexer
+        
+        session_store = get_session_store()
+        session = session_store.get_session(session_id)
+        catalog = get_catalog_indexer()
+        
+        # Build cart items with product details
+        cart_items = []
+        if session and session.cart_items:
+            for item in session.cart_items:
+                pid = item.get("product_id")
+                # Fetch product details from catalog
+                product = catalog.getProductById(pid)
+                if product:
+                    cart_items.append({
+                        "product_id": pid,
+                        "id": pid,  # Add 'id' for frontend compatibility
+                        "title": product.get("title") or product.get("name", "Unknown Product"),  # Frontend expects 'title'
+                        "name": product.get("title") or product.get("name", "Unknown Product"),
+                        "price": product.get("price", 0.0),
+                        "image_url": product.get("image_url", ""),
+                        "image": product.get("image_url", ""),  # Frontend expects 'image'
+                        "inventory_quantity": product.get("inventory_quantity", 0),
+                        "quantity": item.get("quantity", 1),
+                        "added_at": item.get("added_at")
+                    })
+                else:
+                    # Product not found, keep basic info
+                    cart_items.append({
+                        "product_id": pid,
+                        "id": pid,
+                        "title": "Unknown Product",
+                        "quantity": item.get("quantity", 1)
+                    })
+        
+        # Calculate total
+        total = sum(item.get("price", 0) * item.get("quantity", 1) for item in cart_items)
+        
+        response_data = {
+            "success": True,
+            "cart": {
+                "items": cart_items,
+                "item_count": len(cart_items),
+                "total": total
+            }
+        }
+        
+        logger.info(f"Returning cart with {len(cart_items)} items")
+        return response_data
+        
+    except Exception as e:
+        logger.error(f"Get cart error: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"success": False, "error": str(e)}

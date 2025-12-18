@@ -11,8 +11,8 @@ interface MessageListProps {
 
 export function MessageList({ messages, isLoading }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { addToCart } = useCartStore();
-  const [addingToCart, setAddingToCart] = useState<string | null>(null);
+  const { addToCart, increaseQuantity, decreaseQuantity, getProductQuantity } = useCartStore();
+  const [loadingProduct, setLoadingProduct] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -23,15 +23,44 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
   }, [messages, isLoading]);
 
   const handleAddToCart = async (product: any) => {
-    setAddingToCart(product.id);
+    setLoadingProduct(product.id);
     try {
       await addToCart(product.id, 1);
-      // Simple success feedback
-      alert(`✅ ${product.title} added to cart!`);
     } catch (error: any) {
       alert(`❌ Failed to add to cart: ${error.message}`);
     } finally {
-      setAddingToCart(null);
+      setLoadingProduct(null);
+    }
+  };
+
+  const handleIncrease = async (product: any) => {
+    const currentQty = getProductQuantity(product.id);
+    const stock = product.inventory_quantity || 0;
+    
+    // Check stock limit
+    if (stock > 0 && currentQty >= stock) {
+      alert(`⚠️ Only ${stock} in stock`);
+      return;
+    }
+
+    setLoadingProduct(product.id);
+    try {
+      await increaseQuantity(product.id);
+    } catch (error: any) {
+      alert(`❌ Failed to increase quantity: ${error.message}`);
+    } finally {
+      setLoadingProduct(null);
+    }
+  };
+
+  const handleDecrease = async (product: any) => {
+    setLoadingProduct(product.id);
+    try {
+      await decreaseQuantity(product.id);
+    } catch (error: any) {
+      alert(`❌ Failed to decrease quantity: ${error.message}`);
+    } finally {
+      setLoadingProduct(null);
     }
   };
 
@@ -104,6 +133,16 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                                 USD ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
                               </p>
                             )}
+                            
+                            {/* Stock info */}
+                            {product.inventory_quantity !== undefined && (
+                              <p className="text-sm text-gray-500 mb-2">
+                                {product.inventory_quantity > 0 
+                                  ? `${product.inventory_quantity} in stock` 
+                                  : 'Out of stock'}
+                              </p>
+                            )}
+
                             <div className="flex gap-2 mt-auto">
                               {product.url && (
                                 <a
@@ -115,15 +154,48 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                                   View Details
                                 </a>
                               )}
-                              <button
-                                onClick={() => handleAddToCart(product)}
-                                disabled={addingToCart === product.id}
-                                className={`flex-1 text-center text-sm font-semibold text-red-600 bg-white border-2 border-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-all ${
-                                  addingToCart === product.id ? 'opacity-50 cursor-wait' : ''
-                                }`}
-                              >
-                                {addingToCart === product.id ? 'Adding...' : 'Add to Cart'}
-                              </button>
+                              
+                              {/* Quantity Counter or Add to Cart Button */}
+                              {(() => {
+                                const quantity = getProductQuantity(product.id);
+                                const isLoading = loadingProduct === product.id;
+                                
+                                if (quantity > 0) {
+                                  // Show quantity counter
+                                  return (
+                                    <div className="flex-1 flex items-center justify-center gap-1 border-2 border-gray-300 rounded-lg p-1">
+                                      <button
+                                        onClick={() => handleDecrease(product)}
+                                        disabled={isLoading}
+                                        className="w-8 h-8 flex items-center justify-center text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed font-bold text-lg"
+                                      >
+                                        −
+                                      </button>
+                                      <span className="w-10 text-center font-bold text-gray-900">
+                                        {quantity}
+                                      </span>
+                                      <button
+                                        onClick={() => handleIncrease(product)}
+                                        disabled={isLoading}
+                                        className="w-8 h-8 flex items-center justify-center text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed font-bold text-lg"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  );
+                                } else {
+                                  // Show Add to Cart button
+                                  return (
+                                    <button
+                                      onClick={() => handleAddToCart(product)}
+                                      disabled={isLoading || product.inventory_quantity === 0}
+                                      className="flex-1 text-center text-sm font-semibold text-red-600 bg-white border-2 border-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      {isLoading ? 'Adding...' : product.inventory_quantity === 0 ? 'Out of Stock' : 'Add to Cart'}
+                                    </button>
+                                  );
+                                }
+                              })()}
                             </div>
                           </div>
                         </div>
