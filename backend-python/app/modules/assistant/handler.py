@@ -6,6 +6,7 @@ Coordinates LLM, tools, intent detection, and session management.
 """
 
 import json
+import re
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 
@@ -133,6 +134,72 @@ class EasymartAssistantHandler:
             # Add user message to history
             logger.info(f"[HANDLER] Adding user message to history...")
             session.add_message("user", request.message)
+            
+            # VALIDATION: Check if query is off-topic (not related to e-commerce/shopping)
+            off_topic_patterns = [
+                # Programming/coding
+                r'\b(python|javascript|java|code|programming|function|class|variable|algorithm|debug)\s+(code|snippet|program|script)',
+                r'\b(write|create|make|generate)\s+(a|an|the)?\s*(code|program|script|function)',
+                r'\bstar pattern\b|\bdiamond pattern\b|\bpyramid pattern\b',
+                r'\bhow to (code|program|write code|make a program)',
+                # Math/calculations (not pricing)
+                r'\bsolve\s+(the|this)?\s*(equation|problem|math)',
+                r'\bcalculate\s+(?!shipping|price|cost|total)',
+                r'\bwhat is\s+\d+\s*[\+\-\*\/]\s*\d+',
+                # General knowledge/trivia
+                r'\b(who is|what is|when did|where is|why did)\s+(?!the (price|cost|shipping|delivery|return policy))',
+                r'\b(capital of|president of|population of|history of)\b',
+                # Creative/entertainment
+                r'\b(write|tell|create)\s+(a|an|the)?\s*(story|poem|joke|song|essay)',
+                r'\bwrite me (a|an)\b',
+            ]
+            
+            message_lower = request.message.lower()
+            
+            # Check if message matches any off-topic pattern
+            is_off_topic = any(re.search(pattern, message_lower) for pattern in off_topic_patterns)
+            
+            # Additional check: if message contains none of the shopping keywords
+            shopping_keywords = [
+                'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'product', 'item',
+                'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
+                'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
+                'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
+                'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
+            ]
+            
+            has_shopping_context = any(keyword in message_lower for keyword in shopping_keywords)
+            
+            if is_off_topic and not has_shopping_context:
+                logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
+                assistant_message = (
+                    "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. "
+                    "I can help you search for chairs, tables, desks, storage solutions, and more. "
+                    "What products are you looking for today?"
+                )
+                
+                session.add_message("assistant", assistant_message)
+                
+                await self.event_tracker.track(
+                    "assistant_response_success",
+                    session_id=session.session_id,
+                    properties={
+                        "intent": "off_topic_rejected",
+                        "response_length": len(assistant_message)
+                    }
+                )
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "off_topic_rejected",
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
             
             # Detect intent (for analytics/logging)
             logger.info(f"[HANDLER] Detecting intent...")
@@ -275,7 +342,6 @@ class EasymartAssistantHandler:
             # SAFETY CHECK: If product spec Q&A intent but NO tool calls → force get_product_specs!
             if intent == IntentType.PRODUCT_SPEC_QA and not llm_response.function_calls:
                 # Extract product reference from query (option 5, product 3, etc.)
-                import re
                 product_ref_match = re.search(r'\b(option|product|number|item)\s+(\d+)', request.message.lower())
                 
                 if product_ref_match:
@@ -321,7 +387,6 @@ class EasymartAssistantHandler:
                 # VALIDATION: Fix product IDs for spec/availability/comparison tools
                 # LLM might guess wrong IDs (e.g., "LCK-005" for option 5)
                 # Replace with actual IDs from session.last_shown_products
-                import re
                 for func_call in llm_response.function_calls:
                     if func_call.name in ['get_product_specs', 'check_availability']:
                         product_id = func_call.arguments.get('product_id', '')
@@ -374,7 +439,6 @@ class EasymartAssistantHandler:
                         product_ids = func_call.arguments.get('product_ids', [])
                         
                         # Try to extract numbers from message (compare 1 and 2, etc.)
-                        import re
                         numbers = re.findall(r'\b(?:option|product|item)?\s*(\d+)', original_message.lower())
                         
                         if numbers and session.last_shown_products:
@@ -570,7 +634,6 @@ class EasymartAssistantHandler:
                 
                 # SAFETY: Strip any leaked tool call syntax from message
                 # Remove [TOOL_CALLS], [TOOLCALLS], and their content
-                import re
                 assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 assistant_message = assistant_message.strip()
                 
@@ -588,7 +651,6 @@ class EasymartAssistantHandler:
                     spec_result = tool_results['get_product_specs']
                     if 'error' in spec_result:
                         # Tool failed - check if LLM hallucinated anyway
-                        import re
                         has_price = re.search(r'\$\d+', assistant_message)
                         has_dimensions = re.search(r'\d+\s*[x×]\s*\d+|\d+\s*(cm|mm|kg|inches)', assistant_message)
                         has_materials = any(word in assistant_message.lower() for word in ['wood', 'metal', 'leather', 'fabric', 'plastic'])
