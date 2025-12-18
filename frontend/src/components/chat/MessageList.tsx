@@ -58,55 +58,63 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
               {message.content}
             </p>
 
-            {/* Products - Improved cards */}
-            {message.actions?.some(action => action.type === 'product_card') && (
+            {/* Product Cards */}
+            {message.actions && message.actions.length > 0 && (
               <div className="mt-4 space-y-3">
-                {message.actions
-                  .filter(action => action.type === 'product_card')
-                  .map((action) => {
-                    const product = action.data;
-                    return (
-                  <div
-                    key={product.id}
-                    className="bg-gradient-to-br from-white to-red-50 rounded-xl p-4 border-2 border-red-200 hover:border-red-300 transition-all hover:shadow-lg group"
-                  >
-                    <div className="flex gap-4">
-                      {product.image && (
-                        <div className="flex-shrink-0">
-                          <img
-                            src={product.image}
-                            alt={product.title}
-                            className="w-20 h-20 object-cover rounded-lg border-2 border-red-100 group-hover:border-red-200 transition-colors"
-                          />
+                {message.actions.map((action, idx) => {
+                  // Handle search_results action type
+                  if (action.type === 'search_results' && action.data?.results) {
+                    return action.data.results.map((product: any, pIdx: number) => (
+                      <div
+                        key={`${idx}-${pIdx}-${product.id}`}
+                        className="bg-white rounded-xl p-4 border border-gray-200 hover:shadow-lg transition-all"
+                      >
+                        <div className="flex gap-4">
+                          {product.image && (
+                            <div className="flex-shrink-0">
+                              <img
+                                src={product.image}
+                                alt={product.title}
+                                className="w-24 h-24 object-cover rounded-lg"
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0 flex flex-col">
+                            <h4 className="font-semibold text-gray-900 text-base mb-2 line-clamp-2">
+                              {product.title}
+                            </h4>
+                            {product.price && (
+                              <p className="text-red-600 font-bold text-xl mb-3">
+                                USD ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                              </p>
+                            )}
+                            <div className="flex gap-2 mt-auto">
+                              {product.url && (
+                                <a
+                                  href={product.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 text-center text-sm font-semibold text-white bg-gradient-to-r from-red-600 to-pink-600 px-4 py-2 rounded-lg hover:from-red-700 hover:to-pink-700 transition-all"
+                                >
+                                  View Details
+                                </a>
+                              )}
+                              <button
+                                onClick={() => {
+                                  console.log('Add to cart:', product);
+                                }}
+                                className="flex-1 text-center text-sm font-semibold text-red-600 bg-white border-2 border-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-all"
+                              >
+                                Add to Cart
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-gray-900 text-base mb-2 line-clamp-2 group-hover:text-red-700 transition-colors">
-                          {product.title}
-                        </h4>
-                        {product.price && (
-                          <p className="text-red-600 font-bold text-lg mb-3">
-                            ${product.price.toFixed(2)}
-                          </p>
-                        )}
-                        {product.url && (
-                          <a
-                            href={product.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-red-600 to-pink-600 px-4 py-2 rounded-lg hover:from-red-700 hover:to-pink-700 transition-all shadow-md hover:shadow-lg"
-                          >
-                            View Details
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </a>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                    );
-                  })}
+                    ));
+                  }
+                  return null;
+                })}
               </div>
             )}
 

@@ -32,7 +32,7 @@ export function MessageInput({ onSend, isLoading, disabled = false }: MessageInp
           placeholder={isLoading ? "AI is thinking..." : "Type your message here..."}
           disabled={isDisabled}
           rows={1}
-          className="flex-1 resize-none rounded-xl border-2 border-gray-200 px-4 py-3 text-sm focus:border-red-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
+          className="flex-1 resize-none rounded-xl border-2 border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-red-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
           style={{ maxHeight: '120px' }}
         />
         <button
