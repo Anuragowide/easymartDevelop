@@ -312,30 +312,62 @@ class EasymartAssistantHandler:
             if llm_response.function_calls:
                 logger.info(f"[HANDLER] Processing {len(llm_response.function_calls)} function calls")
                 
+                # DIAGNOSTIC LOGGING
+                logger.info(f"[DEBUG] Session has {len(session.last_shown_products) if session.last_shown_products else 0} products")
+                if session.last_shown_products:
+                    logger.info(f"[DEBUG] Product IDs in session: {[p.get('id', 'NO-ID') for p in session.last_shown_products]}")
+                logger.info(f"[DEBUG] Original message: '{original_message}'")
+                
                 # VALIDATION: Fix product IDs for spec/availability/comparison tools
                 # LLM might guess wrong IDs (e.g., "LCK-005" for option 5)
                 # Replace with actual IDs from session.last_shown_products
+                import re
                 for func_call in llm_response.function_calls:
                     if func_call.name in ['get_product_specs', 'check_availability']:
-                        # Check if product_id looks like a guess and we have products in session
                         product_id = func_call.arguments.get('product_id', '')
+                        logger.info(f"[DEBUG] Tool: {func_call.name}, LLM provided ID: '{product_id}'")
                         
-                        # Try to extract number from user's original message (option 5, product 3, etc.)
-                        import re
-                        product_ref_match = re.search(r'\b(option|product|number|item)\s+(\d+)', original_message.lower())
+                        # Try to extract number from user's message - support multiple formats
+                        # Format 1: "option 4", "product 3"
+                        product_ref_match = re.search(r'(?:option|product|number|item|choice)\s+(\d+)', original_message.lower())
+                        # Format 2: "4 option", "3 product" (number first)
+                        if not product_ref_match:
+                            product_ref_match = re.search(r'(\d+)\s+(?:option|product|number|item|choice)', original_message.lower())
+                        # Format 3: Just a number at start ("4" when context is clear)
+                        if not product_ref_match:
+                            product_ref_match = re.search(r'^(\d+)\s*$', original_message.strip())
                         
-                        if product_ref_match and session.last_shown_products:
-                            product_num = int(product_ref_match.group(2))
+                        product_num = None
+                        if product_ref_match:
+                            product_num = int(product_ref_match.group(1))
+                            logger.info(f"[DEBUG] Extracted product number: {product_num}")
+                        else:
+                            logger.warning(f"[DEBUG] Could not extract product number from: '{original_message}'")
+                        
+                        # ALWAYS correct if we have session products and extracted number
+                        if session.last_shown_products and product_num:
+                            logger.info(f"[DEBUG] Checking product #{product_num} in range 1-{len(session.last_shown_products)}")
                             
-                            # Validate product number is in range
                             if 0 < product_num <= len(session.last_shown_products):
                                 correct_product = session.last_shown_products[product_num - 1]
                                 correct_product_id = correct_product.get('id')
                                 
-                                if correct_product_id and product_id != correct_product_id:
-                                    logger.warning(f"[HANDLER] ⚠️ CORRECTING PRODUCT ID: LLM used '{product_id}', correct is '{correct_product_id}'")
-                                    print(f"[DEBUG] Correcting product ID: '{product_id}' → '{correct_product_id}'")
+                                if correct_product_id:
+                                    if product_id != correct_product_id:
+                                        logger.warning(f"[HANDLER] ⚠️ CORRECTING PRODUCT ID: LLM used '{product_id}', correct is '{correct_product_id}'")
+                                        print(f"[DEBUG] ✓ Corrected: '{product_id}' → '{correct_product_id}'")
+                                    else:
+                                        logger.info(f"[DEBUG] ✓ Product ID already correct: '{correct_product_id}'")
+                                    # FORCE correct ID regardless
                                     func_call.arguments['product_id'] = correct_product_id
+                                else:
+                                    logger.error(f"[ERROR] Product #{product_num} has no ID in session!")
+                            else:
+                                logger.error(f"[ERROR] Product number {product_num} out of range (1-{len(session.last_shown_products)})")
+                        elif not session.last_shown_products:
+                            logger.error(f"[ERROR] No products in session - cannot correct ID")
+                        elif not product_num:
+                            logger.error(f"[ERROR] Could not extract product number - cannot correct ID")
                     
                     elif func_call.name == 'compare_products':
                         # Fix product_ids array for comparison
@@ -381,29 +413,25 @@ class EasymartAssistantHandler:
                         message = result.get('message', '')
                         
                         if error:
-                            result_str = f"ERROR: {error}"
+                            # DON'T pass error to LLM - it causes hallucinations
+                            # Instead, provide a safe message
+                            logger.error(f"[TOOL ERROR] get_product_specs failed: {error}")
+                            result_str = f"Product: {product_name}\nStatus: Information not available\nNote: This product's details could not be retrieved from the database."
                         elif specs:
-                            # Format specs as bullet points
-                            spec_lines = [f"Product: {product_name}"]
+                            # Format specs clearly with product name and structured info
+                            spec_lines = [f"=== PRODUCT INFORMATION ==="]
+                            spec_lines.append(f"Product Name: {product_name}")
                             if price:
                                 spec_lines.append(f"Price: ${price}")
-                            if 'dimensions' in specs:
-                                dims = specs['dimensions']
-                                if isinstance(dims, dict):
-                                    spec_lines.append(f"Dimensions: {dims.get('width')}×{dims.get('depth')}×{dims.get('height')} {dims.get('unit', 'cm')}")
-                            if 'material' in specs:
-                                spec_lines.append(f"Material: {specs['material']}")
-                            if 'color' in specs:
-                                spec_lines.append(f"Color: {specs['color']}")
-                            if 'weight_capacity' in specs:
-                                spec_lines.append(f"Weight capacity: {specs['weight_capacity']} kg")
-                            if 'assembly_required' in specs:
-                                spec_lines.append(f"Assembly: {'Required' if specs['assembly_required'] else 'Not required'}")
+                            spec_lines.append("")
                             
-                            # Add any other specs
-                            for key, value in specs.items():
-                                if key not in ['dimensions', 'material', 'color', 'weight_capacity', 'assembly_required']:
-                                    spec_lines.append(f"{key.replace('_', ' ').title()}: {value}")
+                            # Add each spec section
+                            for section, content in specs.items():
+                                if content and str(content).strip():
+                                    # Clean up content (remove "nan" values)
+                                    content_str = str(content)
+                                    if 'nan' not in content_str.lower():
+                                        spec_lines.append(f"{section}: {content}")
                             
                             result_str = "\n".join(spec_lines)
                         else:
@@ -445,21 +473,39 @@ class EasymartAssistantHandler:
                         "- 'I've found several red desks that might work perfectly.'"
                     )
                 elif 'get_product_specs' in tool_names:
-                    # Product specs - describe the features
-                    post_tool_instruction = (
-                        "CRITICAL INSTRUCTIONS:\n"
-                        "1. Read the tool result above carefully\n"
-                        "2. Use ONLY information from the tool result\n"
-                        "3. If detailed specs are shown, summarize them naturally (dimensions, materials, features)\n"
-                        "4. If only basic info shown (price, description), relay that instead\n"
-                        "5. If it says 'No detailed specifications available', inform the user and mention what IS available (price/description)\n"
-                        "6. NEVER invent specs that aren't in the tool result\n"
-                        "7. Use the exact product name from the tool result\n\n"
-                        "Response format (2-3 sentences):\n"
-                        "- With specs: 'The [name] measures [dimensions] and features [materials/features], priced at $[price].'\n"
-                        "- Without specs: 'The [name] is priced at $[price]. [Brief description]. Detailed specifications aren't available in our system.'\n\n"
-                        "Be helpful and factual."
-                    )
+                    # Product specs - check if tool had error
+                    spec_result = tool_results.get('get_product_specs', {})
+                    has_error = 'error' in spec_result or 'Information not available' in str(spec_result)
+                    
+                    if has_error:
+                        # Error-specific instruction - prevent hallucinations
+                        post_tool_instruction = (
+                            "CRITICAL: The tool could not retrieve this product's information.\n\n"
+                            "DO NOT make up prices, dimensions, descriptions, or specifications.\n"
+                            "DO NOT guess or infer information.\n\n"
+                            "Say EXACTLY:\n"
+                            "'I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance.'\n\n"
+                            "DO NOT add anything else."
+                        )
+                    else:
+                        # Normal instruction for successful retrieval
+                        post_tool_instruction = (
+                            "CRITICAL INSTRUCTIONS:\n"
+                            "1. Read the tool result above carefully - it shows REAL product data\n"
+                            "2. Use ONLY information from the tool result - DO NOT make up ANY details\n"
+                            "3. Use the EXACT 'Product Name' shown in the tool result\n"
+                            "4. DO NOT mention product IDs, model numbers, or SKUs unless explicitly shown\n"
+                            "5. If a spec section is shown (Specifications, Features, Material, Dimensions), summarize it naturally\n"
+                            "6. If dimensions contain 'nan' or are missing, DO NOT mention dimensions at all\n"
+                            "7. NEVER invent specs that aren't explicitly in the tool result\n\n"
+                            "Response format (2-4 sentences, natural tone):\n"
+                            "- Start with: 'The [exact product name from tool result]...'"
+                            "- Mention price: 'priced at $[exact price from tool]'"
+                            "- Summarize available specs naturally from the sections shown\n"
+                            "- If specs are limited, say: 'Detailed specifications include [what's shown].'"
+                            "- DO NOT use phrases like 'model OCH-101' or make up model numbers\n\n"
+                            "Be helpful, factual, and only use what's in the tool result."
+                        )
                 elif 'compare_products' in tool_names:
                     # Comparison - highlight key differences
                     post_tool_instruction = (
@@ -536,6 +582,21 @@ class EasymartAssistantHandler:
                     original_query=original_message,  # Use saved original message
                     search_query=request.message  # What was actually searched (after refinement)
                 )
+                
+                # ADDITIONAL VALIDATION: Block hallucinations after tool errors
+                if 'get_product_specs' in tool_results:
+                    spec_result = tool_results['get_product_specs']
+                    if 'error' in spec_result:
+                        # Tool failed - check if LLM hallucinated anyway
+                        import re
+                        has_price = re.search(r'\$\d+', assistant_message)
+                        has_dimensions = re.search(r'\d+\s*[x×]\s*\d+|\d+\s*(cm|mm|kg|inches)', assistant_message)
+                        has_materials = any(word in assistant_message.lower() for word in ['wood', 'metal', 'leather', 'fabric', 'plastic'])
+                        
+                        if has_price or has_dimensions or has_materials:
+                            logger.warning(f"[BLOCKED] LLM hallucinated specs despite tool error!")
+                            print(f"[DEBUG] ✗ Blocked hallucination: {assistant_message[:100]}...")
+                            assistant_message = "I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance."
                 
                 # Additional validation: Check if search results actually match the query
                 if 'search_products' in tool_results:

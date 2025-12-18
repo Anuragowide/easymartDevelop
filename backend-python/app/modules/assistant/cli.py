@@ -73,8 +73,10 @@ async def main():
                 print(f"\n{BOLD}{BLUE}Products Found:{RESET}")
                 for i, product in enumerate(response.products, 1):
                     print(f"{i}. {BOLD}{product.get('name', 'Unknown Product')}{RESET} - ${product.get('price', 0)}")
-                    if product.get('description'):
-                        desc = product['description'][:80] + "..." if len(product.get('description', '')) > 80 else product.get('description', '')
+                    # Only show description if it's real (not placeholder)
+                    desc = product.get('description', '')
+                    if desc and desc.upper() not in ['PRODUCT DESCRIPTION', 'DESCRIPTION', 'N/A']:
+                        desc = desc[:100] + "..." if len(desc) > 100 else desc
                         print(f"   {desc}")
                 print()
             

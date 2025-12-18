@@ -98,6 +98,9 @@ WHEN TO CALL TOOLS:
 ✅ "with storage" → call search_products (refinement query)
 ✅ "tell me about option 3" → call get_product_specs
 ✅ "compare 1 and 2" → call compare_products
+
+PRODUCT REFERENCING:
+When user asks about "option X" or "product X", the system will automatically use the correct product_id from recently shown products. DO NOT guess product IDs - trust the system to provide the correct one.
 ✅ "add to cart" → call update_cart
 ✅ "return policy" → call get_policy_info
 
