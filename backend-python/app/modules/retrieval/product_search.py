@@ -71,6 +71,7 @@ class ProductSearcher:
                 "product_url": product_data.get("product_url", ""),
                 "category": product_data.get("category", ""),
                 "score": result.get("score", 0),
+                "inventory_quantity": product_data.get("inventory_quantity", 0),
             }
             formatted_results.append(formatted_product)
         

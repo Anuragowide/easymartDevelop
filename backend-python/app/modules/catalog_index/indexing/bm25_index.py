@@ -63,7 +63,8 @@ class BM25Index:
                         vendor=doc.metadata.get('vendor', ''),
                         tags=doc.metadata.get('tags', []),
                         description=doc.metadata.get('description', ''),
-                        search_content=doc.content
+                        search_content=doc.content,
+                        inventory_quantity=doc.metadata.get('inventory_quantity', 0)
                     )
                     session.merge(product)
                 

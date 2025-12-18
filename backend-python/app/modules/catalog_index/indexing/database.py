@@ -29,6 +29,7 @@ class ProductDB(Base):
     tags = Column(JSON)
     description = Column(Text)
     search_content = Column(Text)
+    inventory_quantity = Column(Integer, default=0)  # Stock quantity
     
     def to_dict(self):
         return {
@@ -41,7 +42,8 @@ class ProductDB(Base):
             'product_url': self.product_url,
             'vendor': self.vendor,
             'tags': self.tags,
-            'description': self.description
+            'description': self.description,
+            'inventory_quantity': self.inventory_quantity
         }
 
 

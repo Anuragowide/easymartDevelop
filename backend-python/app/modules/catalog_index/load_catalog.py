@@ -41,6 +41,12 @@ def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             except:
                 p['specs'] = {}
         
+        # Extract inventory_quantity from specs to top level
+        if isinstance(p.get('specs'), dict):
+            p['inventory_quantity'] = p['specs'].get('inventory_quantity', 0)
+        else:
+            p['inventory_quantity'] = 0
+        
         # URL Construction Logic
         # If product_url is missing but handle exists, construct it
         if not p.get('product_url'):
