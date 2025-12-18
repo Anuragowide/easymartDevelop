@@ -976,9 +976,9 @@ class EasymartAssistantHandler:
                             return f"I found several options that match your search."
         
         # Check if response contains product listings
+        # Note: Removed 'Artiss' pattern - it's OK to mention product names in specs responses
         listing_patterns = [
             r'\d+\.\s+[A-Z].*\$\d+',          # "1. Product Name - $99"
-            r'Artiss\s+[A-Z][a-z]+',           # Brand name with product
             r'Here are (five|\d+) (chairs|desks|tables|products|items)',
             r'\$\d+\.\d+\)',                  # Prices in parentheses
             r'(Black|White|Blue|Red|Green)\s+\(\$',  # Color with price
@@ -988,15 +988,23 @@ class EasymartAssistantHandler:
         
         if has_product_listing:
             if had_tool_calls and 'search_products' in tool_results:
-                # LLM listed products after tool call - replace with short intro
+                # LLM listed products after search_products tool call - replace with short intro
                 product_count = len(tool_results['search_products'].get('products', []))
                 if product_count > 0:
                     logger.warning(f"[VALIDATION] Blocked product listing, replacing with short intro")
                     return f"I found {product_count} great options for you!"
                 else:
                     return "I couldn't find any products matching that search."
-            else:
-                # LLM tried to hallucinate products without tool call
+            elif had_tool_calls and 'get_product_specs' in tool_results:
+                # For get_product_specs, mentioning the product name is EXPECTED and correct
+                # Only block if it's listing MULTIPLE products with numbers (1. Product $99, 2. Product $99)
+                numbered_list = re.search(r'\d+\.\s+[A-Z].*\$\d+', response)
+                if numbered_list:
+                    logger.error(f"[VALIDATION] Blocked hallucinated product listing in specs response!")
+                    return "Let me provide you with the details from our database."
+                # Single product mention is fine - don't block
+            elif not had_tool_calls:
+                # LLM tried to hallucinate products without any tool call
                 logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
                 return "Let me search our catalog for you."
         
