@@ -73,25 +73,48 @@ export const useCartStore = create<CartStore>()(
 
       decreaseQuantity: async (productId: string) => {
         const currentQty = get().getProductQuantity(productId);
+        console.log('🔍 [DECREASE] Current quantity:', currentQty, 'for product:', productId);
+        console.log('🔍 [DECREASE] Current items:', get().items);
+        
         if (currentQty <= 0) return;
 
         set({ isLoading: true, error: null });
         try {
           // If quantity is 1, remove from cart (set to 0)
           const newQuantity = currentQty - 1;
+          console.log('📤 [DECREASE] Sending to API - newQuantity:', newQuantity);
+          
           const response: CartResponse = await cartApi.updateQuantity(productId, newQuantity);
+          console.log('📥 [DECREASE] Full response:', JSON.stringify(response, null, 2));
           
           if (response.success) {
+            // Normalize items to ensure both id and product_id fields exist
+            const normalizedItems = response.cart.items.map(item => ({
+              ...item,
+              id: item.id || item.product_id || '',
+              product_id: item.product_id || item.id || ''
+            }));
+            
+            console.log('✅ [DECREASE] Normalized items:', normalizedItems);
+            console.log('✅ [DECREASE] Setting state with', normalizedItems.length, 'items');
+            
             set({
-              items: response.cart.items,
+              items: normalizedItems,
               itemCount: response.cart.item_count,
               total: response.cart.total,
               isLoading: false,
             });
+            
+            const verifyQty = get().getProductQuantity(productId);
+            const verifyItems = get().items;
+            console.log('🔍 [DECREASE] Verify - items:', verifyItems);
+            console.log('🔍 [DECREASE] Verify - quantity:', verifyQty);
           } else {
+            console.error('❌ [DECREASE] API returned error:', response.error);
             throw new Error(response.error || 'Failed to decrease quantity');
           }
         } catch (error: any) {
+          console.error('❌ [DECREASE] Exception:', error);
           set({ error: error.message, isLoading: false });
           throw error;
         }

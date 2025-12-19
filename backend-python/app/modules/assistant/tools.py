@@ -528,12 +528,17 @@ class EasymartAssistantTools:
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             
+            logger.info(f"[CART SET] Before remove - cart_items: {session.cart_items}")
+            
             # Remove item first
             session.remove_from_cart(product_id)
+            
+            logger.info(f"[CART SET] After remove - cart_items: {session.cart_items}")
             
             # Add back with new quantity if > 0
             if quantity > 0:
                 session.add_to_cart(product_id, quantity)
+                logger.info(f"[CART SET] After add ({quantity}) - cart_items: {session.cart_items}")
             
             return {
                 "action": "set",

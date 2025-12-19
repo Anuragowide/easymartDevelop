@@ -111,20 +111,31 @@ class SessionContext:
     
     def add_to_cart(self, product_id: str, quantity: int = 1):
         """Add item to cart (local state)"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[ADD_TO_CART] product_id={product_id}, quantity={quantity}")
+        logger.info(f"[ADD_TO_CART] Current cart_items: {self.cart_items}")
+        
         # Check if already in cart
         for item in self.cart_items:
             if item["product_id"] == product_id:
+                logger.info(f"[ADD_TO_CART] Found existing item, adding {quantity} to current {item['quantity']}")
                 item["quantity"] += quantity
                 self.last_activity = datetime.now()
+                logger.info(f"[ADD_TO_CART] New quantity: {item['quantity']}")
                 return
         
         # Add new item
+        logger.info(f"[ADD_TO_CART] Creating new cart item")
         self.cart_items.append({
             "product_id": product_id,
             "quantity": quantity,
             "added_at": datetime.now().isoformat()
         })
         self.last_activity = datetime.now()
+        logger.info(f"[ADD_TO_CART] Cart items after add: {self.cart_items}")
+        logger.info(f"[ADD_TO_CART] Cart items after add: {self.cart_items}")
     
     def remove_from_cart(self, product_id: str):
         """Remove item from cart"""
