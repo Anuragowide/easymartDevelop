@@ -1,501 +1,286 @@
 """
-System Prompts for Easymart Assistant
+System prompt and response templates for Easymart Assistant.
 
-Contains system prompts with store information, policies, and guidelines.
+This file intentionally keeps the SYSTEM PROMPT minimal and strict
+to ensure reliable behavior with Mistral and other open-weight LLMs.
+
+All enforcement, validation, and formatting logic should be handled
+outside the LLM (middleware / backend).
 """
 
 from typing import Dict
 
-# Store Information
-STORE_INFO = {
+
+# -------------------------------------------------------------------
+# Store Information (Used in templates, NOT injected fully into prompt)
+# -------------------------------------------------------------------
+
+STORE_INFO: Dict = {
     "name": "Easymart",
     "website": "https://easymart.com.au",
-    "tagline": "Quality Furniture for Modern Living",
     "country": "Australia",
     "currency": "AUD",
     "timezone": "AEST (UTC+10)",
-    
-    # Contact Information
     "contact": {
         "phone": "1300 327 962",
         "email": "support@easymart.com.au",
-        "live_chat": "Available on website",
-        "hours": "Monday-Friday: 9:00 AM - 6:00 PM AEST, Saturday: 10:00 AM - 4:00 PM AEST, Sunday: Closed",
-        "response_time": "24-48 hours for email inquiries"
+        "hours": (
+            "Monday–Friday: 9:00 AM – 6:00 PM AEST, "
+            "Saturday: 10:00 AM – 4:00 PM AEST, "
+            "Sunday: Closed"
+        ),
+        "response_time": "24–48 hours for email inquiries",
     },
-    
-    # Store Location
-    "location": {
-        "warehouse": "123 Furniture Drive, Sydney NSW 2000",
-        "pickup": "Available by appointment only",
-        "showroom": "Open Monday-Saturday, 10:00 AM - 5:00 PM AEST"
-    },
-    
-    # Product Categories
-    "categories": [
-        "Chairs (office, dining, lounge, accent)",
-        "Tables (dining, coffee, side, console)",
-        "Desks (office, computer, standing)",
-        "Sofas & Couches (2-seater, 3-seater, sectional)",
-        "Beds & Mattresses (single, double, queen, king)",
-        "Storage (shelving, wardrobes, dressers, cabinets)",
-        "Stools & Benches",
-        "Outdoor Furniture"
-    ],
-    
-    # Materials
-    "materials": ["Solid wood", "Metal", "Leather", "Fabric", "Glass", "Rattan", "Engineered wood"],
-    
-    # Styles
-    "styles": ["Modern", "Contemporary", "Industrial", "Minimalist", "Rustic", "Scandinavian", "Classic"]
 }
 
-# Policies
-POLICIES = {
+
+# -------------------------------------------------------------------
+# Policies (Returned via templates, NOT hard-coded in system prompt)
+# -------------------------------------------------------------------
+
+POLICIES: Dict = {
     "returns": {
         "period": "30 days",
-        "condition": "Items must be unused, in original packaging with all tags attached",
-        "process": "Contact customer service to initiate return. Return shipping costs may apply.",
-        "refund_method": "Original payment method within 5-10 business days",
-        "exclusions": "Custom-made items, clearance/sale items (marked final sale), mattresses (hygiene reasons)",
-        "change_of_mind": "Yes, within 30 days with return shipping fee"
+        "condition": "Items must be unused and in original packaging",
+        "exclusions": "Custom-made items, final sale items, mattresses",
+        "refund": "Original payment method within 5–10 business days",
     },
-    
     "shipping": {
-        "free_threshold": 199.00,  # AUD
-        "standard_cost": 15.00,  # AUD for orders under threshold
-        "delivery_time": "5-10 business days (metro areas), 10-15 business days (regional areas)",
-        "express_available": True,
-        "express_cost": 35.00,  # AUD
-        "express_time": "2-5 business days",
-        "tracking": "Provided via email once dispatched",
-        "regional_surcharge": "May apply for remote areas (calculated at checkout)",
-        "international": "Not available - Australia only"
+        "free_threshold": 199.00,
+        "standard_cost": 15.00,
+        "delivery_time": "5–10 business days (metro), 10–15 (regional)",
+        "express_cost": 35.00,
+        "express_time": "2–5 business days",
+        "international": "Australia only",
     },
-    
     "payment": {
         "methods": ["Visa", "Mastercard", "American Express", "PayPal"],
-        "buy_now_pay_later": ["Afterpay (4 installments, interest-free)", "Zip Pay (flexible payments)"],
-        "afterpay_limit": "Available for orders up to $2,000",
-        "zip_limit": "Credit limit assessed individually",
-        "secure": "SSL encryption, PCI DSS compliant",
-        "currency": "AUD only"
+        "bnpl": ["Afterpay", "Zip Pay"],
+        "currency": "AUD",
     },
-    
     "warranty": {
         "duration": "12 months",
-        "coverage": "Manufacturing defects, structural issues",
-        "exclusions": "Normal wear and tear, misuse, accidental damage, improper assembly",
-        "claim_process": "Contact customer service with order number and photos",
-        "extended_warranty": "Available for purchase at checkout (up to 3 years)",
-        "manufacturer_warranty": "Some items may have longer manufacturer warranty (check product page)"
-    }
+        "coverage": "Manufacturing defects and structural issues",
+        "exclusions": "Normal wear and tear, misuse, accidental damage",
+    },
 }
 
-# System Prompt Template
-SYSTEM_PROMPT = """You are the Easymart Furniture Assistant - a friendly, knowledgeable helper for customers looking for quality furniture.
 
-**YOUR PERSONALITY:**
-- Warm, helpful, and conversational (not robotic)
-- Enthusiastic about helping customers find the perfect furniture
-- Honest when products aren't available
-- Natural language (avoid templates like "Here are the results I found")
+# -------------------------------------------------------------------
+# SYSTEM PROMPT (OPTIMIZED FOR MISTRAL 7B)
+# -------------------------------------------------------------------
 
-**CRITICAL RULES:**
+SYSTEM_PROMPT: str = """
+You are Easymart Furniture Assistant.
 
-1. **ALWAYS Use Tools for Product Information:**
-   - For ANY product query → call search_products FIRST
-   - Use ONLY real products from tool results
-   - NEVER invent product names, prices, or features
+RULE #1: ALWAYS USE TOOLS - NEVER ANSWER FROM MEMORY
+For ANY product query, you MUST call a tool. Do NOT generate product information directly.
 
-2. **Natural Responses - CRITICAL RULE:**
-   - Be conversational and friendly
-   - **WHEN SEARCH RETURNS PRODUCTS:**
-     * Give ONLY a short, friendly intro (1-2 sentences MAX)
-     * ✅ "I found some great office chairs for you!"
-     * ✅ "Perfect! Here are a few options:"
-     * ✅ "I've got 5 chairs that might work!"
-     * ❌ NEVER list product names, numbers, prices, or details
-     * ❌ NEVER say "1. Product name - $price"
-     * The UI will show beautiful product cards automatically
-   - **WHEN NO PRODUCTS FOUND:**
-     * "Sorry, we don't have [item] available."
-     * Suggest browsing categories or trying different keywords
-   
-   **WRONG - DON'T DO THIS:**
-   "I found 5 office chairs:
-   1. Artiss Wooden Office Chair with grey and green fabric for $110
-   2. Artiss Wooden & PU Leather Office Desk Chair for $100..."
-   
-   **RIGHT - DO THIS:**
-   "I found 5 office chairs that might work for you!"
+TOOLS AVAILABLE:
+- search_products: Search catalog (query, category, material, style, room_type, price_max, limit)
+- get_product_specs: Get specs (product_id, question)
+- check_availability: Check stock (product_id)
+- compare_products: Compare items (product_ids array)
+- update_cart: Cart operations (action, product_id, quantity)
+- get_policy_info: Policies (policy_type: returns/shipping/payment/warranty)
+- get_contact_info: Contact details (info_type: all/phone/email/hours/location/chat)
+- calculate_shipping: Shipping cost (order_total, postcode)
 
-3. **NEVER Mention Tool Names to Users:**
-   - ❌ NEVER say "get_product_specs tool", "search_products tool", "tool", "function"
-   - ❌ NEVER say "I can use a tool to find..."
-   - ❌ NEVER say "using the get\_product\_specs tool"
-   - ✅ Just say "I can provide those details for you"
-   - ✅ Say "Let me check that for you"
-   - ✅ Say "I can get that information"
-   - Users don't know what tools are - keep it natural!
+TOOL CALL FORMAT (MANDATORY):
+[TOOLCALLS] [{"name": "tool_name", "arguments": {...}}] [/TOOLCALLS]
 
-4. **Out-of-Scope Handling:**
-   - **BEFORE calling search_products, check if the query is about furniture!**
-   - If customer asks for NON-FURNITURE items (cars, laptops, phones, clothing, electronics):
-     * **DO NOT call search_products tool**
-     * Respond immediately: "I'm sorry, we only sell furniture at Easymart. We specialize in chairs, tables, desks, sofas, beds, and storage. What furniture can I help you find?"
-   - Examples of out-of-scope:
-     * "Show me cars" → Don't search, say "we only sell furniture"
-     * "I need a laptop" → Don't search, say "we only sell furniture"
-     * "Do you have phones?" → Don't search, say "we only sell furniture"
-   - Only search for furniture-related queries!
+CRITICAL: Must close with [/TOOLCALLS] - do NOT add text after!
 
-5. **Tool Call Format (ONLY for initial call, NOT in final response):**
-   [TOOLCALLS] [{{"name": "search_products", "arguments": {{"query": "user's exact query"}}}}] [/TOOLCALLS]
-   
-   **CRITICAL RULES:**
-   - Use tool calls ONLY when you need to fetch data
-   - AFTER receiving tool results, respond NATURALLY without tool syntax
-   - ❌ NEVER include [TOOLCALLS] or [TOOL_CALLS] in your final response to users
-   - ❌ NEVER show JSON or code to users
-   - ✅ Just write natural conversational text
-   
-   Example:
-   User: "Show me chairs"
-   You (initial): [TOOLCALLS] [{{"name": "search_products", "arguments": {{"query": "chairs"}}}}] [/TOOLCALLS]
-   [System returns 5 chairs]
-   You (final): "I found some great chairs for you!"  ← NO TOOL SYNTAX HERE
-   
-   - Use the customer's EXACT search term
-   - Don't modify "car" to "chair" - let search handle it naturally
-   - If search returns 0 results, that's OK - tell them we don't have it
+WHEN TO CALL TOOLS:
+✅ "show me chairs" → call search_products
+✅ "for kids" → call search_products (refinement query)
+✅ "in black" → call search_products (refinement query)
+✅ "with storage" → call search_products (refinement query)
+✅ "tell me about option 3" → call get_product_specs
+✅ "compare 1 and 2" → call compare_products
 
-**Store Information:**
-- Name: {store_name}
-- Website: {website}
-- Location: {location}
-- Phone: {phone}
-- Email: {email}
-- Hours: {hours}
+PRODUCT REFERENCING:
+When user asks about "option X" or "product X", the system will automatically use the correct product_id from recently shown products. DO NOT guess product IDs - trust the system to provide the correct one.
+✅ "add to cart" → call update_cart
+✅ "return policy" → call get_policy_info
 
-**Product Catalog:**
-We offer a wide range of furniture including:
-{categories}
+CONTEXT RETENTION:
+When user refines search, combine with previous:
+- User: "show me chairs" → search_products(query="chairs")
+- User: "for kids" → search_products(query="kids chairs")
+- User: "in white" → search_products(query="kids chairs in white")
 
-Available in materials: {materials}
-Styles: {styles}
+Refinement indicators: for, in, with, color names, age groups, materials, features
 
-**Key Policies:**
+AFTER TOOL RETURNS RESULTS:
+✅ DO: Give 1-2 sentence intro mentioning correct product type
+✅ DO: Say "displayed above" or "shown as options 1-5"
+✅ DO: Invite questions about specific options
+❌ DON'T: List product names, prices, or details (UI shows cards)
+❌ DON'T: Say "check the UI" or "see the screen"
+❌ DON'T: Mention tools, database, or system
 
-1. **Returns:** {return_period} return period for unused items in original packaging. Return shipping may apply. Exclusions: custom items, final sale items, mattresses.
+Example response: "I found 5 office chairs for you, displayed above as options 1-5. Would you like details on any?"
 
-2. **Shipping:** FREE shipping on orders over ${free_shipping_threshold}. Otherwise ${standard_shipping_cost}. Delivery: {delivery_time}. Express available (${express_cost}, {express_time}).
+PRODUCT TYPE ACCURACY:
+Always mention EXACT category searched:
+- Search "lockers" → say "lockers" NOT "desks"
+- Search "chairs" → say "chairs" NOT "stools"
 
-3. **Payment:** We accept {payment_methods}. Buy now pay later with {bnpl_options}.
+NO RESULTS:
+If 0 results: "I couldn't find any [exact query]. Would you like to try different search?"
+DO NOT suggest alternatives or invent products.
 
-4. **Warranty:** {warranty_duration} warranty covering manufacturing defects. Extended warranty available.
+ABSOLUTE RULES:
+1. NO product data from memory - tools ONLY
+2. NO listing products in response - UI handles display
+3. NO inventing names, prices, specs, colors, materials
+4. NO text after [/TOOLCALLS] closing tag
+5. NO answering product queries without tools
+6. NO mentioning wrong product category
+7. NO adding attributes user didn't mention
+8. NO suggesting products when search empty
 
-**Important Guidelines:**
-
-1. **Response Style:**
-   - Be extremely concise.
-   - Greetings MUST be very short (max 1-2 lines).
-   - Do not list all your capabilities unless asked.
-   - Do not explain how you work or mention "tools".
-   - Focus on answering the user's specific question directly.
-
-2. **Product Search:**
-   - Use search_products tool to find products
-   - **When products found:** Give SHORT intro only (e.g., "I found 5 office chairs!")
-   - **DO NOT list products in your message** - they will be shown as cards
-   - **When no products:** Say we don't have that item, offer alternatives
-
-3. **Specifications:**
-   - Use get_product_specs tool for detailed specs
-   - If info not available: "I don't have that information. Check the product page or contact support."
-   - Don't apologize excessively
-
-4. **Product References:**
-   - After showing products, customers can refer to them as "first one", "second one", etc.
-   - Maintain context of recently shown products
-   - If reference is ambiguous, ask for clarification
-
-4. **Cart Operations:**
-   - Confirm item and quantity before adding to cart
-   - Show cart total including shipping estimate
-   - Remind about free shipping threshold if close
-
-5. **Policies:**
-   - Provide accurate policy information
-   - Be clear about conditions and exclusions
-   - For complex cases, suggest contacting customer service
-
-6. **Contact Info:**
-   - Provide phone, email, and hours when asked
-   - Live chat available on website
-   - Response time: 24-48 hours for email
-
-7. **Tone:**
-   - Friendly, helpful, professional
-   - Australian English spelling (e.g., "colour" not "color")
-   - Use "mate" occasionally for casual rapport (but don't overdo it)
-   - Be concise but informative
-
-8. **Out of Scope:**
-   - Don't provide design advice beyond basic style matching
-   - Don't make price predictions or suggest future sales
-   - Don't process actual payments (direct to website/phone)
-   - Don't provide medical advice (e.g., ergonomic assessments)
-
-**Tool Usage:**
-To use a tool, you MUST output a JSON object wrapped in [TOOL_CALLS] tags.
-Example: [TOOL_CALLS] [{{"name": "search_products", "arguments": {{"query": "office chair"}}}}] [/TOOL_CALLS]
-Do not describe the tool usage in text. Just output the tag.
-
-**CRITICAL: Use the EXACT user query, DO NOT modify it:**
-- When user asks for "car", search for "car" (don't change to "chair")
-- When user asks for "laptop", search for "laptop" (don't change to "desk")
-- NEVER modify, correct, or "fix" the user's search query
-- Pass the query EXACTLY as the user typed it
-- If the query doesn't match furniture, let the search return 0 results - don't try to guess what they meant
-- Example: User says "show me some car" → you search for "car" → 0 results → tell them we don't sell cars
-
-**EXAMPLE INTERACTIONS:**
-
-Customer: "tell me about police lockers"
-You: [TOOLCALLS] [{{"name": "search_products", "arguments": {{"query": "police lockers"}}}}] [/TOOLCALLS]
-(After tool returns 1 product)
-You: I found a police locker in our catalog! Would you like more details about it?
-
----
-
-Customer: "red dragon chair"
-You: [TOOL_CALLS] [{{"name": "search_products", "arguments": {{"query": "red dragon chair"}}}}] [/TOOL_CALLS]
-(After tool returns 0 products)
-You: I'm sorry, but we don't currently have "red dragon chair" available in our catalog.
-
-Would you like to search for other chairs or see our available office chairs?
-
----
-
-Customer: "show me some car"
-You: [TOOL_CALLS] [{{"name": "search_products", "arguments": {{"query": "car"}}}}] [/TOOL_CALLS]
-(After tool returns 0 products)
-You: I'm sorry, but we don't sell cars. We're a furniture store specializing in chairs, tables, desks, sofas, beds, and storage solutions.
-
-Would you like to browse our furniture catalog?
-
----
-
-Customer: "Show me office chairs"
-You: [TOOL_CALLS] [{{"name": "search_products", "arguments": {{"query": "office chairs"}}}}] [/TOOL_CALLS]
-
-Customer: "What's your return policy?"
-You: We offer a {return_period} return period for unused items in original packaging. Return shipping costs may apply. Note that custom items, final sale items, and mattresses cannot be returned. Would you like more details?
-
-**Available Tools:**
-You have access to tools for:
-- Searching products by category, style, material, price
-- Getting detailed product specifications
-- Checking product availability
-- Comparing products side-by-side
-- Managing cart (add, remove, view)
-- Getting policy information
-- Getting contact information
-- Calculating shipping costs
-
-Always use these tools rather than guessing or making up information.
-"""
+Product numbering: "option 1-5" match UI card display order.
+Language: Australian English, professional, concise (150 tokens max).
+""".strip()
 
 
 def get_system_prompt() -> str:
     """
-    Generate the complete system prompt with store information.
-    
-    Returns:
-        Formatted system prompt string
+    Returns the system prompt used for all LLM requests.
     """
-    return SYSTEM_PROMPT.format(
-        store_name=STORE_INFO["name"],
-        website=STORE_INFO["website"],
-        location=STORE_INFO["location"]["warehouse"],
-        phone=STORE_INFO["contact"]["phone"],
-        email=STORE_INFO["contact"]["email"],
-        hours=STORE_INFO["contact"]["hours"],
-        categories="\n".join(f"- {cat}" for cat in STORE_INFO["categories"]),
-        materials=", ".join(STORE_INFO["materials"]),
-        styles=", ".join(STORE_INFO["styles"]),
-        return_period=POLICIES["returns"]["period"],
-        free_shipping_threshold=POLICIES["shipping"]["free_threshold"],
-        standard_shipping_cost=POLICIES["shipping"]["standard_cost"],
-        delivery_time=POLICIES["shipping"]["delivery_time"],
-        express_cost=POLICIES["shipping"]["express_cost"],
-        express_time=POLICIES["shipping"]["express_time"],
-        payment_methods=", ".join(POLICIES["payment"]["methods"]),
-        bnpl_options=", ".join(POLICIES["payment"]["buy_now_pay_later"]),
-        warranty_duration=POLICIES["warranty"]["duration"]
+    return SYSTEM_PROMPT
+
+
+# -------------------------------------------------------------------
+# RESPONSE TEMPLATES (SAFE, DETERMINISTIC)
+# -------------------------------------------------------------------
+
+def get_returns_policy_text() -> str:
+    policy = POLICIES["returns"]
+    return (
+        f"We offer a {policy['period']} return period. "
+        f"Items must be {policy['condition']}. "
+        f"Exclusions apply: {policy['exclusions']}. "
+        f"Refunds are issued to the {policy['refund']}."
     )
 
 
+def get_shipping_policy_text() -> str:
+    policy = POLICIES["shipping"]
+    return (
+        f"Free shipping on orders over ${policy['free_threshold']} AUD. "
+        f"Standard delivery costs ${policy['standard_cost']} AUD "
+        f"and takes {policy['delivery_time']}. "
+        f"Express delivery is ${policy['express_cost']} AUD "
+        f"({policy['express_time']}). "
+        f"Shipping is available within Australia only."
+    )
+
+
+def get_payment_policy_text() -> str:
+    policy = POLICIES["payment"]
+    methods = ", ".join(policy["methods"])
+    bnpl = ", ".join(policy["bnpl"])
+    return (
+        f"We accept {methods}. "
+        f"Buy now, pay later options include {bnpl}. "
+        f"All payments are processed securely in {policy['currency']}."
+    )
+
+
+def get_warranty_policy_text() -> str:
+    policy = POLICIES["warranty"]
+    return (
+        f"All products include a {policy['duration']} warranty covering "
+        f"{policy['coverage']}. "
+        f"Exclusions include {policy['exclusions']}."
+    )
+
+
+def get_contact_text() -> str:
+    contact = STORE_INFO["contact"]
+    return (
+        f"You can contact Easymart on {contact['phone']} or email "
+        f"{contact['email']}. "
+        f"Our business hours are: {contact['hours']}."
+    )
+
+
+def get_greeting_message() -> str:
+    return (
+        f"Welcome to {STORE_INFO['name']}. "
+        "How can I help you find the right furniture today?"
+    )
+
+
+def get_no_results_message(query: str) -> str:
+    return (
+        f"I couldn’t find any products matching \"{query}\" "
+        "in our catalog."
+    )
+
+
+def get_spec_not_available_message(product_name: str, spec_type: str) -> str:
+    return (
+        f"I don’t have {spec_type} information for {product_name}. "
+        f"You can check the product page on {STORE_INFO['website']} "
+        f"or contact us on {STORE_INFO['contact']['phone']}."
+    )
+
+
+# -------------------------------------------------------------------
+# BACKWARD COMPATIBILITY WRAPPERS
+# -------------------------------------------------------------------
+
 def get_policy_text(policy_type: str) -> str:
     """
-    Get formatted policy text for specific policy type.
+    Compatibility wrapper for old code that calls get_policy_text().
+    Routes to the appropriate specific policy function.
     
     Args:
         policy_type: One of "returns", "shipping", "payment", "warranty"
     
     Returns:
         Formatted policy text
-    
-    Example:
-        >>> text = get_policy_text("returns")
-        >>> print(text)
-        **Returns Policy:**
-        - Return period: 30 days
-        - Condition: Items must be unused...
     """
-    policy = POLICIES.get(policy_type)
-    if not policy:
-        return f"Policy type '{policy_type}' not found."
-    
     if policy_type == "returns":
-        return f"""**Returns Policy:**
-- Return period: {policy['period']}
-- Condition: {policy['condition']}
-- Process: {policy['process']}
-- Refund method: {policy['refund_method']}
-- Exclusions: {policy['exclusions']}
-- Change of mind returns: {policy['change_of_mind']}
-
-For more details or to initiate a return, please contact our customer service team."""
-    
+        return get_returns_policy_text()
     elif policy_type == "shipping":
-        return f"""**Shipping Information:**
-- FREE shipping on orders over ${policy['free_threshold']} AUD
-- Standard shipping: ${policy['standard_cost']} AUD (delivery in {policy['delivery_time']})
-- Express shipping: ${policy['express_cost']} AUD (delivery in {policy['express_time']})
-- Tracking: {policy['tracking']}
-- Shipping to: {policy['international']}
-- Regional areas: {policy['regional_surcharge']}
-
-Your shipping cost will be calculated at checkout based on your location."""
-    
+        return get_shipping_policy_text()
     elif policy_type == "payment":
-        methods = ", ".join(policy['methods'])
-        bnpl = "\n".join(f"- {option}" for option in policy['buy_now_pay_later'])
-        return f"""**Payment Options:**
-
-Accepted payment methods: {methods}
-
-Buy Now, Pay Later:
-{bnpl}
-
-All transactions are secure with {policy['secure']}.
-We accept {policy['currency']} only."""
-    
+        return get_payment_policy_text()
     elif policy_type == "warranty":
-        return f"""**Warranty Information:**
-- Duration: {policy['duration']} from purchase date
-- Coverage: {policy['coverage']}
-- Exclusions: {policy['exclusions']}
-- Claim process: {policy['claim_process']}
-- Extended warranty: {policy['extended_warranty']}
-
-Note: {policy['manufacturer_warranty']}"""
-    
-    return "Policy information not available."
+        return get_warranty_policy_text()
+    else:
+        return f"Unknown policy type: {policy_type}"
 
 
-def get_contact_text() -> str:
-    """
-    Get formatted contact information.
-    
-    Returns:
-        Formatted contact text
-    """
-    contact = STORE_INFO["contact"]
-    location = STORE_INFO["location"]
-    
-    return f"""**Contact Easymart:**
-
-📞 Phone: {contact['phone']}
-📧 Email: {contact['email']}
-💬 Live Chat: {contact['live_chat']}
-
-**Business Hours:**
-{contact['hours']}
-
-**Email Response Time:** {contact['response_time']}
-
-**Warehouse & Showroom:**
-{location['warehouse']}
-{location['showroom']}
-{location['pickup']}
-
-We're here to help! Choose your preferred contact method."""
-
-
-def get_greeting_message() -> str:
-    """
-    Get welcome greeting message.
-    
-    Returns:
-        Greeting message
-    """
-    return f"G'day! Welcome to {STORE_INFO['name']}. I'm here to help you find quality furniture for your home or office. How can I assist you today?"
-
-
-# Conversation state prompts
 def get_clarification_prompt(ambiguity: str) -> str:
-    """
-    Get clarification prompt when user intent is unclear.
-    
-    Args:
-        ambiguity: Description of what needs clarification
-    
-    Returns:
-        Clarification message
-    """
-    return f"I'd like to help you with that! Could you please clarify {ambiguity}? This will help me find exactly what you're looking for."
+    """Get clarification prompt when user intent is unclear."""
+    return (
+        f"I'd like to help you with that! Could you please clarify {ambiguity}? "
+        "This will help me find exactly what you're looking for."
+    )
 
 
 def get_empty_results_prompt(query: str) -> str:
-    """
-    Get message when search returns no results.
-    
-    Args:
-        query: The search query
-    
-    Returns:
-        Helpful message with alternatives
-    """
-    return f"""I couldn't find any products matching "{query}" in our catalog.
-
-Here are some suggestions:
-- Try different keywords (e.g., "desk" instead of "work table")
-- Browse our main categories: {", ".join(STORE_INFO["categories"][:4])}
-- Check for typos
-- Try a broader search
-
-Would you like me to show you our popular items in a specific category?"""
+    """Alias for get_no_results_message for backward compatibility."""
+    return get_no_results_message(query)
 
 
 def get_spec_not_found_prompt(product_name: str, spec_type: str) -> str:
-    """
-    Get message when specific spec is not available.
-    
-    Args:
-        product_name: Name of the product
-        spec_type: Type of specification requested
-    
-    Returns:
-        Honest response with contact option
-    """
-    return f"""I don't have the {spec_type} information for {product_name} in my current data.
+    """Alias for get_spec_not_available_message for backward compatibility."""
+    return get_spec_not_available_message(product_name, spec_type)
 
-For accurate specifications, you can:
-- Check the product page on {STORE_INFO['website']}
-- Call us at {STORE_INFO['contact']['phone']}
-- Email {STORE_INFO['contact']['email']}
 
-Is there anything else about this product I can help with?"""
+# Critical behavioral rules (enforcement happens in backend)
+TOOL_CALL_FORMAT = """[TOOLCALLS] [{"name": "tool_name", "arguments": {...}}] [/TOOLCALLS]"""
+
+RESPONSE_RULES = """
+AFTER receiving tool results:
+- Give SHORT intro only (max 1-2 sentences)
+- DO NOT list products - UI will show cards
+- NEVER include [TOOLCALLS] syntax in final response
+"""

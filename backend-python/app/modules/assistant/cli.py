@@ -64,22 +64,25 @@ async def main():
             # Clear "Thinking..."
             print(" " * 20, end="\r")
             
-            # Print ONLY the assistant message - clean output
+            # Print assistant message
             print(f"{GREEN}Assistant: {RESET}{response.message}")
             
-            # DO NOT print debug information like [Intent: ...] or [Found X products]
-            # These should NOT appear in the user-facing interface
-            
-            # Only show cart summary if it exists (optional)
-            # if response.cart_summary:
-            #     print(f"{BLUE}[Cart: {response.cart_summary['item_count']} items, Total: ${response.cart_summary['total']}]{RESET}")
+            # Display products ONLY for product search intent (not for Q&A, cart ops, etc.)
+            intent = response.metadata.get("intent", "")
+            if intent == "product_search" and response.products and len(response.products) > 0:
+                print(f"\n{BOLD}{BLUE}Products Found:{RESET}")
+                for i, product in enumerate(response.products, 1):
+                    print(f"{i}. {BOLD}{product.get('name', 'Unknown Product')}{RESET} - ${product.get('price', 0)}")
+                    # Only show description if it's real (not placeholder)
+                    desc = product.get('description', '')
+                    if desc and desc.upper() not in ['PRODUCT DESCRIPTION', 'DESCRIPTION', 'N/A']:
+                        desc = desc[:100] + "..." if len(desc) > 100 else desc
+                        print(f"   {desc}")
+                print()
             
             # Print metadata (optional, for demo)
             if response.metadata.get("intent"):
                 print(f"{BLUE}[Intent: {response.metadata['intent']}]{RESET}")
-            # Uncomment if you want to see intent for debugging:
-            # if response.metadata.get("intent"):
-            #     print(f"{BLUE}[Intent: {response.metadata['intent']}]{RESET}")
                 
             print("-" * 30)
             

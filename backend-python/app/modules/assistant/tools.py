@@ -346,23 +346,47 @@ class EasymartAssistantTools:
                 }
             
             # Get specs document
-            specs_doc = await self.spec_searcher.get_specs_for_product(product_id)
+            specs_list = await self.spec_searcher.get_specs_for_product(product_id)
             
             # If question provided, use Q&A search
             answer = None
-            if question and specs_doc:
+            if question and specs_list:
                 qa_result = await self.spec_searcher.answer_question(
                     product_id=product_id,
                     question=question
                 )
                 answer = qa_result.get("answer")
             
+            # If no specs available, provide basic product info as fallback
+            if not specs_list:
+                return {
+                    "product_id": product_id,
+                    "product_name": product.get("name"),
+                    "price": product.get("price"),
+                    "description": product.get("description", ""),
+                    "specs": {},
+                    "message": "Detailed specifications not available. Basic product information provided above.",
+                    "answer": answer
+                }
+            
+            # Format specs into organized structure
+            formatted_specs = {}
+            full_text_parts = []
+            
+            for spec in specs_list:
+                section = spec.get('section', 'General')
+                spec_text = spec.get('spec_text', '')
+                
+                formatted_specs[section] = spec_text
+                full_text_parts.append(f"{section}: {spec_text}")
+            
             return {
                 "product_id": product_id,
                 "product_name": product.get("name"),
-                "specs": specs_doc.get("specs", {}) if specs_doc else {},
+                "price": product.get("price"),
+                "specs": formatted_specs,
                 "answer": answer,
-                "full_spec_text": specs_doc.get("spec_text", "") if specs_doc else ""
+                "full_spec_text": " | ".join(full_text_parts)
             }
         
         except Exception as e:
@@ -439,12 +463,19 @@ class EasymartAssistantTools:
             for pid in product_ids:
                 product = await self.product_searcher.get_product(pid)
                 if product:
-                    specs = await self.spec_searcher.get_specs_for_product(pid)
+                    specs_list = await self.spec_searcher.get_specs_for_product(pid)
+                    # Convert list to dict
+                    specs_dict = {}
+                    if specs_list:
+                        for spec in specs_list:
+                            section = spec.get('section', 'General')
+                            specs_dict[section] = spec.get('spec_text', '')
+                    
                     products.append({
                         "id": pid,
                         "name": product.get("name"),
                         "price": product.get("price"),
-                        "specs": specs.get("specs", {}) if specs else {}
+                        "specs": specs_dict
                     })
             
             if not products:

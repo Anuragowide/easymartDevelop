@@ -6,6 +6,7 @@ Coordinates LLM, tools, intent detection, and session management.
 """
 
 import json
+import re
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 
@@ -62,7 +63,7 @@ class EasymartAssistantHandler:
     def __init__(
         self,
         llm_client: Optional[HuggingFaceLLMClient] = None,
-        session_store: Optional[SessionStore] = None
+        session_store: Optional[SessionStore] = None  # ✅ Correct
     ):
         """
         Initialize assistant handler.
@@ -134,6 +135,72 @@ class EasymartAssistantHandler:
             logger.info(f"[HANDLER] Adding user message to history...")
             session.add_message("user", request.message)
             
+            # VALIDATION: Check if query is off-topic (not related to e-commerce/shopping)
+            off_topic_patterns = [
+                # Programming/coding
+                r'\b(python|javascript|java|code|programming|function|class|variable|algorithm|debug)\s+(code|snippet|program|script)',
+                r'\b(write|create|make|generate)\s+(a|an|the)?\s*(code|program|script|function)',
+                r'\bstar pattern\b|\bdiamond pattern\b|\bpyramid pattern\b',
+                r'\bhow to (code|program|write code|make a program)',
+                # Math/calculations (not pricing)
+                r'\bsolve\s+(the|this)?\s*(equation|problem|math)',
+                r'\bcalculate\s+(?!shipping|price|cost|total)',
+                r'\bwhat is\s+\d+\s*[\+\-\*\/]\s*\d+',
+                # General knowledge/trivia
+                r'\b(who is|what is|when did|where is|why did)\s+(?!the (price|cost|shipping|delivery|return policy))',
+                r'\b(capital of|president of|population of|history of)\b',
+                # Creative/entertainment
+                r'\b(write|tell|create)\s+(a|an|the)?\s*(story|poem|joke|song|essay)',
+                r'\bwrite me (a|an)\b',
+            ]
+            
+            message_lower = request.message.lower()
+            
+            # Check if message matches any off-topic pattern
+            is_off_topic = any(re.search(pattern, message_lower) for pattern in off_topic_patterns)
+            
+            # Additional check: if message contains none of the shopping keywords
+            shopping_keywords = [
+                'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'product', 'item',
+                'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
+                'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
+                'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
+                'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
+            ]
+            
+            has_shopping_context = any(keyword in message_lower for keyword in shopping_keywords)
+            
+            if is_off_topic and not has_shopping_context:
+                logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
+                assistant_message = (
+                    "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. "
+                    "I can help you search for chairs, tables, desks, storage solutions, and more. "
+                    "What products are you looking for today?"
+                )
+                
+                session.add_message("assistant", assistant_message)
+                
+                await self.event_tracker.track(
+                    "assistant_response_success",
+                    session_id=session.session_id,
+                    properties={
+                        "intent": "off_topic_rejected",
+                        "response_length": len(assistant_message)
+                    }
+                )
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "off_topic_rejected",
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
+            
             # Detect intent (for analytics/logging)
             logger.info(f"[HANDLER] Detecting intent...")
             intent = self.intent_detector.detect(request.message)
@@ -201,6 +268,14 @@ class EasymartAssistantHandler:
                     logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
                     intent = IntentType.PRODUCT_SEARCH
             
+            # Detect if this is a refinement query and inject context
+            original_message = request.message  # Save original before modification
+            refined_message = self._apply_context_refinement(request.message, session)
+            if refined_message != request.message:
+                logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
+                # Temporarily update the message for search
+                request.message = refined_message
+            
             # Build conversation messages for LLM
             logger.info(f"[HANDLER] Building conversation messages...")
             messages = self._build_messages(session)
@@ -214,37 +289,171 @@ class EasymartAssistantHandler:
                 self.llm_client = await create_llm_client()
                 logger.info(f"[HANDLER] LLM client created")
             
-            # Call LLM with function calling (LOW temperature for factual responses)
-            logger.info(f"[HANDLER] Calling LLM...")
+            # Call LLM with function calling
+            logger.info(f"[HANDLER] Calling LLM with query: '{request.message}'")
             llm_response = await self.llm_client.chat(
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
-                temperature=0.1,
-                max_tokens=512
+                temperature=0.5,  # Increased to 0.5 for better tool calling
+                max_tokens=200    # Reduced - we just need tool call or short response
             )
             logger.info(f"[HANDLER] LLM response received, function_calls: {len(llm_response.function_calls) if llm_response.function_calls else 0}")
             
             # SAFETY CHECK: If product search intent but NO tool calls → LLM hallucinated!
             # Force a tool call to prevent fake products
+            # BUT: Check if query is out-of-scope (non-furniture) first
+            out_of_scope_keywords = [
+                "car", "cars", "vehicle", "automobile", "motorcycle", "bike",
+                "laptop", "computer", "pc", "mac", "tablet", "ipad",
+                "phone", "mobile", "iphone", "smartphone", "cell",
+                "clothing", "clothes", "shirt", "pants", "dress", "shoes",
+                "electronics", "tv", "television", "camera", "watch",
+                "food", "drink", "groceries", "book", "toy", "game"
+            ]
+
             if intent == IntentType.PRODUCT_SEARCH and not llm_response.function_calls:
-                logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
-                logger.warning(f"[HANDLER] Forcing search_products call to prevent hallucination")
-                print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
+                # Check if it's an out-of-scope query
+                query_lower = request.message.lower()
+                is_out_of_scope = any(keyword in query_lower for keyword in out_of_scope_keywords)
                 
-                # Create forced tool call
-                from .hf_llm_client import FunctionCall
-                llm_response.function_calls = [
-                    FunctionCall(
-                        name="search_products",
-                        arguments={"query": request.message}
-                    )
-                ]
-                # Clear the hallucinated content
-                llm_response.content = ""
+                if is_out_of_scope:
+                    # Out of scope - let LLM's "we don't sell X" response stand
+                    logger.info(f"[HANDLER] Out-of-scope query detected: '{request.message}', skipping safety catch")
+                else:
+                    # Furniture-related but LLM didn't call tool - force it
+                    logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
+                    logger.warning(f"[HANDLER] Forcing search_products call to prevent hallucination")
+                    logger.warning(f"[HANDLER] Using query: '{refined_message}'")
+                    print(f"[DEBUG] ⚠️ FORCING TOOL CALL - LLM tried to hallucinate products!")
+                    print(f"[DEBUG] Query being sent to search: '{refined_message}'")
+                    print(f"[DEBUG] Original message: '{original_message}', Refined: '{refined_message}'")
+                    
+                    # Create forced tool call using the refined message (after context applied)
+                    from .hf_llm_client import FunctionCall
+                    llm_response.function_calls = [
+                        FunctionCall(
+                            name="search_products",
+                            arguments={"query": refined_message}
+                        )
+                    ]
+                    # Clear the hallucinated content
+                    llm_response.content = ""
+            
+            # SAFETY CHECK: If product spec Q&A intent but NO tool calls → force get_product_specs!
+            if intent == IntentType.PRODUCT_SPEC_QA and not llm_response.function_calls:
+                # Extract product reference from query (option 5, product 3, etc.)
+                product_ref_match = re.search(r'\b(option|product|number|item)\s+(\d+)', request.message.lower())
+                
+                if product_ref_match:
+                    product_num = int(product_ref_match.group(2))
+                    
+                    # Get product from session (1-indexed in user query, 0-indexed in list)
+                    if session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                        product = session.last_shown_products[product_num - 1]
+                        product_id = product.get('id')
+                        
+                        if product_id:
+                            logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product Q&A but LLM didn't call tool!")
+                            logger.warning(f"[HANDLER] Forcing get_product_specs call for product {product_num} (ID: {product_id})")
+                            print(f"[DEBUG] ⚠️ FORCING get_product_specs - LLM tried to hallucinate specs!")
+                            
+                            # Create forced tool call
+                            from .hf_llm_client import FunctionCall
+                            llm_response.function_calls = [
+                                FunctionCall(
+                                    name="get_product_specs",
+                                    arguments={"product_id": product_id}
+                                )
+                            ]
+                            # Clear the hallucinated content
+                            llm_response.content = ""
+                        else:
+                            logger.error(f"[HANDLER] Product {product_num} has no ID, cannot fetch specs")
+                    else:
+                        logger.warning(f"[HANDLER] Product {product_num} not in session or out of range")
+                else:
+                    logger.warning(f"[HANDLER] Could not extract product number from: {request.message}")
             
             # Process function calls if any
             if llm_response.function_calls:
                 logger.info(f"[HANDLER] Processing {len(llm_response.function_calls)} function calls")
+                
+                # DIAGNOSTIC LOGGING
+                logger.info(f"[DEBUG] Session has {len(session.last_shown_products) if session.last_shown_products else 0} products")
+                if session.last_shown_products:
+                    logger.info(f"[DEBUG] Product IDs in session: {[p.get('id', 'NO-ID') for p in session.last_shown_products]}")
+                logger.info(f"[DEBUG] Original message: '{original_message}'")
+                
+                # VALIDATION: Fix product IDs for spec/availability/comparison tools
+                # LLM might guess wrong IDs (e.g., "LCK-005" for option 5)
+                # Replace with actual IDs from session.last_shown_products
+                for func_call in llm_response.function_calls:
+                    if func_call.name in ['get_product_specs', 'check_availability']:
+                        product_id = func_call.arguments.get('product_id', '')
+                        logger.info(f"[DEBUG] Tool: {func_call.name}, LLM provided ID: '{product_id}'")
+                        
+                        # Try to extract number from user's message - support multiple formats
+                        # Format 1: "option 4", "product 3"
+                        product_ref_match = re.search(r'(?:option|product|number|item|choice)\s+(\d+)', original_message.lower())
+                        # Format 2: "4 option", "3 product" (number first)
+                        if not product_ref_match:
+                            product_ref_match = re.search(r'(\d+)\s+(?:option|product|number|item|choice)', original_message.lower())
+                        # Format 3: Just a number at start ("4" when context is clear)
+                        if not product_ref_match:
+                            product_ref_match = re.search(r'^(\d+)\s*$', original_message.strip())
+                        
+                        product_num = None
+                        if product_ref_match:
+                            product_num = int(product_ref_match.group(1))
+                            logger.info(f"[DEBUG] Extracted product number: {product_num}")
+                        else:
+                            logger.warning(f"[DEBUG] Could not extract product number from: '{original_message}'")
+                        
+                        # ALWAYS correct if we have session products and extracted number
+                        if session.last_shown_products and product_num:
+                            logger.info(f"[DEBUG] Checking product #{product_num} in range 1-{len(session.last_shown_products)}")
+                            
+                            if 0 < product_num <= len(session.last_shown_products):
+                                correct_product = session.last_shown_products[product_num - 1]
+                                correct_product_id = correct_product.get('id')
+                                
+                                if correct_product_id:
+                                    if product_id != correct_product_id:
+                                        logger.warning(f"[HANDLER] ⚠️ CORRECTING PRODUCT ID: LLM used '{product_id}', correct is '{correct_product_id}'")
+                                        print(f"[DEBUG] ✓ Corrected: '{product_id}' → '{correct_product_id}'")
+                                    else:
+                                        logger.info(f"[DEBUG] ✓ Product ID already correct: '{correct_product_id}'")
+                                    # FORCE correct ID regardless
+                                    func_call.arguments['product_id'] = correct_product_id
+                                else:
+                                    logger.error(f"[ERROR] Product #{product_num} has no ID in session!")
+                            else:
+                                logger.error(f"[ERROR] Product number {product_num} out of range (1-{len(session.last_shown_products)})")
+                        elif not session.last_shown_products:
+                            logger.error(f"[ERROR] No products in session - cannot correct ID")
+                        elif not product_num:
+                            logger.error(f"[ERROR] Could not extract product number - cannot correct ID")
+                    
+                    elif func_call.name == 'compare_products':
+                        # Fix product_ids array for comparison
+                        product_ids = func_call.arguments.get('product_ids', [])
+                        
+                        # Try to extract numbers from message (compare 1 and 2, etc.)
+                        numbers = re.findall(r'\b(?:option|product|item)?\s*(\d+)', original_message.lower())
+                        
+                        if numbers and session.last_shown_products:
+                            corrected_ids = []
+                            for num_str in numbers:
+                                product_num = int(num_str)
+                                if 0 < product_num <= len(session.last_shown_products):
+                                    correct_product = session.last_shown_products[product_num - 1]
+                                    correct_id = correct_product.get('id')
+                                    if correct_id:
+                                        corrected_ids.append(correct_id)
+                            
+                            if corrected_ids:
+                                logger.warning(f"[HANDLER] ⚠️ CORRECTING COMPARISON IDs: {product_ids} → {corrected_ids}")
+                                func_call.arguments['product_ids'] = corrected_ids
                 
                 # Execute tools and get results
                 tool_results = await self._execute_function_calls(
@@ -254,20 +463,169 @@ class EasymartAssistantHandler:
                 
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
                 
-                # Add tool results to conversation
+                # Add tool results to conversation with human-readable formatting
+                # Note: HuggingFace doesn't support role="tool", so we use role="user"
                 for tool_name, result in tool_results.items():
-                    result_str = json.dumps(result)
+                    # Format result based on tool type for better LLM comprehension
+                    if tool_name == 'get_product_specs':
+                        # Format specs in readable way
+                        product_name = result.get('product_name', 'Unknown')
+                        price = result.get('price')
+                        description = result.get('description', '')
+                        specs = result.get('specs', {})
+                        error = result.get('error')
+                        message = result.get('message', '')
+                        
+                        if error:
+                            # DON'T pass error to LLM - it causes hallucinations
+                            # Instead, provide a safe message
+                            logger.error(f"[TOOL ERROR] get_product_specs failed: {error}")
+                            result_str = f"Product: {product_name}\nStatus: Information not available\nNote: This product's details could not be retrieved from the database."
+                        elif specs:
+                            # Format specs clearly with product name and structured info
+                            spec_lines = [f"=== PRODUCT INFORMATION ==="]
+                            spec_lines.append(f"Product Name: {product_name}")
+                            if price:
+                                spec_lines.append(f"Price: ${price}")
+                            spec_lines.append("")
+                            
+                            # Add each spec section
+                            for section, content in specs.items():
+                                if content and str(content).strip():
+                                    # Clean up content (remove "nan" values)
+                                    content_str = str(content)
+                                    if 'nan' not in content_str.lower():
+                                        spec_lines.append(f"{section}: {content}")
+                            
+                            result_str = "\n".join(spec_lines)
+                        else:
+                            # No specs - show basic product info
+                            result_str = f"Product: {product_name}\n"
+                            if price:
+                                result_str += f"Price: ${price}\n"
+                            if description:
+                                result_str += f"Description: {description[:200]}{'...' if len(description) > 200 else ''}\n"
+                            result_str += message if message else "No detailed specifications available in database."
+                    
+                    elif tool_name == 'search_products':
+                        # Just include count, not full product list (too verbose)
+                        products = result.get('products', [])
+                        result_str = f"Found {len(products)} products matching the search."
+                    
+                    else:
+                        # Other tools - use JSON
+                        result_str = json.dumps(result)
+                    
                     messages.append(Message(
-                        role="tool",
-                        content=result_str,
-                        name=tool_name
+                        role="user",  # Changed from "tool" to "user" for HF compatibility
+                        content=f"[Tool result from {tool_name}]:\n{result_str}"
                     ))
+                
+                # Add context-aware instruction based on which tool was called
+                # (HuggingFace doesn't support multiple system messages, so use user message)
+                tool_names = list(tool_results.keys())
+                
+                if 'search_products' in tool_names:
+                    # Product search - don't list, UI shows cards
+                    post_tool_instruction = (
+                        "Now respond to the user with ONLY a brief, professional 1-2 sentence intro. "
+                        "DO NOT list products - they will be displayed below your message as cards. "
+                        "DO NOT mention 'UI', 'screen', 'list', or 'display'. "
+                        "Examples:\n"
+                        "- 'I found 5 office chairs for you, displayed above.'\n"
+                        "- 'Here are some excellent locker options matching your search.'\n"
+                        "- 'I've found several red desks that might work perfectly.'"
+                    )
+                elif 'get_product_specs' in tool_names:
+                    # Product specs - check if tool had error
+                    spec_result = tool_results.get('get_product_specs', {})
+                    has_error = 'error' in spec_result or 'Information not available' in str(spec_result)
+                    
+                    if has_error:
+                        # Error-specific instruction - prevent hallucinations
+                        post_tool_instruction = (
+                            "CRITICAL: The tool could not retrieve this product's information.\n\n"
+                            "DO NOT make up prices, dimensions, descriptions, or specifications.\n"
+                            "DO NOT guess or infer information.\n\n"
+                            "Say EXACTLY:\n"
+                            "'I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance.'\n\n"
+                            "DO NOT add anything else."
+                        )
+                    else:
+                        # Normal instruction for successful retrieval
+                        post_tool_instruction = (
+                            "CRITICAL INSTRUCTIONS:\n"
+                            "1. Read the tool result above carefully - it shows REAL product data\n"
+                            "2. Use ONLY information from the tool result - DO NOT make up ANY details\n"
+                            "3. Use the EXACT 'Product Name' shown in the tool result\n"
+                            "4. DO NOT mention product IDs, model numbers, or SKUs unless explicitly shown\n"
+                            "5. If a spec section is shown (Specifications, Features, Material, Dimensions), summarize it naturally\n"
+                            "6. If dimensions contain 'nan' or are missing, DO NOT mention dimensions at all\n"
+                            "7. NEVER invent specs that aren't explicitly in the tool result\n\n"
+                            "Response format (2-4 sentences, natural tone):\n"
+                            "- Start with: 'The [exact product name from tool result]...'"
+                            "- Mention price: 'priced at $[exact price from tool]'"
+                            "- Summarize available specs naturally from the sections shown\n"
+                            "- If specs are limited, say: 'Detailed specifications include [what's shown].'"
+                            "- DO NOT use phrases like 'model OCH-101' or make up model numbers\n\n"
+                            "Be helpful, factual, and only use what's in the tool result."
+                        )
+                elif 'compare_products' in tool_names:
+                    # Comparison - highlight key differences
+                    post_tool_instruction = (
+                        "Now respond by highlighting the main differences between the products. "
+                        "Focus on price, size, material, or features that stand out. "
+                        "Be concise (2-3 sentences). "
+                        "Example: 'Option 1 is more affordable at $199 but smaller, while Option 2 is larger with premium materials at $349.'"
+                    )
+                elif 'check_availability' in tool_names:
+                    # Stock check - clear yes/no
+                    post_tool_instruction = (
+                        "Now respond with the stock status clearly. "
+                        "If in stock, confirm availability. If out of stock, say so directly. "
+                        "Example: 'This item is currently in stock and ready to ship.'"
+                    )
+                elif 'update_cart' in tool_names:
+                    # Cart operation - confirm action
+                    post_tool_instruction = (
+                        "Now respond by confirming the cart action. "
+                        "Be brief and clear. "
+                        "Example: 'I've added the Executive Chair to your cart.'"
+                    )
+                elif 'get_policy_info' in tool_names or 'get_contact_info' in tool_names or 'calculate_shipping' in tool_names:
+                    # Policy/contact/shipping - relay info naturally
+                    post_tool_instruction = (
+                        "Now respond by relaying the information naturally and conversationally. "
+                        "Be helpful and concise. "
+                        "Example: 'We offer a 30-day return period for unused items in original packaging.'"
+                    )
+                else:
+                    # Fallback - generic instruction
+                    post_tool_instruction = (
+                        "Now respond to the user naturally based on the tool results. "
+                        "Be brief, professional, and helpful."
+                    )
+                
+                messages.append(Message(
+                    role="user",
+                    content=post_tool_instruction
+                ))
+                
+                # Determine temperature based on tool type
+                # Lower temp for factual responses (specs, availability, comparison)
+                # Higher temp for conversational responses (search results, policies)
+                if any(tool in tool_names for tool in ['get_product_specs', 'check_availability', 'compare_products']):
+                    response_temperature = 0.3  # Factual, don't hallucinate
+                    max_response_tokens = 100  # Keep it short to reduce hallucination risk
+                else:
+                    response_temperature = 0.7  # Conversational, friendly
+                    max_response_tokens = 150  # Normal length
                 
                 # Call LLM again to generate final response with tool results
                 final_response = await self.llm_client.chat(
                     messages=messages,
-                    temperature=0.7,
-                    max_tokens=512
+                    temperature=response_temperature,
+                    max_tokens=max_response_tokens
                 )
                 
                 # Let LLM generate natural, conversational response
@@ -276,15 +634,85 @@ class EasymartAssistantHandler:
                 
                 # SAFETY: Strip any leaked tool call syntax from message
                 # Remove [TOOL_CALLS], [TOOLCALLS], and their content
-                import re
                 assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 assistant_message = assistant_message.strip()
+                
+                # VALIDATION: Block hallucinated product lists and check if results match query
+                assistant_message = self._validate_response(
+                    assistant_message, 
+                    had_tool_calls=True,
+                    tool_results=tool_results,
+                    original_query=original_message,  # Use saved original message
+                    search_query=request.message  # What was actually searched (after refinement)
+                )
+                
+                # ADDITIONAL VALIDATION: Block hallucinations after tool errors
+                if 'get_product_specs' in tool_results:
+                    spec_result = tool_results['get_product_specs']
+                    if 'error' in spec_result:
+                        # Tool failed - check if LLM hallucinated anyway
+                        has_price = re.search(r'\$\d+', assistant_message)
+                        has_dimensions = re.search(r'\d+\s*[x×]\s*\d+|\d+\s*(cm|mm|kg|inches)', assistant_message)
+                        has_materials = any(word in assistant_message.lower() for word in ['wood', 'metal', 'leather', 'fabric', 'plastic'])
+                        
+                        if has_price or has_dimensions or has_materials:
+                            logger.warning(f"[BLOCKED] LLM hallucinated specs despite tool error!")
+                            print(f"[DEBUG] ✗ Blocked hallucination: {assistant_message[:100]}...")
+                            assistant_message = "I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance."
+                
+                # Additional validation: Check if search results actually match the query
+                if 'search_products' in tool_results:
+                    products = tool_results['search_products'].get('products', [])
+                    if products:
+                        # Extract important nouns from query
+                        query_lower = request.message.lower()
+                        important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
+                                          'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
+                                          'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes'}
+                        
+                        query_nouns = set(query_lower.split()) & important_nouns
+                        
+                        if query_nouns:
+                            # Check if ANY product name contains the query nouns
+                            matching_products = []
+                            for product in products:
+                                product_name = product.get('name', '').lower()
+                                if any(noun in product_name for noun in query_nouns):
+                                    matching_products.append(product)
+                            
+                            # If NO products match the key nouns, update message
+                            if len(matching_products) == 0:
+                                # Extract attributes (colors, materials) from query
+                                attributes = []
+                                color_keywords = ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow']
+                                for color in color_keywords:
+                                    if color in query_lower:
+                                        attributes.append(color)
+                                
+                                noun_str = ' '.join(query_nouns)
+                                if attributes:
+                                    attr_str = ' '.join(attributes)
+                                    assistant_message = f"I couldn't find any {noun_str} in {attr_str}. Would you like to try a different color or see all available {noun_str}?"
+                                else:
+                                    assistant_message = f"I couldn't find any {noun_str} matching your search. Here are some related products that might interest you."
+                                
+                                logger.warning(f"[VALIDATION] ⚠️ No products matched query nouns: {query_nouns}")
+                                logger.warning(f"[VALIDATION] Returned products were: {[p.get('name') for p in products[:3]]}")
                 
                 logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
             else:
                 # No function calls, use content directly
                 assistant_message = llm_response.content
+                
+                # VALIDATION: Block responses that list fake products without tool calls
+                assistant_message = self._validate_response(
+                    assistant_message,
+                    had_tool_calls=False,
+                    tool_results={},
+                    original_query=original_message,
+                    search_query=""
+                )
             
             # Add assistant response to history
             session.add_message("assistant", assistant_message)
@@ -325,6 +753,162 @@ class EasymartAssistantHandler:
                 metadata={"error": str(e)}
             )
     
+    def _apply_context_refinement(self, message: str, session: SessionContext) -> str:
+        """
+        Detect if the current message is a refinement of a previous query
+        and combine it with context from conversation history.
+        Handles both adding new filters and replacing conflicting filters.
+        
+        Args:
+            message: Current user message
+            session: Session context with conversation history
+        
+        Returns:
+            Refined message with context applied, or original if not a refinement
+        """
+        message_lower = message.lower().strip()
+        
+        # Attribute categories for filter replacement
+        attribute_groups = {
+            'color': ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow', 'pink', 'purple', 'orange', 'beige', 'navy', 'silver', 'gold'],
+            'age_group': ['kids', 'children', 'child', 'toddler', 'baby', 'infant', 'teen', 'teenager', 'adult'],
+            'size': ['small', 'large', 'big', 'huge', 'tiny', 'medium', 'tall', 'short', 'wide', 'narrow', 'compact', 'spacious'],
+            'material': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel', 'oak', 'pine', 'velvet', 'cotton'],
+            'price': ['cheap', 'expensive', 'affordable', 'budget', 'luxury', 'premium', 'economy', 'high-end', 'low-cost'],
+        }
+        
+        # Refinement patterns: short queries that modify previous search
+        refinement_patterns = [
+            r'^(for|in|with)\s+',  # "for kids", "in black", "with storage"
+            r'^(show|find|get)\s+(me\s+)?(some|the|a|an)?\s*$',  # "show me some", "find the"
+        ]
+        
+        import re
+        is_refinement = any(re.match(pattern, message_lower) for pattern in refinement_patterns)
+        
+        # Also check if message is very short (likely a refinement)
+        words = message_lower.split()
+        all_refinement_keywords = [keyword for keywords in attribute_groups.values() for keyword in keywords]
+        
+        if len(words) <= 3 and not is_refinement:
+            if any(keyword in message_lower for keyword in all_refinement_keywords):
+                is_refinement = True
+        
+        if not is_refinement:
+            return message  # Not a refinement, return as-is
+        
+        # Extract context from recent conversation
+        # Look for the last product search query that's NOT a refinement
+        last_search_query = None
+        for msg in reversed(session.messages[-10:]):  # Check last 10 messages
+            if msg["role"] == "user":
+                user_msg = msg["content"]
+                user_msg_lower = user_msg.lower()
+                
+                # Skip if it's a question about a specific product
+                if any(word in user_msg_lower for word in ['option', 'number', 'tell me about', 'what is', 'describe']):
+                    continue
+                
+                # Skip if it's a pure refinement query (short queries starting with for/in/with)
+                words = user_msg_lower.split()
+                if len(words) <= 3:
+                    # Check if it starts with refinement patterns
+                    if any(user_msg_lower.startswith(prefix) for prefix in ['for ', 'in ', 'with ']):
+                        logger.info(f"[CONTEXT] Skipping refinement query: '{user_msg}'")
+                        continue
+                
+                # This is a full search query - use it as base
+                last_search_query = user_msg
+                logger.info(f"[CONTEXT] Found last full search query: '{last_search_query}'")
+                break
+        
+        if not last_search_query:
+            logger.info(f"[CONTEXT] No previous full search found for refinement of: '{message}'")
+            return message  # No previous search found, return as-is
+        
+        # Clean up the last search query - extract just the product/subject
+        # Remove common action phrases to get the core search term
+        last_query_clean = last_search_query.lower()
+        for prefix in ['show me ', 'find me ', 'get me ', 'search for ', 'looking for ', 'i want ', 'i need ']:
+            if last_query_clean.startswith(prefix):
+                last_query_clean = last_query_clean[len(prefix):]
+                break
+        
+        # Remove common suffixes
+        for suffix in [' please', ' thanks', ' thank you']:
+            if last_query_clean.endswith(suffix):
+                last_query_clean = last_query_clean[:-len(suffix)]
+                break
+        
+        last_query_clean = last_query_clean.strip()
+        
+        # CRITICAL: Remove any attributes that may have been hallucinated by LLM
+        # Only keep attributes that were explicitly in the original user query
+        # This prevents "show me lockers" → LLM says "in black" → next query picks up "black"
+        original_had_attributes = {}
+        for category, keywords in attribute_groups.items():
+            for keyword in keywords:
+                if keyword in last_search_query.lower():  # Check ORIGINAL user message
+                    original_had_attributes[category] = keyword
+                    break
+        
+        # Remove any attribute words that weren't in the original query
+        for category, keywords in attribute_groups.items():
+            if category not in original_had_attributes:
+                # This category wasn't in original query - remove all its keywords
+                for keyword in keywords:
+                    if keyword in last_query_clean:
+                        last_query_clean = last_query_clean.replace(keyword, '').strip()
+                        logger.info(f"[CONTEXT] Removed hallucinated attribute '{keyword}' from context")
+        
+        # Clean up multiple spaces
+        last_query_clean = ' '.join(last_query_clean.split())
+        logger.info(f"[CONTEXT] Cleaned base query: '{last_query_clean}'")
+        
+        # Remove common prefixes from current message
+        clean_message = message_lower
+        for prefix in ['for ', 'in ', 'with ', 'show me ', 'find me ', 'get me ']:
+            if clean_message.startswith(prefix):
+                clean_message = clean_message[len(prefix):]
+                break
+        
+        # Remove common suffixes (including "colour" and "color" as they're redundant)
+        for suffix in [' colour', ' color', ' please', ' thanks', ' thank you']:
+            if clean_message.endswith(suffix):
+                clean_message = clean_message[:-len(suffix)].strip()
+        
+        clean_message = clean_message.strip()
+        logger.info(f"[CONTEXT] Cleaned current message: '{clean_message}'")
+        
+        # Detect what attribute category the new refinement belongs to
+        new_attribute_category = None
+        new_attribute_value = None
+        for category, keywords in attribute_groups.items():
+            for keyword in keywords:
+                if keyword in clean_message:
+                    new_attribute_category = category
+                    new_attribute_value = keyword
+                    break
+            if new_attribute_category:
+                break
+        
+        # If we detected a new attribute, check if we need to REPLACE an existing one
+        if new_attribute_category and new_attribute_value:
+            # Check if the last query contains an attribute from the same category
+            for existing_keyword in attribute_groups[new_attribute_category]:
+                if existing_keyword in last_query_clean and existing_keyword != new_attribute_value:
+                    # Found a conflicting attribute - REPLACE it
+                    refined_query = last_query_clean.replace(existing_keyword, new_attribute_value)
+                    logger.info(f"[CONTEXT] Filter replacement detected. Replacing '{existing_keyword}' with '{new_attribute_value}' in '{last_query_clean}' → '{refined_query}'")
+                    return refined_query
+        
+        # No conflict found - ADD the new filter to existing context
+        # Put base query first, then the refinement for better search results
+        refined_query = f"{last_query_clean} {clean_message}"
+        logger.info(f"[CONTEXT] Filter addition detected. Base: '{last_query_clean}', Addition: '{clean_message}', Combined: '{refined_query}'")
+        
+        return refined_query
+    
     def _build_messages(self, session: SessionContext) -> List[Message]:
         """
         Build message list for LLM from session history.
@@ -339,6 +923,56 @@ class EasymartAssistantHandler:
             Message(role="system", content=self.system_prompt)
         ]
         
+        # Add few-shot examples to teach LLM the correct format
+        # These examples show BOTH tool calling AND post-tool responses
+        # CRITICAL: Show COMPLETE format with [/TOOLCALLS] closing tag
+        few_shot_examples = [
+            # Example 1: Basic product search
+            Message(role="user", content="show me office chairs"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "office chairs"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Found 5 office chairs: Executive Chair ($299), Ergonomic Chair ($349), Mesh Chair ($199), Leather Chair ($499), Adjustable Chair ($279) [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I found 5 office chairs for you. They're displayed above as options 1-5. Would you like details on any of them?"),
+            
+            # Example 2: Context refinement (adding attribute)
+            Message(role="user", content="for kids"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "kids office chairs"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Found 2 office chairs: Kids Study Chair ($149), Junior Desk Chair ($129) [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I found 2 office chairs suitable for kids. They're shown above. Let me know if you'd like specifications for either option."),
+            
+            # Example 3: Product specification query
+            Message(role="user", content="tell me about option 1"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_product_specs", "arguments": {"product_id": "CHR-001"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Kids Study Chair: Dimensions 45x45x80cm, weight capacity 50kg, fabric upholstery, adjustable height, easy assembly [/TOOL_RESULTS]"),
+            Message(role="assistant", content="The Kids Study Chair has dimensions of 45×45×80cm with a 50kg weight capacity. It features fabric upholstery and adjustable height, and is easy to assemble."),
+            
+            # Example 4: No results found
+            Message(role="user", content="show me pink unicorn desks"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "pink unicorn desks"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Found 0 products matching query [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I couldn't find any products matching 'pink unicorn desks'. Would you like to try a different search?"),
+            
+            # Example 5: Filter replacement (color change)
+            Message(role="user", content="show me desks in black"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "desks in black"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Found 3 desks [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I found 3 black desks for you. They're displayed as options 1-3 above."),
+            Message(role="user", content="in white"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "desks in white"}}] [/TOOLCALLS]'),
+            
+            # Example 6: Cart operation
+            Message(role="user", content="add option 2 to cart"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "update_cart", "arguments": {"action": "add", "product_id": "DSK-002", "quantity": 1}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Added Modern Desk to cart [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I've added the Modern Desk to your cart. Would you like to continue shopping or view your cart?"),
+            
+            # Example 7: Policy question (no tool needed)
+            Message(role="user", content="what's your return policy?"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_policy_info", "arguments": {"policy_type": "returns"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] 30 day return period, items must be unused and in original packaging [/TOOL_RESULTS]"),
+            Message(role="assistant", content="We offer a 30-day return period. Items must be unused and in their original packaging to qualify for a return."),
+        ]
+        messages.extend(few_shot_examples)
+        
         # Add conversation history (last 10 messages for context window)
         for msg in session.messages[-10:]:
             messages.append(Message(
@@ -347,6 +981,148 @@ class EasymartAssistantHandler:
             ))
         
         return messages
+    
+    def _validate_response(
+        self, 
+        response: str, 
+        had_tool_calls: bool,
+        tool_results: Dict[str, Any],
+        original_query: str = "",
+        search_query: str = ""
+    ) -> str:
+        """
+        Validate response to prevent hallucinated product listings and attributes.
+        
+        Args:
+            response: LLM response text
+            had_tool_calls: Whether tools were called
+            tool_results: Results from tool execution
+            original_query: Original user query (before context refinement)
+            search_query: Actual search query used (after context refinement)
+        
+        Returns:
+            Validated (possibly modified) response
+        """
+        import re
+        
+        # Check if response mentions wrong product type
+        # Extract important nouns from search query
+        if search_query and had_tool_calls:
+            important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
+                              'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
+                              'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes'}
+            
+            search_nouns = set(search_query.lower().split()) & important_nouns
+            response_lower = response.lower()
+            
+            if search_nouns:
+                # Check if response mentions WRONG product type
+                # E.g., search for "lockers" but response says "desks"
+                for search_noun in search_nouns:
+                    # Normalize to singular
+                    base_noun = search_noun.rstrip('s')
+                    
+                    # Check if response mentions this noun or its plural
+                    has_correct_noun = base_noun in response_lower or (base_noun + 's') in response_lower
+                    
+                    if not has_correct_noun:
+                        # Response doesn't mention the searched product type at all!
+                        # Check if it mentions a DIFFERENT product type
+                        wrong_nouns = important_nouns - {base_noun, base_noun + 's'}
+                        mentioned_wrong = [noun for noun in wrong_nouns if noun in response_lower]
+                        
+                        if mentioned_wrong:
+                            logger.warning(f"[VALIDATION] ⚠️ Response mentions wrong product type!")
+                            logger.warning(f"[VALIDATION] Searched for: {search_noun}, Response mentions: {mentioned_wrong}")
+                            # Replace with generic response
+                            return f"I found several options that match your search."
+        
+        # Check if response contains product listings
+        # Note: Removed 'Artiss' pattern - it's OK to mention product names in specs responses
+        listing_patterns = [
+            r'\d+\.\s+[A-Z].*\$\d+',          # "1. Product Name - $99"
+            r'Here are (five|\d+) (chairs|desks|tables|products|items)',
+            r'\$\d+\.\d+\)',                  # Prices in parentheses
+            r'(Black|White|Blue|Red|Green)\s+\(\$',  # Color with price
+        ]
+        
+        has_product_listing = any(re.search(p, response) for p in listing_patterns)
+        
+        if has_product_listing:
+            if had_tool_calls and 'search_products' in tool_results:
+                # LLM listed products after search_products tool call - replace with short intro
+                product_count = len(tool_results['search_products'].get('products', []))
+                if product_count > 0:
+                    logger.warning(f"[VALIDATION] Blocked product listing, replacing with short intro")
+                    return f"I found {product_count} great options for you!"
+                else:
+                    return "I couldn't find any products matching that search."
+            elif had_tool_calls and 'get_product_specs' in tool_results:
+                # For get_product_specs, mentioning the product name is EXPECTED and correct
+                # Only block if it's listing MULTIPLE products with numbers (1. Product $99, 2. Product $99)
+                numbered_list = re.search(r'\d+\.\s+[A-Z].*\$\d+', response)
+                if numbered_list:
+                    logger.error(f"[VALIDATION] Blocked hallucinated product listing in specs response!")
+                    return "Let me provide you with the details from our database."
+                # Single product mention is fine - don't block
+            elif not had_tool_calls:
+                # LLM tried to hallucinate products without any tool call
+                logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
+                return "Let me search our catalog for you."
+        
+        # Block hallucinated attributes in response that weren't in user's query
+        # Common attributes: colors, materials, sizes, age groups
+        attribute_keywords = {
+            'colors': ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow', 'pink', 'purple', 'orange', 'beige', 'navy', 'silver', 'gold'],
+            'materials': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel'],
+            'sizes': ['small', 'large', 'big', 'tiny', 'medium', 'compact'],
+            'age_groups': ['kids', 'children', 'child', 'baby', 'adult', 'teen']
+        }
+        
+        if had_tool_calls and original_query:
+            query_lower = original_query.lower()
+            response_lower = response.lower()
+            
+            # Check if response mentions attributes that weren't in the query
+            for attr_type, keywords in attribute_keywords.items():
+                for keyword in keywords:
+                    # If attribute is in response but NOT in original query
+                    if keyword in response_lower and keyword not in query_lower:
+                        # Check if it's in a meaningful context (not just "in black")
+                        attr_patterns = [
+                            rf'\bin {keyword}\b',           # "in black"
+                            rf'\b{keyword} \w+',            # "black lockers"  
+                            rf'\w+ {keyword}\b',            # "office black"
+                        ]
+                        if any(re.search(p, response_lower) for p in attr_patterns):
+                            logger.warning(f"[VALIDATION] ⚠️ Blocked hallucinated attribute '{keyword}' not in query!")
+                            logger.warning(f"[VALIDATION] Query: '{original_query}', Response mentioned: '{keyword}'")
+                            # Remove the hallucinated attribute mention
+                            response = re.sub(rf'\s*in {keyword}', '', response, flags=re.IGNORECASE)
+                            response = re.sub(rf'{keyword} ', '', response, flags=re.IGNORECASE, count=1)
+                            response = response.strip()
+        
+        # Block hallucinated product specifications (dimensions, materials, colors)
+        # These should ONLY come from get_product_specs tool, not LLM imagination
+        spec_hallucination_patterns = [
+            r'\b\d+\s*cm\s*\(width\)|\b\d+\s*cm\s*\(height\)|\b\d+\s*cm\s*\(depth\)',  # Specific dimensions
+            r'\bmade of\s+(plastic|wood|metal|fabric|leather)',  # Material claims
+            r'\bcomes in\s+(various|vibrant|different)\s+colors?',  # Color variety claims
+            r'\bapproximately\s+\d+\s*cm',  # "approximately X cm"
+            r'\bseat is (comfortable|padded|cushioned)',  # Comfort claims
+            r'\bbackrest provides (adequate|good|excellent) support',  # Support claims
+            r'\bperfect for (a kid|children|kids)',  # Usage claims
+        ]
+        
+        # Only validate if NO tool calls were made (LLM is making things up)
+        if not had_tool_calls:
+            for pattern in spec_hallucination_patterns:
+                if re.search(pattern, response, re.IGNORECASE):
+                    logger.warning(f"[VALIDATION] ⚠️ Blocked hallucinated product specification!")
+                    logger.warning(f"[VALIDATION] Spec pattern matched: {pattern}")
+                    return "I need to look up the specific details for that product. Could you specify which product number you're asking about?"
+        
+        return response
     
     async def _execute_function_calls(
         self,

@@ -38,6 +38,8 @@ class IntentDetector:
             r'\bwhat (is|are) (the|its)\b.*\b(dimensions?|sizes?|material|color|weight)\b',
             r'\b(made of|assembly|care instruction|warranty)\b',
             r'\b(seat|weight capacity|load)\b',
+            r'\btell me (about|more about)\s+(product|option|number|item|the)\s+\d+',
+            r'\b(product|option|number|item)\s+\d+',
         ],
         IntentType.CART_ADD: [
             r'\b(add|put)\b.*\b(to|in|into)\b.*\b(cart|basket)\b',
@@ -98,6 +100,11 @@ class IntentDetector:
             r'^\s*how\s+are\s+you\s*\??$',
             r'^\s*what\'?s\s+up\s*\??$',
             r'^\s*howdy\s*$',
+            # Flexible patterns for greetings
+            r'^hi+$',           # hi, hii, hiii
+            r'^hey+$',          # hey, heyy, heyyy
+            r'^hello+$',        # hello, hellooo
+            r'^h[ie]+y*$',      # hi, hii, hey, heyyy
         ],
         IntentType.GENERAL_HELP: [
             r'\b(help|assist|support)\b',
@@ -132,19 +139,35 @@ class IntentDetector:
         if message_lower in greeting_exact:
             return IntentType.GREETING
         
-        # PRIORITY 2: Check for context-dependent questions (referring to previously shown products)
+        # PRIORITY 2: Check for BROAD product search patterns (catch vague queries)
+        # This must come before specific patterns to catch "something for kids", etc.
+        broad_product_patterns = [
+            r'\b(show|find|search|looking for|want|need|get me)\b',  # Action verbs
+            r'\b(something|anything|items|products|furniture)\b',     # Generic nouns
+            r'\bfor\s+(kids|children|baby|toddler|adult|teen|gaming|office|home|bedroom|living room|kitchen|dining|study|outdoor)\b',  # Context - expanded!
+            r'\bin\s+(black|white|red|blue|green|brown|grey|gray|wood|metal|leather|fabric)\b',  # Colors/materials with "in"
+            r'\bwith\s+(storage|drawers|wheels|cushion|armrest)\b',  # Features with "with"
+            r'\b(cheap|affordable|expensive|best|good|quality|nice|premium|luxury|budget)\b',  # Adjectives
+            r'\bunder\s+\$?\d+\b',  # Price queries
+            r'\b(small|large|big|compact|modern|classic|vintage|contemporary)\b',  # Size/style
+        ]
+        
+        # If ANY broad pattern matches, assume PRODUCT_SEARCH
+        if any(re.search(pattern, message_lower) for pattern in broad_product_patterns):
+            return IntentType.PRODUCT_SEARCH
+        
+        # PRIORITY 3: Check for context-dependent questions (referring to previously shown products)
         # These should be PRODUCT_SPEC_QA, not PRODUCT_SEARCH
         context_references = [
+            r'\btell me (about|more about)\s+(product|option|number|item)',  # "tell me about product 3"
+            r'\b(product|option|number|item)\s+\d+',  # "product 3", "option 1"
             r'\b(this|that|the|it)\s+(one|chair|table|desk|sofa|bed|product|item)',
             r'\b(first|second|third|last|option)\s+(one|chair|table|product)',
-            r'\b(option|number)\s+\d+',
             r'\b(the|this|that)\s+\$?\d+',
             r'\bmore (info|information|details|about)\s+(this|that|the|it)',
             r'\b(feature|spec|dimension|detail)s?\s+of\s+(this|that|the|it)',
         ]
         for pattern in context_references:
-            if re.search(pattern, message_lower):
-                return IntentType.PRODUCT_SPEC_QA
             if re.search(pattern, message_lower):
                 return IntentType.PRODUCT_SPEC_QA
         

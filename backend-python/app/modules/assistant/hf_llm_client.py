@@ -190,52 +190,102 @@ class HuggingFaceLLMClient:
         text_normalized = text.replace("\\_", "_")  # Unescape underscores
         
         # Support both [TOOLCALLS] and [TOOL_CALLS] formats for backward compatibility
-        has_toolcalls = "[TOOLCALLS]" in text_normalized and "[/TOOLCALLS]" in text_normalized
-        has_tool_calls = "[TOOL_CALLS]" in text_normalized and "[/TOOL_CALLS]" in text_normalized
+        has_toolcalls_open = "[TOOLCALLS]" in text_normalized
+        has_tool_calls_open = "[TOOL_CALLS]" in text_normalized
         
-        if has_toolcalls or has_tool_calls:
-            marker = "[TOOLCALLS]" if has_toolcalls else "[TOOL_CALLS]"
-            end_marker = "[/TOOLCALLS]" if has_toolcalls else "[/TOOL_CALLS]"
+        if has_toolcalls_open or has_tool_calls_open:
+            marker = "[TOOLCALLS]" if has_toolcalls_open else "[TOOL_CALLS]"
+            end_marker = "[/TOOLCALLS]" if has_toolcalls_open else "[/TOOL_CALLS]"
             
-            print(f"[DEBUG HF] Found {marker} markers in LLM response")
-            # Extract tool calls
-            try:
-                start = text_normalized.index(marker) + len(marker)
-                end = text_normalized.index(end_marker)
-                tool_calls_str = text_normalized[start:end].strip()
-                
-                print(f"[DEBUG HF] Extracted tool_calls_str: {tool_calls_str[:200]}")
-                
-                # Extract content (everything not in tool calls)
-                content_before = text_normalized[:text_normalized.index(marker)].strip()
-                content_after = text_normalized[end + len(end_marker):].strip()
-                content = f"{content_before}\n{content_after}".strip()
+            # Check if closing tag exists
+            has_closing = end_marker in text_normalized
             
-                tool_calls_json = json.loads(tool_calls_str)
-                if not isinstance(tool_calls_json, list):
-                    tool_calls_json = [tool_calls_json]
+            if has_closing:
+                print(f"[DEBUG HF] Found {marker} markers in LLM response")
+                # Extract tool calls with proper closing
+                try:
+                    start = text_normalized.index(marker) + len(marker)
+                    end = text_normalized.index(end_marker)
+                    tool_calls_str = text_normalized[start:end].strip()
+                    
+                    print(f"[DEBUG HF] Extracted tool_calls_str: {tool_calls_str[:200]}")
+                    
+                    # Extract content (everything not in tool calls)
+                    content_before = text_normalized[:text_normalized.index(marker)].strip()
+                    content_after = text_normalized[end + len(end_marker):].strip()
+                    content = f"{content_before}\n{content_after}".strip()
                 
-                print(f"[DEBUG HF] Successfully parsed {len(tool_calls_json)} tool calls")
-                
-                function_calls = [
-                    FunctionCall(
-                        name=call.get("name", ""),
-                        arguments=call.get("arguments", {})
+                    tool_calls_json = json.loads(tool_calls_str)
+                    if not isinstance(tool_calls_json, list):
+                        tool_calls_json = [tool_calls_json]
+                    
+                    print(f"[DEBUG HF] Successfully parsed {len(tool_calls_json)} tool calls")
+                    
+                    function_calls = [
+                        FunctionCall(
+                            name=call.get("name", ""),
+                            arguments=call.get("arguments", {})
+                        )
+                        for call in tool_calls_json
+                    ]
+                    
+                    print(f"[DEBUG HF] Returning LLMResponse with {len(function_calls)} function_calls")
+                    
+                    return LLMResponse(
+                        content=content,
+                        function_calls=function_calls,
+                        finish_reason="function_call"
                     )
-                    for call in tool_calls_json
-                ]
+                except (ValueError, json.JSONDecodeError) as e:
+                    print(f"[DEBUG HF] PARSING FAILED: {e}")
+                    print(f"[DEBUG HF] Falling back to incomplete tool call extraction")
+            
+            # FALLBACK: No closing tag or parsing failed - try to extract JSON array manually
+            print(f"[DEBUG HF] WARNING: {marker} found but no {end_marker} - attempting recovery")
+            try:
+                start_idx = text_normalized.index(marker) + len(marker)
+                remaining_text = text_normalized[start_idx:].strip()
                 
-                print(f"[DEBUG HF] Returning LLMResponse with {len(function_calls)} function_calls")
-                
-                return LLMResponse(
-                    content=content,
-                    function_calls=function_calls,
-                    finish_reason="function_call"
-                )
-            except (ValueError, json.JSONDecodeError) as e:
-                # Invalid format or JSON, treat as regular response
-                print(f"[DEBUG HF] PARSING FAILED: {e}")
-                print(f"[DEBUG HF] Returning raw text as content (may contain fake products!)")
+                # Try to find the JSON array - look for [{ ... }]
+                if remaining_text.startswith('['):
+                    # Find matching closing bracket for array
+                    bracket_count = 0
+                    end_idx = 0
+                    for i, char in enumerate(remaining_text):
+                        if char == '[':
+                            bracket_count += 1
+                        elif char == ']':
+                            bracket_count -= 1
+                            if bracket_count == 0:
+                                end_idx = i + 1
+                                break
+                    
+                    if end_idx > 0:
+                        tool_calls_str = remaining_text[:end_idx]
+                        print(f"[DEBUG HF] Recovered tool_calls_str: {tool_calls_str[:200]}")
+                        
+                        tool_calls_json = json.loads(tool_calls_str)
+                        if not isinstance(tool_calls_json, list):
+                            tool_calls_json = [tool_calls_json]
+                        
+                        print(f"[DEBUG HF] Successfully recovered {len(tool_calls_json)} tool calls")
+                        
+                        function_calls = [
+                            FunctionCall(
+                                name=call.get("name", ""),
+                                arguments=call.get("arguments", {})
+                            )
+                            for call in tool_calls_json
+                        ]
+                        
+                        return LLMResponse(
+                            content="",  # Ignore any text, tool call is what matters
+                            function_calls=function_calls,
+                            finish_reason="function_call"
+                        )
+            except (ValueError, json.JSONDecodeError, IndexError) as e:
+                print(f"[DEBUG HF] RECOVERY FAILED: {e}")
+                print(f"[DEBUG HF] Returning raw text as content")
                 return LLMResponse(content=text, finish_reason="stop")
         
         # No function calls, regular response

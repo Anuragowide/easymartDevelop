@@ -128,11 +128,83 @@ def load_from_csv(filepath: str = None) -> List[Dict[str, Any]]:
             "tags": p.get("Tags", "").split(", ") if p.get("Tags") else [],
             "image_url": p.get("Image Src"),
             "vendor": p.get("Vendor"),
-            "handle": p.get("Handle")
+            "handle": p.get("Handle"),
+            # Extract spec data from CSV - filter out NaN/None values
+            "specs": {
+                "specifications": p.get("Specifications") if pd.notna(p.get("Specifications")) else None,
+                "features": p.get("Features") if pd.notna(p.get("Features")) else None,
+                "material": p.get("Material") if pd.notna(p.get("Material")) else None,
+                "dimensions": {
+                    "length": p.get("Length") if pd.notna(p.get("Length")) else None,
+                    "width": p.get("Width") if pd.notna(p.get("Width")) else None,
+                    "height": p.get("Height") if pd.notna(p.get("Height")) else None
+                }
+            }
         }
         mapped_products.append(mapped)
                 
     return process_products(mapped_products)
+
+def extract_specs_from_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract specs from products for indexing"""
+    all_specs = []
+    
+    for product in products:
+        sku = product.get('sku')
+        if not sku:
+            continue
+            
+        specs_data = product.get('specs', {})
+        
+        # Add Specifications section
+        if specs_data.get('specifications'):
+            all_specs.append({
+                'sku': sku,
+                'section': 'Specifications',
+                'spec_text': specs_data['specifications'],
+                'attributes': {}
+            })
+        
+        # Add Features section
+        if specs_data.get('features'):
+            all_specs.append({
+                'sku': sku,
+                'section': 'Features',
+                'spec_text': specs_data['features'],
+                'attributes': {}
+            })
+        
+        # Add Material section
+        if specs_data.get('material'):
+            all_specs.append({
+                'sku': sku,
+                'section': 'Material',
+                'spec_text': f"Material: {specs_data['material']}",
+                'attributes': {'material': specs_data['material']}
+            })
+        
+        # Add Dimensions section
+        dims = specs_data.get('dimensions', {})
+        if any([dims.get('length'), dims.get('width'), dims.get('height')]):
+            dim_parts = []
+            # Only add dimensions that aren't None/NaN
+            if dims.get('length') and pd.notna(dims.get('length')):
+                dim_parts.append(f"Length: {dims['length']}cm")
+            if dims.get('width') and pd.notna(dims.get('width')):
+                dim_parts.append(f"Width: {dims['width']}cm")
+            if dims.get('height') and pd.notna(dims.get('height')):
+                dim_parts.append(f"Height: {dims['height']}cm")
+            
+            # Only add dimension section if we have at least one valid dimension
+            if dim_parts:
+                all_specs.append({
+                    'sku': sku,
+                    'section': 'Dimensions',
+                    'spec_text': ' | '.join(dim_parts),
+                    'attributes': {k: v for k, v in dims.items() if v and pd.notna(v)}
+                })
+    
+    return all_specs
 
 async def main():
     indexer = CatalogIndexer()
@@ -149,12 +221,17 @@ async def main():
         print("[Catalog] ❌ No products found from API or CSV. Aborting.")
         return
 
-    # 3. Index the data
+    # 3. Index the products
     print(f"[Catalog] Starting indexing for {len(products)} products...")
-    
-    # Run the synchronous indexing in a thread to be async-friendly
-    # Note: CatalogIndexer uses addProducts, not index_products
     await asyncio.to_thread(indexer.addProducts, products)
+    
+    # 4. Extract and index specs
+    specs = extract_specs_from_products(products)
+    if specs:
+        print(f"[Catalog] Indexing {len(specs)} specifications...")
+        await asyncio.to_thread(indexer.addSpecs, specs)
+    else:
+        print("[Catalog] ⚠️ No specifications found to index")
     
     print("[Catalog] ✅ Catalog loading and indexing complete.")
 
