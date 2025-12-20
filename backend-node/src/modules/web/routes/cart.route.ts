@@ -20,7 +20,7 @@ export default async function cartRoutes(fastify: FastifyInstance) {
    */
   fastify.post('/api/cart/add', async (request: FastifyRequest<{ Body: CartRequestBody }>, reply: FastifyReply) => {
     try {
-      const { product_id, quantity = 1, session_id } = request.body;
+      const { product_id, quantity = 1, session_id, action } = request.body;
 
       if (!product_id || !session_id) {
         return reply.code(400).send({
@@ -29,7 +29,7 @@ export default async function cartRoutes(fastify: FastifyInstance) {
         });
       }
 
-      logger.info('Adding to cart', { product_id, quantity, session_id });
+      logger.info('Adding to cart', { product_id, quantity, session_id, action });
 
       // Forward to Python backend
       const response = await pythonAssistantClient.request(
@@ -38,7 +38,7 @@ export default async function cartRoutes(fastify: FastifyInstance) {
         {
           product_id,
           quantity,
-          action: 'add',
+          action: action || 'add',  // Use action from request, default to 'add'
           session_id
         }
       );
