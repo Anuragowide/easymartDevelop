@@ -484,27 +484,109 @@ Clicking the `-` (decrease) button on product quantity counter adds products ins
 ### Current Behavior
 
 - Click `+` button → quantity increases ✅
-- Click `-` button → quantity increases ❌ (should decrease)
+- Click `-` button → API returns 500 error, quantity doesn't decrease ❌
 
-### Root Cause
+### Root Cause Analysis
 
-To be investigated. Possible causes:
-- Frontend `decreaseQuantity()` logic error
-- Backend `action: 'set'` not working correctly
-- Field mapping issue between backend and frontend
+**Identified Root Cause:** Node backend `cart.route.ts` was hardcoding `action: 'add'` instead of passing the `action` parameter from frontend.
 
-### Investigation Steps
+**Frontend Flow:**
+1. User clicks `-` → `handleDecrease(product)` called
+2. `decreaseQuantity(productId)` calculates `newQuantity = currentQty - 1`
+3. `cartApi.updateQuantity(productId, newQuantity)` sends request with `action: 'set'`
+4. ✅ Frontend logic is correct
 
-- [ ] Add console.log to `decreaseQuantity()` in cartStore.ts
-- [ ] Check what quantity value is being sent to backend
-- [ ] Verify backend `action: 'set'` logic in tools.py
-- [ ] Check cart response from POST /assistant/cart
+**Node Backend Issue (FIXED):**
+- Line 38 in `cart.route.ts` was hardcoded: `action: 'add'`
+- This overwrote the frontend's `action: 'set'` parameter
+- Fixed by reading `action` from request body: `action: action || 'add'`
 
-### Files Affected
+**Current Status:**
+- Fixed Node backend to pass action parameter
+- Getting 500 error from Python backend (needs investigation)
+- Need to verify Python backend `action: 'set'` logic is working
 
-- `frontend/src/store/cartStore.ts` (decreaseQuantity function)
-- `frontend/src/lib/api.ts` (updateQuantity function)
-- `backend-python/app/modules/assistant/tools.py` (action: 'set' logic)
+### Investigation Progress
+
+**Completed:**
+- ✅ Added extensive debugging logs to frontend cartStore.ts
+- ✅ Added debugging logs to backend tools.py (update_cart)
+- ✅ Added debugging logs to backend session_store.py (add_to_cart)
+- ✅ Fixed Node backend to pass action parameter from frontend
+- ✅ Added field normalization in frontend (id and product_id)
+- ✅ Fixed TypeScript error in cartStore (id could be undefined)
+
+**Remaining Issues:**
+- ❌ Python backend returning 500 error after Node fix
+- ❌ Need to restart Python backend to load debug logs
+- ❌ Need to verify session store operations
+
+### Debugging Added
+
+**Frontend (cartStore.ts):**
+```typescript
+// Lines 76-117: Enhanced decreaseQuantity with logging
+console.log('🔍 [DECREASE] Current quantity:', currentQty);
+console.log('📤 [DECREASE] Sending to API - newQuantity:', newQuantity);
+console.log('📥 [DECREASE] Full response:', response);
+console.log('✅ [DECREASE] Normalized items:', normalizedItems);
+console.log('🔍 [DECREASE] Verify - quantity:', verifyQty);
+```
+
+**Backend (tools.py):**
+```python
+# Lines 553-560: Added logging for action='set'
+logger.info(f"[CART SET] Before remove - cart_items: {session.cart_items}")
+logger.info(f"[CART SET] After remove - cart_items: {session.cart_items}")
+logger.info(f"[CART SET] After add ({quantity}) - cart_items: {session.cart_items}")
+```
+
+**Backend (session_store.py):**
+```python
+# Lines 115-135: Added logging for add_to_cart
+logger.info(f"[ADD_TO_CART] product_id={product_id}, quantity={quantity}")
+logger.info(f"[ADD_TO_CART] Current cart_items: {self.cart_items}")
+logger.info(f"[ADD_TO_CART] Found existing item, adding...")
+logger.info(f"[ADD_TO_CART] Cart items after add: {self.cart_items}")
+```
+
+### Next Steps
+
+1. **Restart Python backend** - Load new debug logs
+2. **Test decrease button** - Should see all debug logs in Python terminal
+3. **Check Python 500 error** - Investigate exact error from Python backend
+4. **Verify session persistence** - Ensure session.cart_items updates correctly
+5. **Test edge cases:**
+   - Decrease from 2 → 1 (should work)
+   - Decrease from 1 → 0 (should remove item)
+   - Check if cart_items updates in session store
+
+### Files Modified
+
+**Frontend:**
+- `frontend/src/store/cartStore.ts` (added debugging, field normalization)
+- `frontend/src/lib/api.ts` (CartItem interface with product_id)
+
+**Backend:**
+- `backend-node/src/modules/web/routes/cart.route.ts` (pass action parameter) ✅ FIXED
+- `backend-python/app/modules/assistant/tools.py` (added debug logs)
+- `backend-python/app/modules/assistant/session_store.py` (added debug logs)
+- `backend-python/app/api/assistant_api.py` (cart enrichment with title/image fields)
+
+### Known Issues Blocking Resolution
+
+1. **Python backend not restarting** - Debug logs not appearing in terminal
+2. **500 error from Python** - Need to see actual error message
+3. **Session persistence unclear** - Need to verify cart_items updates are saved
+
+### Testing Checklist
+
+- [ ] Python backend restarted with debug logs
+- [ ] Click `-` shows `[CART SET]` logs in Python terminal
+- [ ] Cart response shows correct quantity after decrease
+- [ ] Frontend normalizedItems has both id and product_id
+- [ ] Zustand state updates correctly
+- [ ] Cart badge updates to show correct item count
 
 ---
 
