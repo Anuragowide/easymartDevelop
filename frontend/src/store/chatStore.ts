@@ -9,7 +9,7 @@ interface ChatState {
   sessionId: string;
   isLoading: boolean;
   error: string | null;
-  
+
   // Actions
   sendMessage: (text: string) => Promise<void>;
   addMessage: (message: Message) => void;
@@ -27,7 +27,7 @@ export const useChatStore = create<ChatState>()(
 
       sendMessage: async (text: string) => {
         const { sessionId, messages } = get();
-        
+
         // Add user message
         const userMessage: Message = {
           id: generateUUID(),
@@ -36,7 +36,7 @@ export const useChatStore = create<ChatState>()(
           timestamp: new Date().toISOString(),
         };
 
-        set({ 
+        set({
           messages: [...messages, userMessage],
           isLoading: true,
           error: null,
@@ -45,6 +45,25 @@ export const useChatStore = create<ChatState>()(
         try {
           // Call API
           const response: ChatResponse = await chatApi.sendMessage(text, sessionId);
+
+          // Check for session reset signal
+          if (response.metadata?.reset_session) {
+            get().clearMessages(); // Generates new session ID and clears history
+
+            // Add the reset confirmation as the first message of the new session
+            const resetMessage: Message = {
+              id: generateUUID(),
+              role: 'assistant',
+              content: response.replyText,
+              timestamp: new Date().toISOString(),
+            };
+
+            set({
+              messages: [resetMessage],
+              isLoading: false
+            });
+            return;
+          }
 
           // Add assistant message
           const assistantMessage: Message = {
@@ -61,8 +80,8 @@ export const useChatStore = create<ChatState>()(
           }));
         } catch (error: any) {
           const errorMessage = error.response?.data?.message || error.message || 'Failed to send message';
-          
-          set({ 
+
+          set({
             isLoading: false,
             error: errorMessage,
           });

@@ -170,6 +170,28 @@ class EasymartAssistantHandler:
             
             has_shopping_context = any(keyword in message_lower for keyword in shopping_keywords)
             
+            # CHECK FOR RESET/CLEAR COMMANDS
+            reset_keywords = ['clear chat', 'reset chat', 'start over', 'clear history', 'clear session', 'reset session', 'clear all', 'restart chat']
+            is_reset = any(keyword in message_lower for keyword in reset_keywords)
+            
+            if is_reset:
+                logger.info(f"[HANDLER] Reset command detected: {request.message}")
+                reset_message = "I've cleared our conversation history. How can I help you with your shopping today?"
+                
+                # We return a specific metadata flag that frontend will use to clear UI
+                return AssistantResponse(
+                    message=reset_message,
+                    session_id=session.session_id, # Frontend will generate new one
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "system_reset",
+                        "reset_session": True,
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
+            
             if is_off_topic and not has_shopping_context:
                 logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
                 assistant_message = (

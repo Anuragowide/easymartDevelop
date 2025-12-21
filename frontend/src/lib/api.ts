@@ -50,6 +50,7 @@ export interface ChatResponse {
   replyText: string;
   actions?: MessageAction[];
   sessionId: string;
+  metadata?: Record<string, any>;
 }
 
 export const chatApi = {
@@ -101,7 +102,7 @@ export const productsApi = {
     // Placeholder - backend endpoint to be created
     return [];
   },
-  
+
   getById: async (id: string): Promise<Product | null> => {
     // Placeholder - backend endpoint to be created
     return null;
@@ -173,7 +174,7 @@ export interface CartResponse {
 export const cartApi = {
   addToCart: async (productId: string, quantity: number = 1): Promise<CartResponse> => {
     const sessionId = getSessionId();
-    
+
     const response = await apiClient.post<CartResponse>('/api/cart/add', {
       product_id: productId,
       quantity,
@@ -184,7 +185,7 @@ export const cartApi = {
 
   updateQuantity: async (productId: string, quantity: number): Promise<CartResponse> => {
     const sessionId = getSessionId();
-    
+
     const response = await apiClient.post<CartResponse>('/api/cart/add', {
       product_id: productId,
       quantity,
@@ -196,7 +197,7 @@ export const cartApi = {
 
   getCart: async (): Promise<CartResponse> => {
     const sessionId = getSessionId();
-    
+
     const response = await apiClient.get<CartResponse>('/api/cart', {
       params: { session_id: sessionId },
     });

@@ -81,7 +81,8 @@ async def handle_message(
                 "processing_time_ms": round(elapsed_ms, 2),
                 "timestamp": datetime.utcnow().isoformat(),
                 "function_calls": assistant_response.metadata.get("function_calls_made", 0),
-                "cart_items": assistant_response.cart_summary.get("item_count") if assistant_response.cart_summary else 0
+                "cart_items": assistant_response.cart_summary.get("item_count") if assistant_response.cart_summary else 0,
+                "reset_session": assistant_response.metadata.get("reset_session", False)
             }
         )
         

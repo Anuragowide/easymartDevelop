@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { useCartStore } from '@/store/cartStore';
+import { useChatStore } from '@/store/chatStore';
 
 interface ChatHeaderProps {
   onClose: () => void;
@@ -9,6 +10,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ onClose }: ChatHeaderProps) {
   const { itemCount, getCart } = useCartStore();
+  const { clearMessages } = useChatStore();
 
   useEffect(() => {
     getCart(); // Load cart on mount
@@ -30,8 +32,20 @@ export function ChatHeader({ onClose }: ChatHeaderProps) {
           </p>
         </div>
       </div>
-      
+
       <div className="flex items-center gap-3">
+        {/* Reset Button */}
+        <button
+          onClick={clearMessages}
+          className="w-8 h-8 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center transition-colors"
+          aria-label="Reset chat"
+          title="Reset conversation"
+        >
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+
         {/* Cart Badge */}
         {itemCount > 0 && (
           <div className="relative">
@@ -43,7 +57,7 @@ export function ChatHeader({ onClose }: ChatHeaderProps) {
             </span>
           </div>
         )}
-        
+
         {/* Close Button */}
         <button
           onClick={onClose}
