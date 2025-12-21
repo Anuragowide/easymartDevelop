@@ -724,7 +724,7 @@ class EasymartAssistantHandler:
                     had_tool_calls=True,
                     tool_results=tool_results,
                     original_query=original_message,  # Use saved original message
-                    search_query=request.message  # What was actually searched (after refinement)
+                    search_query=refined_message  # Adjusted to use the full refined query for better validation
                 )
                 
                 # ADDITIONAL VALIDATION: Block hallucinations after tool errors
