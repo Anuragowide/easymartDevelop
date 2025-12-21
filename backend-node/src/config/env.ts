@@ -12,7 +12,7 @@ export const config = {
   PYTHON_BASE_URL: process.env.PYTHON_BASE_URL || "http://localhost:8000",
 
   // Shopify credentials
-  SHOPIFY_STORE_DOMAIN: process.env.SHOPIFY_STORE_DOMAIN || "",
+  SHOPIFY_STORE_DOMAIN: (process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, ""),
   SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN || "",
   SHOPIFY_API_VERSION: process.env.SHOPIFY_API_VERSION || "2024-01",
 

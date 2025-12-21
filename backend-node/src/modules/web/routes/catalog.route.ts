@@ -29,7 +29,7 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
   return {
     sku: firstVariant.sku || product.handle,
     title: product.title,
-    description: product.body_html?.replace(/<[^>]*>/g, "") || "", // Strip HTML
+    description: product.body_html?.replace(/<[^>]*>/g, "") || "", // Strip HTML for main description
     price: parseFloat(firstVariant.price || "0"),
     currency: "AUD",
     category: product.product_type || "General",
@@ -40,10 +40,22 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
     product_url: `https://${config.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`,
     stock_status: firstVariant.inventory_quantity > 0 ? "in_stock" : "out_of_stock",
     specs: {
+      // Core dimensions
       weight: firstVariant.weight,
       weight_unit: firstVariant.weight_unit,
       inventory_quantity: firstVariant.inventory_quantity,
       barcode: firstVariant.barcode,
+
+      // Extended fields
+      specifications: product.body_html?.replace(/<[^>]*>/g, "") || "", // Map description to specifications for now
+      features: product.tags, // Map tags to features
+      material: product.options?.find((o: any) => o.name === "Material")?.values?.join(", "), // Try to find Material option
+
+      // Full raw data for deep inspection if needed
+      options: product.options,
+      variants: product.variants,
+      images: product.images,
+      raw_body_html: product.body_html
     },
   };
 }
@@ -92,11 +104,9 @@ export default async function catalogRoutes(fastify: FastifyInstance) {
 
       return reply.code(200).send(normalized);
     } catch (error: any) {
-      logger.error("Catalog export failed", { error: error.message });
-      return reply.code(500).send({
-        error: "Failed to export catalog",
-        message: error.message,
-      });
+      logger.error("Catalog export failed (returning empty list for fallback)", { error: error.message });
+      // Return empty list so consumer can fallback to other sources (e.g. local CSV)
+      return reply.code(200).send([]);
     }
   });
 
@@ -107,7 +117,7 @@ export default async function catalogRoutes(fastify: FastifyInstance) {
   fastify.get("/api/internal/catalog/stats", async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const products = await getAllProducts(1);
-      
+
       return reply.code(200).send({
         status: "available",
         sample_product: products[0] ? {
