@@ -345,6 +345,10 @@ class EasymartAssistantTools:
                     "product_id": product_id
                 }
             
+            # FIX: Ensure product has 'name' field (map from 'title' if needed)
+            if 'name' not in product or not product.get('name'):
+                product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
+            
             # Get specs document
             specs_list = await self.spec_searcher.get_specs_for_product(product_id)
             
@@ -361,7 +365,7 @@ class EasymartAssistantTools:
             if not specs_list:
                 return {
                     "product_id": product_id,
-                    "product_name": product.get("name"),
+                    "product_name": product['name'],
                     "price": product.get("price"),
                     "description": product.get("description", ""),
                     "specs": {},
@@ -382,7 +386,7 @@ class EasymartAssistantTools:
             
             return {
                 "product_id": product_id,
-                "product_name": product.get("name"),
+                "product_name": product['name'],
                 "price": product.get("price"),
                 "specs": formatted_specs,
                 "answer": answer,
@@ -416,11 +420,15 @@ class EasymartAssistantTools:
                     "in_stock": False
                 }
             
+            # FIX: Ensure product has 'name' field (map from 'title' if needed)
+            if 'name' not in product or not product.get('name'):
+                product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
+            
             # TODO: Integrate with actual inventory system
             # For now, assume in stock
             return {
                 "product_id": product_id,
-                "product_name": product.get("name"),
+                "product_name": product['name'],
                 "in_stock": True,
                 "quantity_available": 10,  # Mock data
                 "estimated_delivery": "5-10 business days"
@@ -433,9 +441,13 @@ class EasymartAssistantTools:
                 "in_stock": False
             }
     
-    async def compare_products(self, product_ids: List[str]) -> Dict[str, Any]:
+    async def compare_products(self, product_ids: List[str], position_labels: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Compare multiple products side-by-side.
+        
+        Args:
+            product_ids: List of product SKUs to compare
+            position_labels: Optional list of user-facing labels (e.g., ["Option 2", "Option 3"])
         
         Returns:
             {
@@ -447,6 +459,7 @@ class EasymartAssistantTools:
                         "specs": {...}
                     }
                 ],
+                "position_labels": ["Option 2", "Option 3"],
                 "comparison": {
                     "price_range": "199.00 - 349.00 AUD",
                     "common_features": [...],
@@ -463,6 +476,10 @@ class EasymartAssistantTools:
             for pid in product_ids:
                 product = await self.product_searcher.get_product(pid)
                 if product:
+                    # FIX: Ensure product has 'name' field (map from 'title' if needed)
+                    if 'name' not in product or not product.get('name'):
+                        product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
+                    
                     specs_list = await self.spec_searcher.get_specs_for_product(pid)
                     # Convert list to dict
                     specs_dict = {}
@@ -473,7 +490,7 @@ class EasymartAssistantTools:
                     
                     products.append({
                         "id": pid,
-                        "name": product.get("name"),
+                        "name": product['name'],
                         "price": product.get("price"),
                         "specs": specs_dict
                     })
@@ -485,13 +502,19 @@ class EasymartAssistantTools:
             prices = [p["price"] for p in products if p.get("price")]
             price_range = f"${min(prices):.2f} - ${max(prices):.2f} AUD" if prices else "N/A"
             
-            return {
+            result = {
                 "products": products,
                 "comparison": {
                     "price_range": price_range,
                     "count": len(products)
                 }
             }
+            
+            # Add position labels if provided
+            if position_labels:
+                result["position_labels"] = position_labels
+            
+            return result
         
         except Exception as e:
             return {"error": f"Comparison failed: {str(e)}"}
@@ -762,11 +785,19 @@ async def execute_tool(
         return {"error": f"Unknown tool: {tool_name}"}
     
     try:
+        # Extract special parameters that aren't part of tool signature
+        position_labels = arguments.pop('_position_labels', None)
+        
         # Execute tool (handle both sync and async)
         if asyncio.iscoroutinefunction(tool_func):
             result = await tool_func(**arguments)
         else:
             result = tool_func(**arguments)
+        
+        # Re-add position labels to result if they were provided (for compare_products)
+        if position_labels and tool_name == 'compare_products':
+            if isinstance(result, dict) and 'position_labels' not in result:
+                result['position_labels'] = position_labels
         
         return result
     

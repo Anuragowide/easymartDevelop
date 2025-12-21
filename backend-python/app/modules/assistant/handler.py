@@ -312,13 +312,24 @@ class EasymartAssistantHandler:
             ]
 
             if intent == IntentType.PRODUCT_SEARCH and not llm_response.function_calls:
-                # Check if it's an out-of-scope query
+                # Check if it's a contextual question about already-displayed products
                 query_lower = request.message.lower()
+                
+                # Expanded contextual detection
+                contextual_words = ['this', 'that', 'it', 'these', 'those', 'them', 'they', 'the one', 'option']
+                question_patterns = ['how', 'why', 'are they', 'is this', 'is that', 'does it', 'do they', 'can it', 'will it']
+                
+                is_contextual = any(word in query_lower for word in contextual_words)
+                is_question_about_existing = any(pattern in query_lower for pattern in question_patterns)
+                has_products_in_session = session.last_shown_products and len(session.last_shown_products) > 0
+                
+                # Check if it's an out-of-scope query
                 is_out_of_scope = any(keyword in query_lower for keyword in out_of_scope_keywords)
                 
-                if is_out_of_scope:
-                    # Out of scope - let LLM's "we don't sell X" response stand
-                    logger.info(f"[HANDLER] Out-of-scope query detected: '{request.message}', skipping safety catch")
+                # Allow LLM response if: contextual, question about existing products, or out of scope
+                if is_out_of_scope or (is_contextual and has_products_in_session) or (is_question_about_existing and has_products_in_session):
+                    # Let LLM's response stand (out-of-scope or contextual follow-up)
+                    logger.info(f"[HANDLER] Contextual/question about existing products detected: '{request.message}', skipping safety catch")
                 else:
                     # Furniture-related but LLM didn't call tool - force it
                     logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product search intent but LLM didn't call tool!")
@@ -435,7 +446,7 @@ class EasymartAssistantHandler:
                             logger.error(f"[ERROR] Could not extract product number - cannot correct ID")
                     
                     elif func_call.name == 'compare_products':
-                        # Fix product_ids array for comparison
+                        # Fix product_ids array for comparison and track position labels
                         product_ids = func_call.arguments.get('product_ids', [])
                         
                         # Try to extract numbers from message (compare 1 and 2, etc.)
@@ -443,6 +454,7 @@ class EasymartAssistantHandler:
                         
                         if numbers and session.last_shown_products:
                             corrected_ids = []
+                            position_labels = []  # Track which option number maps to which product
                             for num_str in numbers:
                                 product_num = int(num_str)
                                 if 0 < product_num <= len(session.last_shown_products):
@@ -450,10 +462,13 @@ class EasymartAssistantHandler:
                                     correct_id = correct_product.get('id')
                                     if correct_id:
                                         corrected_ids.append(correct_id)
+                                        position_labels.append(f"Option {product_num}")
                             
                             if corrected_ids:
                                 logger.warning(f"[HANDLER] ⚠️ CORRECTING COMPARISON IDs: {product_ids} → {corrected_ids}")
                                 func_call.arguments['product_ids'] = corrected_ids
+                                # Store position labels for later formatting
+                                func_call.arguments['_position_labels'] = position_labels
                 
                 # Execute tools and get results
                 tool_results = await self._execute_function_calls(
@@ -511,6 +526,38 @@ class EasymartAssistantHandler:
                         # Just include count, not full product list (too verbose)
                         products = result.get('products', [])
                         result_str = f"Found {len(products)} products matching the search."
+                    
+                    elif tool_name == 'compare_products':
+                        # Format comparison with position labels to preserve context
+                        products = result.get('products', [])
+                        position_labels = result.get('position_labels', [])
+                        
+                        if products:
+                            comparison_lines = ["=== PRODUCT COMPARISON ==="]
+                            for idx, product in enumerate(products):
+                                # Add position label if available
+                                if idx < len(position_labels):
+                                    comparison_lines.append(f"\n{position_labels[idx]}:")
+                                else:
+                                    comparison_lines.append(f"\nProduct {idx + 1}:")
+                                
+                                comparison_lines.append(f"  Name: {product.get('name', 'Unknown')}")
+                                comparison_lines.append(f"  Price: ${product.get('price', 0):.2f}")
+                                
+                                # Add key specs if available
+                                specs = product.get('specs', {})
+                                for section, content in list(specs.items())[:3]:  # Limit to first 3 specs
+                                    if content and 'nan' not in str(content).lower():
+                                        comparison_lines.append(f"  {section}: {content}")
+                            
+                            # Add comparison summary if available
+                            comparison = result.get('comparison', {})
+                            if comparison.get('price_range'):
+                                comparison_lines.append(f"\nPrice Range: {comparison['price_range']}")
+                            
+                            result_str = "\n".join(comparison_lines)
+                        else:
+                            result_str = json.dumps(result)
                     
                     else:
                         # Other tools - use JSON
@@ -571,12 +618,13 @@ class EasymartAssistantHandler:
                             "Be helpful, factual, and only use what's in the tool result."
                         )
                 elif 'compare_products' in tool_names:
-                    # Comparison - highlight key differences
+                    # Comparison - highlight key differences using ACTUAL product names
                     post_tool_instruction = (
                         "Now respond by highlighting the main differences between the products. "
+                        "CRITICAL: Use the EXACT product names from the tool result, not generic labels like 'Option 1/2'. "
                         "Focus on price, size, material, or features that stand out. "
                         "Be concise (2-3 sentences). "
-                        "Example: 'Option 1 is more affordable at $199 but smaller, while Option 2 is larger with premium materials at $349.'"
+                        "Example: 'The Executive Office Chair is more affordable at $199 but smaller, while the Premium Ergonomic Chair is larger with premium materials at $349.'"
                     )
                 elif 'check_availability' in tool_names:
                     # Stock check - clear yes/no
@@ -616,10 +664,10 @@ class EasymartAssistantHandler:
                 # Higher temp for conversational responses (search results, policies)
                 if any(tool in tool_names for tool in ['get_product_specs', 'check_availability', 'compare_products']):
                     response_temperature = 0.3  # Factual, don't hallucinate
-                    max_response_tokens = 100  # Keep it short to reduce hallucination risk
+                    max_response_tokens = 300  # Increased to allow complete comparisons and specs
                 else:
                     response_temperature = 0.7  # Conversational, friendly
-                    max_response_tokens = 150  # Normal length
+                    max_response_tokens = 250  # Increased for fuller responses
                 
                 # Call LLM again to generate final response with tool results
                 final_response = await self.llm_client.chat(
@@ -931,13 +979,13 @@ class EasymartAssistantHandler:
             Message(role="user", content="show me office chairs"),
             Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "office chairs"}}] [/TOOLCALLS]'),
             Message(role="user", content="[TOOL_RESULTS] Found 5 office chairs: Executive Chair ($299), Ergonomic Chair ($349), Mesh Chair ($199), Leather Chair ($499), Adjustable Chair ($279) [/TOOL_RESULTS]"),
-            Message(role="assistant", content="I found 5 office chairs for you. They're displayed above as options 1-5. Would you like details on any of them?"),
+            Message(role="assistant", content="I found 5 office chairs for you, displayed above. Would you like details on any of them?"),
             
             # Example 2: Context refinement (adding attribute)
             Message(role="user", content="for kids"),
             Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "kids office chairs"}}] [/TOOLCALLS]'),
             Message(role="user", content="[TOOL_RESULTS] Found 2 office chairs: Kids Study Chair ($149), Junior Desk Chair ($129) [/TOOL_RESULTS]"),
-            Message(role="assistant", content="I found 2 office chairs suitable for kids. They're shown above. Let me know if you'd like specifications for either option."),
+            Message(role="assistant", content="I found 2 office chairs suitable for kids, shown above. Let me know if you'd like specifications for any of them."),
             
             # Example 3: Product specification query
             Message(role="user", content="tell me about option 1"),
@@ -955,7 +1003,7 @@ class EasymartAssistantHandler:
             Message(role="user", content="show me desks in black"),
             Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "desks in black"}}] [/TOOLCALLS]'),
             Message(role="user", content="[TOOL_RESULTS] Found 3 desks [/TOOL_RESULTS]"),
-            Message(role="assistant", content="I found 3 black desks for you. They're displayed as options 1-3 above."),
+            Message(role="assistant", content="I found 3 black desks for you, displayed above."),
             Message(role="user", content="in white"),
             Message(role="assistant", content='[TOOLCALLS] [{"name": "search_products", "arguments": {"query": "desks in white"}}] [/TOOLCALLS]'),
             
@@ -1072,12 +1120,26 @@ class EasymartAssistantHandler:
         
         # Block hallucinated attributes in response that weren't in user's query
         # Common attributes: colors, materials, sizes, age groups
+        # Define synonym groups to avoid blocking equivalent terms
+        synonym_groups = [
+            {'kids', 'children', 'child'},
+            {'grey', 'gray'},
+            {'wood', 'wooden'},
+        ]
+        
         attribute_keywords = {
             'colors': ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow', 'pink', 'purple', 'orange', 'beige', 'navy', 'silver', 'gold'],
             'materials': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel'],
             'sizes': ['small', 'large', 'big', 'tiny', 'medium', 'compact'],
             'age_groups': ['kids', 'children', 'child', 'baby', 'adult', 'teen']
         }
+        
+        def is_synonym(word1: str, word2: str) -> bool:
+            """Check if two words are synonyms."""
+            for group in synonym_groups:
+                if word1 in group and word2 in group:
+                    return True
+            return False
         
         if had_tool_calls and original_query:
             query_lower = original_query.lower()
@@ -1088,6 +1150,13 @@ class EasymartAssistantHandler:
                 for keyword in keywords:
                     # If attribute is in response but NOT in original query
                     if keyword in response_lower and keyword not in query_lower:
+                        # Check if a synonym is in the query
+                        has_synonym_in_query = any(is_synonym(keyword, word) for word in query_lower.split())
+                        
+                        if has_synonym_in_query:
+                            # Don't block - it's a synonym of what user asked
+                            continue
+                        
                         # Check if it's in a meaningful context (not just "in black")
                         attr_patterns = [
                             rf'\bin {keyword}\b',           # "in black"
