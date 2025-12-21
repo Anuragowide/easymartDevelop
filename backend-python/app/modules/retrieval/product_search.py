@@ -49,7 +49,7 @@ class ProductSearcher:
         """
         
         # Get raw search results from catalog
-        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 2)
+        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 5)
         
         # Format results properly with product names
         formatted_results = []
@@ -94,7 +94,7 @@ class ProductSearcher:
         
         for result in results:
             # FIX: Use result directly (not nested under 'content')
-            product = result  # Changed from result.get("content", {})
+            product = result
             
             # Price filter
             if "price_min" in filters:
@@ -110,7 +110,84 @@ class ProductSearcher:
                 if product.get("vendor", "").lower() != filters["vendor"].lower():
                     continue
             
-            # Tags filter
+            # Category filter (strict or loose)
+            if "category" in filters:
+                target_cat = filters["category"].lower()
+                prod_cat = (product.get("category") or "").lower()
+                prod_type = (product.get("type") or "").lower() # Sometimes stored as type
+                
+                # Check category field, type field, or tags
+                found_cat = (
+                    target_cat in prod_cat or
+                    target_cat in prod_type or
+                    any(target_cat in tag.lower() for tag in product.get("tags", [])) or
+                    f"Category_{target_cat}" in [t.lower() for t in product.get("tags", [])]
+                )
+                if not found_cat:
+                    continue
+            
+            # Color filter
+            if "color" in filters:
+                target_color = filters["color"].lower()
+                # Check tags for "Color_Red" format or simple "Red"
+                # Also check description for mentions of the color
+                prod_tags = [t.lower() for t in product.get("tags", [])]
+                prod_desc = (product.get("description") or "").lower()
+                prod_title = (product.get("name") or "").lower()
+                
+                found_color = (
+                    target_color in prod_tags or
+                    f"color_{target_color}" in prod_tags or
+                    f"colour_{target_color}" in prod_tags or
+                    target_color in prod_title or  # Strong signal if in title
+                    f" {target_color} " in f" {prod_desc} "  # Whole word match in desc
+                )
+                if not found_color:
+                    continue
+
+            # Material filter
+            if "material" in filters:
+                target_mat = filters["material"].lower()
+                prod_tags = [t.lower() for t in product.get("tags", [])]
+                prod_desc = (product.get("description") or "").lower()
+                
+                found_mat = (
+                    target_mat in prod_tags or
+                    f"material_{target_mat}" in prod_tags or
+                    target_mat in prod_desc
+                )
+                if not found_mat:
+                    continue
+            
+            # Style filter
+            if "style" in filters:
+                target_style = filters["style"].lower()
+                prod_tags = [t.lower() for t in product.get("tags", [])]
+                prod_desc = (product.get("description") or "").lower()
+                
+                found_style = (
+                    target_style in prod_tags or
+                    f"style_{target_style}" in prod_tags or
+                    target_style in prod_desc
+                )
+                if not found_style:
+                    continue
+            
+            # Room Type filter
+            if "room_type" in filters:
+                target_room = filters["room_type"].lower().replace("_", " ") # office_chair -> office chair
+                prod_tags = [t.lower() for t in product.get("tags", [])]
+                prod_desc = (product.get("description") or "").lower()
+                
+                found_room = (
+                    target_room in prod_tags or
+                    target_room.replace(" ", "_") in prod_tags or
+                    target_room in prod_desc
+                )
+                if not found_room:
+                    continue
+
+            # Generic Tags filter (preserved)
             if "tags" in filters:
                 product_tags = set(tag.lower() for tag in product.get("tags", []))
                 filter_tags = set(tag.lower() for tag in filters["tags"])
