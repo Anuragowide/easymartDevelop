@@ -206,7 +206,7 @@ def extract_specs_from_products(products: List[Dict[str, Any]]) -> List[Dict[str
     
     return all_specs
 
-async def main():
+async def load_all_products():
     indexer = CatalogIndexer()
     
     # 1. Try API first
@@ -236,4 +236,4 @@ async def main():
     print("[Catalog] ✅ Catalog loading and indexing complete.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(load_all_products())

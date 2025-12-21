@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.api import health_router, assistant_router
+from app.modules.catalog_index.load_catalog import load_all_products
 
 settings = get_settings()
 
@@ -54,6 +55,14 @@ async def startup_event():
     print(f"  Environment: {settings.ENVIRONMENT}")
     print(f"  Debug: {settings.DEBUG}")
     print(f"  Host: {settings.HOST}:{settings.PORT}")
+    
+    # Trigger auto-indexing
+    # Note: We await this to ensure catalog is ready before accepting requests.
+    # If this takes too long, we should move it to a BackgroundTask or separate thread.
+    try:
+        await load_all_products()
+    except Exception as e:
+        print(f"[{settings.APP_NAME}] ⚠️ Auto-indexing failed: {e}")
 
 
 @app.on_event("shutdown")

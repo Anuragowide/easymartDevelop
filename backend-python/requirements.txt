@@ -22,6 +22,7 @@ rank-bm25==0.2.2
 # Utilities
 tqdm>=4.65.0
 python-dotenv==1.0.0
+pandas>=2.0.0
 
 # Development
 pytest>=7.4.0
