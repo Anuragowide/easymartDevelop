@@ -599,23 +599,34 @@ class EasymartAssistantHandler:
                             "DO NOT add anything else."
                         )
                     else:
+                        # Check if user asked for specific attribute
+                        user_query_lower = original_message.lower()
+                        asked_color = any(w in user_query_lower for w in ['color', 'colour', 'finish'])
+                        asked_material = 'material' in user_query_lower
+                        asked_size = any(w in user_query_lower for w in ['size', 'measure', 'dimension', 'width', 'height', 'depth'])
+                        
+                        # specific instruction based on what was asked
+                        specific_focus = ""
+                        if asked_color:
+                            specific_focus = "CRITICAL FOR COLOR: Look for 'Color', 'Colour', or 'Finish' in the specs. If found, list ONLY those exact colors. If NOT found, say 'I don't have the specific color options listed.' DO NOT GUESS."
+                        elif asked_material:
+                            specific_focus = "CRITICAL FOR MATERIAL: Look for 'Material' in specs. List ONLY what is shown."
+                        
                         # Normal instruction for successful retrieval
                         post_tool_instruction = (
                             "CRITICAL INSTRUCTIONS:\n"
                             "1. Read the tool result above carefully - it shows REAL product data\n"
                             "2. Use ONLY information from the tool result - DO NOT make up ANY details\n"
                             "3. Use the EXACT 'Product Name' shown in the tool result\n"
-                            "4. DO NOT mention product IDs, model numbers, or SKUs unless explicitly shown\n"
-                            "5. If a spec section is shown (Specifications, Features, Material, Dimensions), summarize it naturally\n"
-                            "6. If dimensions contain 'nan' or are missing, DO NOT mention dimensions at all\n"
-                            "7. NEVER invent specs that aren't explicitly in the tool result\n\n"
+                            "4. " + specific_focus + "\n"
+                            "5. If dimensions contain 'nan' or are missing, DO NOT mention dimensions\n"
+                            "6. NEVER invent specs that aren't explicitly in the tool result\n\n"
                             "Response format (2-4 sentences, natural tone):\n"
                             "- Start with: 'The [exact product name from tool result]...'"
                             "- Mention price: 'priced at $[exact price from tool]'"
-                            "- Summarize available specs naturally from the sections shown\n"
-                            "- If specs are limited, say: 'Detailed specifications include [what's shown].'"
-                            "- DO NOT use phrases like 'model OCH-101' or make up model numbers\n\n"
-                            "Be helpful, factual, and only use what's in the tool result."
+                            "- Answer the specific question (color/material/etc) if asked, using ONLY shown data\n"
+                            "- Summarize other key specs briefly\n"
+                            "Be helpful, factual, and strictly stick to the provided data."
                         )
                 elif 'compare_products' in tool_names:
                     # Comparison - highlight key differences using ACTUAL product names
