@@ -76,6 +76,36 @@ class ProductSearcher:
             formatted_results.append(formatted_product)
         
         # Apply filters if provided
+        if filters is None:
+            filters = {}
+            
+        # AUTO-DETECT FILTERS from query if not already provided
+        query_lower = query.lower()
+        
+        # Colors
+        colors = ['black', 'white', 'red', 'green', 'blue', 'brown', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'beige']
+        if "color" not in filters:
+            for color in colors:
+                if f" {color} " in f" {query_lower} ":  # exact word match
+                    filters["color"] = color
+                    break
+        
+        # Materials
+        materials = ['wood', 'metal', 'leather', 'fabric', 'glass', 'plastic', 'steel']
+        if "material" not in filters:
+            for mat in materials:
+                if f" {mat} " in f" {query_lower} ":
+                    filters["material"] = mat
+                    break
+                    
+        # Room Types
+        rooms = ['office', 'bedroom', 'living room', 'dining room']
+        if "room_type" not in filters:
+            for room in rooms:
+                if room in query_lower:
+                    filters["room_type"] = room
+                    break
+        
         if filters:
             formatted_results = self._apply_filters(formatted_results, filters)
         
