@@ -53,24 +53,8 @@ export function MessageInput({ onSend, isLoading, disabled = false }: MessageInp
           )}
         </button>
       </div>
-      
-      {/* Quick Actions */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          onClick={() => setInput("Show me office chairs")}
-          disabled={isLoading}
-          className="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-red-50 to-pink-50 text-red-700 hover:from-red-100 hover:to-pink-100 transition-colors border border-red-200"
-        >
-          Office Chairs
-        </button>
-        <button
-          onClick={() => setInput("What's in my cart?")}
-          disabled={isLoading}
-          className="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-red-50 to-pink-50 text-red-700 hover:from-red-100 hover:to-pink-100 transition-colors border border-red-200"
-        >
-          View Cart
-        </button>
-      </div>
+
+
     </div>
   );
 }

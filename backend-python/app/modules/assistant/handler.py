@@ -1224,6 +1224,49 @@ class EasymartAssistantHandler:
                     logger.warning(f"[VALIDATION] Spec pattern matched: {pattern}")
                     return "I need to look up the specific details for that product. Could you specify which product number you're asking about?"
         
+        # Strict Spec Verification for Colors (Post-Generation Safety)
+        if had_tool_calls and 'get_product_specs' in tool_results:
+            spec_result = tool_results['get_product_specs']
+            # Flatten specs to check what's actually in the data
+            specs_text = str(spec_result.get('product_name', '')).lower()
+            if 'specs' in spec_result:
+                for val in spec_result['specs'].values():
+                    specs_text += f" {str(val).lower()}"
+            if 'description' in spec_result:
+                specs_text += f" {str(spec_result.get('description', '')).lower()}"
+                
+            # Check colors
+            for color in attribute_keywords['colors']:
+                # If color is in response ...
+                if color in response.lower(): 
+                    # ... but NOT in the actual product data
+                    if color not in specs_text:
+                        # Check for affirmative claims (hallucination risk)
+                        affirmative_patterns = [
+                            rf"available in [^.]*{color}",
+                            rf"comes in [^.]*{color}",
+                            rf"offer [^.]*{color}",
+                            rf"have [^.]*{color}",
+                            rf"{color} (is|are) available",
+                            rf"{color} option",
+                        ]
+                        
+                        is_affirmative = any(re.search(p, response, re.IGNORECASE) for p in affirmative_patterns)
+                        
+                        # Check for negation (allow "not available in green")
+                        is_negated = re.search(rf"not (available|come|offered|have).*?{color}", response, re.IGNORECASE)
+                        
+                        if is_affirmative and not is_negated:
+                            logger.warning(f"[VALIDATION] ⚠️ Strict color check failed! Hallucinated: '{color}'")
+                            
+                            # Build safe fallback response
+                            valid_colors = [c for c in attribute_keywords['colors'] if c in specs_text]
+                            if valid_colors:
+                                valid_str = ", ".join(valid_colors).title()
+                                return f"I checked the product details, and the available colors listed are: {valid_str}. I don't see {color} as an option."
+                            else:
+                                return f"I checked the product specifications, but I don't see {color} mentioned in the current options."
+
         return response
     
     async def _execute_function_calls(
