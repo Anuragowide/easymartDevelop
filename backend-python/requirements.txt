@@ -9,6 +9,7 @@ python-multipart>=0.0.6
 
 # HTTP Client
 httpx==0.27.0
+aiohttp>=3.9.0
 
 # Catalog Indexing (Core Dependencies)
 sqlalchemy>=2.0.0
