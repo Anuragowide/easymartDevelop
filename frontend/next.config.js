@@ -1,41 +1,38 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  
-  // API proxy to Node.js backend
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: process.env.NEXT_PUBLIC_API_URL + '/api/:path*',
-      },
-    ];
-  },
+    reactStrictMode: true,
 
-  // Image domains for Shopify CDN
-  images: {
-    domains: [
-      'cdn.shopify.com',
-      'easymartdummy.myshopify.com',
-    ],
-  },
+    // API proxy to Node.js backend
+    async rewrites() {
+        return [{
+            source: '/api/:path*',
+            destination: process.env.NEXT_PUBLIC_API_URL + '/api/:path*',
+        }, ];
+    },
 
-  // Environment variables
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
-  },
+    // Image domains for Shopify CDN
+    images: {
+        domains: [
+            'cdn.shopify.com',
+            'easymartdummy.myshopify.com',
+        ],
+    },
 
-  // Enable SWC minification
-  swcMinify: true,
+    // Environment variables
+    env: {
+        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
+    },
 
-  // Experimental features
-  experimental: {
-    optimizeCss: true,
-  },
+    // Enable SWC minification
+    swcMinify: true,
 
-  // Enable standalone output for Docker
-  output: 'standalone',
+    // Experimental features
+    experimental: {
+        optimizeCss: true,
+    },
+
+    // Enable standalone output for Docker
+    output: 'standalone',
 };
 
 module.exports = nextConfig;
-
