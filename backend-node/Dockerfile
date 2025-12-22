@@ -20,6 +20,10 @@ COPY src ./src
 # Build TypeScript
 RUN pnpm build
 
+# Copy static UI files (not processed by TypeScript compiler)
+RUN mkdir -p dist/modules/web/ui && \
+    cp -r src/modules/web/ui/* dist/modules/web/ui/
+
 # Production stage
 FROM node:18-alpine AS production
 
