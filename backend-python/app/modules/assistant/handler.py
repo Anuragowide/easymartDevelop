@@ -280,11 +280,42 @@ class EasymartAssistantHandler:
                 return response
             
             # FORCE product_search intent for furniture-related queries
+            # BUT: Reject vague single-word queries that need clarification
             furniture_keywords = [
                 "chair", "table", "desk", "sofa", "bed", "shelf", "locker", "stool",
                 "cabinet", "storage", "furniture", "office", "bedroom", "living",
                 "dining", "wardrobe", "drawer", "bench", "ottoman"
             ]
+            
+            # Check if query is too vague (single word without context)
+            vague_queries = ["show", "find", "search", "get", "display", "list"]
+            is_vague = (
+                request.message.lower().strip() in vague_queries or
+                len(request.message.strip().split()) == 1 and request.message.lower().strip() in vague_queries
+            )
+            
+            if is_vague:
+                logger.info(f"[HANDLER] Vague query detected: '{request.message}', asking for clarification")
+                assistant_message = (
+                    "To help you better, please provide a specific furniture query such as "
+                    "\"show me office chairs\" or \"search for dining tables\". "
+                    "This will enable me to provide accurate results."
+                )
+                
+                session.add_message("assistant", assistant_message)
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "clarification_needed",
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
+            
             if any(keyword in request.message.lower() for keyword in furniture_keywords):
                 if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA]:
                     logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
@@ -743,8 +774,41 @@ class EasymartAssistantHandler:
                 
                 # Additional validation: Check if search results actually match the query
                 if 'search_products' in tool_results:
-                    products = tool_results['search_products'].get('products', [])
-                    if products:
+                    products = tool_results['search_products'].get('products', [])\
+                    
+                    # Check if query had price constraint and no results
+                    if len(products) == 0:
+                        query_lower = request.message.lower()
+                        price_patterns = [
+                            r'under\s+\$?(\d+)',
+                            r'less\s+than\s+\$?(\d+)',
+                            r'below\s+\$?(\d+)',
+                            r'cheaper\s+than\s+\$?(\d+)',
+                        ]
+                        
+                        for pattern in price_patterns:
+                            match = re.search(pattern, query_lower)
+                            if match:
+                                price_value = int(match.group(1))
+                                # Suggest a higher price range
+                                suggested_price = price_value * 2  # Double the price
+                                
+                                # Extract product type
+                                product_types = ['chair', 'table', 'desk', 'sofa', 'bed', 'locker', 'cabinet']
+                                product_type = "items"
+                                for ptype in product_types:
+                                    if ptype in query_lower:
+                                        product_type = ptype + "s" if not ptype.endswith('s') else ptype
+                                        break
+                                
+                                assistant_message = (
+                                    f"I couldn't find any {product_type} under ${price_value}. "
+                                    f"Would you like to see {product_type} under ${suggested_price} instead?"
+                                )
+                                logger.info(f"[VALIDATION] No results for price constraint ${price_value}, suggesting ${suggested_price}")
+                                break
+                    
+                    elif products:
                         # Extract important nouns from query
                         query_lower = request.message.lower()
                         important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',

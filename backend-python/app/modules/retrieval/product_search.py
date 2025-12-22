@@ -11,6 +11,9 @@ High-level interface for product search with additional features:
 import asyncio
 from typing import List, Dict, Any, Optional
 from app.modules.catalog_index import CatalogIndexer
+from app.modules.observability.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ProductSearcher:
@@ -104,6 +107,27 @@ class ProductSearcher:
             for room in rooms:
                 if room in query_lower:
                     filters["room_type"] = room
+                    break
+        
+        # Price filters - detect "under $X", "less than $X", "below $X"
+        if "price_max" not in filters:
+            import re
+            # Match patterns like "under $100", "under 100", "less than $200", "below 150"
+            price_patterns = [
+                r'under\s+\$?(\d+)',
+                r'less\s+than\s+\$?(\d+)',
+                r'below\s+\$?(\d+)',
+                r'cheaper\s+than\s+\$?(\d+)',
+                r'max\s+\$?(\d+)',
+                r'maximum\s+\$?(\d+)',
+            ]
+            
+            for pattern in price_patterns:
+                match = re.search(pattern, query_lower)
+                if match:
+                    price_value = float(match.group(1))
+                    filters["price_max"] = price_value
+                    logger.info(f"[SEARCH] Auto-detected price_max filter: ${price_value}")
                     break
         
         if filters:
