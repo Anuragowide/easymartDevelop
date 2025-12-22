@@ -405,11 +405,26 @@ class EasymartAssistantHandler:
             
             # SAFETY CHECK: If product spec Q&A intent but NO tool calls → force get_product_specs!
             if intent == IntentType.PRODUCT_SPEC_QA and not llm_response.function_calls:
-                # Extract product reference from query (option 5, product 3, etc.)
+                # Extract product reference from query (option 5, product 3, first option, second product, etc.)
                 product_ref_match = re.search(r'\b(option|product|number|item)\s+(\d+)', request.message.lower())
                 
+                product_num = None
                 if product_ref_match:
                     product_num = int(product_ref_match.group(2))
+                else:
+                    # Try ordinal numbers
+                    ordinal_map = {
+                        'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                        'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                        '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5
+                    }
+                    for ordinal, num in ordinal_map.items():
+                        if ordinal in request.message.lower():
+                            product_num = num
+                            logger.info(f"[HANDLER] Extracted ordinal '{ordinal}' as product number: {product_num}")
+                            break
+                
+                if product_num:
                     
                     # Get product from session (1-indexed in user query, 0-indexed in list)
                     if session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
@@ -462,11 +477,27 @@ class EasymartAssistantHandler:
                         # Format 2: "4 option", "3 product" (number first)
                         if not product_ref_match:
                             product_ref_match = re.search(r'(\d+)\s+(?:option|product|number|item|choice)', original_message.lower())
-                        # Format 3: Just a number at start ("4" when context is clear)
+                        
+                        product_num = None # Initialize product_num here
+                        
+                        # Format 3: Ordinal numbers - "first option", "second product", "third item"
                         if not product_ref_match:
+                            ordinal_map = {
+                                'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                                'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                                '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+                                '6th': 6, '7th': 7, '8th': 8, '9th': 9, '10th': 10
+                            }
+                            for ordinal, num in ordinal_map.items():
+                                if ordinal in original_message.lower():
+                                    product_num = num
+                                    logger.info(f"[DEBUG] Extracted ordinal '{ordinal}' as product number: {product_num}")
+                                    break
+                        # Format 4: Just a number at start ("4" when context is clear)
+                        if not product_ref_match and product_num is None:
                             product_ref_match = re.search(r'^(\d+)\s*$', original_message.strip())
                         
-                        product_num = None
+                        # If a regex match was found, extract the number
                         if product_ref_match:
                             product_num = int(product_ref_match.group(1))
                             logger.info(f"[DEBUG] Extracted product number: {product_num}")
