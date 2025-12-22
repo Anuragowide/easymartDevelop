@@ -97,12 +97,13 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:3001
+        - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
     container_name: easymart-frontend
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
+      - NODE_ENV=production
     depends_on:
       - backend-node
     networks:
