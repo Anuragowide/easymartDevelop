@@ -7,6 +7,7 @@ Supports function calling in native Mistral format.
 
 import os
 import json
+import re
 import asyncio
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel

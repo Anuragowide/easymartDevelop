@@ -10,11 +10,22 @@ const nextConfig = {
         }, ];
     },
 
-    // Image domains for Shopify CDN
+    // Allow dev origins (fixes cross-origin warning)
+    allowedDevOrigins: ['127.0.0.1', 'localhost'],
+
+    // Image configuration for Shopify CDN (updated to remotePatterns)
     images: {
-        domains: [
-            'cdn.shopify.com',
-            'easymartdummy.myshopify.com',
+        remotePatterns: [
+            {
+                protocol: 'https',
+                hostname: 'cdn.shopify.com',
+                pathname: '/**',
+            },
+            {
+                protocol: 'https',
+                hostname: 'easymartdummy.myshopify.com',
+                pathname: '/**',
+            },
         ],
     },
 
