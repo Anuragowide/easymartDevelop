@@ -195,6 +195,17 @@ export const cartApi = {
     return response.data;
   },
 
+  removeFromCart: async (productId: string): Promise<CartResponse> => {
+    const sessionId = getSessionId();
+
+    const response = await apiClient.post<CartResponse>('/api/cart/add', {
+      product_id: productId,
+      action: 'remove',
+      session_id: sessionId,
+    });
+    return response.data;
+  },
+
   getCart: async (): Promise<CartResponse> => {
     const sessionId = getSessionId();
 

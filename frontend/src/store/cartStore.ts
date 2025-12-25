@@ -73,51 +73,56 @@ export const useCartStore = create<CartStore>()(
         }
       },
 
-        decreaseQuantity: async (productId: string) => {
-          const currentQty = get().getProductQuantity(productId);
-          if (currentQty <= 0) return;
+          decreaseQuantity: async (productId: string) => {
+            const currentQty = get().getProductQuantity(productId);
+            if (currentQty <= 0) return;
 
-          set({ isLoading: true, error: null });
-          try {
-            const newQuantity = currentQty - 1;
-            const response: CartResponse = await cartApi.updateQuantity(productId, newQuantity);
-            
-            if (response.success) {
-              set({
-                items: response.cart.items,
-                itemCount: response.cart.item_count,
-                total: response.cart.total,
-                isLoading: false,
-              });
-            } else {
-              throw new Error(response.error || 'Failed to decrease quantity');
+            if (currentQty === 1) {
+              return get().removeFromCart(productId);
             }
-          } catch (error: any) {
-            set({ error: error.message, isLoading: false });
-            throw error;
-          }
-        },
 
-        removeFromCart: async (productId: string) => {
-          set({ isLoading: true, error: null });
-          try {
-            const response: CartResponse = await cartApi.updateQuantity(productId, 0);
-            
-            if (response.success) {
-              set({
-                items: response.cart.items,
-                itemCount: response.cart.item_count,
-                total: response.cart.total,
-                isLoading: false,
-              });
-            } else {
-              throw new Error(response.error || 'Failed to remove from cart');
+            set({ isLoading: true, error: null });
+            try {
+              const newQuantity = currentQty - 1;
+              const response: CartResponse = await cartApi.updateQuantity(productId, newQuantity);
+              
+              if (response.success) {
+                set({
+                  items: response.cart.items,
+                  itemCount: response.cart.item_count,
+                  total: response.cart.total,
+                  isLoading: false,
+                });
+              } else {
+                throw new Error(response.error || 'Failed to decrease quantity');
+              }
+            } catch (error: any) {
+              set({ error: error.message, isLoading: false });
+              throw error;
             }
-          } catch (error: any) {
-            set({ error: error.message, isLoading: false });
-            throw error;
-          }
-        },
+          },
+
+          removeFromCart: async (productId: string) => {
+            set({ isLoading: true, error: null });
+            try {
+              const response: CartResponse = await cartApi.removeFromCart(productId);
+              
+              if (response.success) {
+                set({
+                  items: response.cart.items,
+                  itemCount: response.cart.item_count,
+                  total: response.cart.total,
+                  isLoading: false,
+                });
+              } else {
+                throw new Error(response.error || 'Failed to remove from cart');
+              }
+            } catch (error: any) {
+              set({ error: error.message, isLoading: false });
+              throw error;
+            }
+          },
+
 
 
       getCart: async () => {
@@ -140,10 +145,16 @@ export const useCartStore = create<CartStore>()(
 
       clearError: () => set({ error: null }),
 
-      getProductQuantity: (productId: string): number => {
-        const item = get().items.find((item) => item.product_id === productId || item.id === productId);
-        return item?.quantity || 0;
-      },
+        getProductQuantity: (productId: string): number => {
+          if (!productId) return 0;
+          const items = get().items;
+          const item = items.find((item) => 
+            String(item.product_id) === String(productId) || 
+            String(item.id) === String(productId)
+          );
+          return item?.quantity || 0;
+        },
+
     }),
     {
       name: 'easymart-cart-storage',

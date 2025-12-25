@@ -79,12 +79,14 @@ export function CartView() {
                   </button>
                 </div>
                 
-                  <button
-                    onClick={() => removeFromCart(item.id || item.product_id!)}
-                    className="text-xs text-gray-400 hover:text-red-600 transition-colors"
-                  >
-                    Remove
-                  </button>
+                    <button
+                      onClick={() => removeFromCart(item.id || item.product_id!)}
+                      disabled={isLoading}
+                      className="text-xs text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                    >
+                      {isLoading ? '...' : 'Remove'}
+                    </button>
+
 
               </div>
             </div>

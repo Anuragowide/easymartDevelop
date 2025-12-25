@@ -228,6 +228,18 @@ TOOL_DEFINITIONS = [
 ]
 
 
+# Global tools instance
+_assistant_tools = None
+
+
+def get_assistant_tools() -> "EasymartAssistantTools":
+    """Get global tools instance (singleton)"""
+    global _assistant_tools
+    if _assistant_tools is None:
+        _assistant_tools = EasymartAssistantTools()
+    return _assistant_tools
+
+
 class EasymartAssistantTools:
     """
     Tool executor for Easymart assistant.

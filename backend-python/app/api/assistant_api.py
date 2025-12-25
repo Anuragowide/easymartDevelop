@@ -240,8 +240,8 @@ async def update_cart_endpoint(request: Request):
             raise ValueError("session_id is required")
         
         # Get the tools instance
-        from app.modules.assistant.tools import EasymartAssistantTools
-        tools = EasymartAssistantTools()
+        from app.modules.assistant.tools import get_assistant_tools
+        tools = get_assistant_tools()
         
         # Call update_cart method
         result = await tools.update_cart(
@@ -279,8 +279,8 @@ async def get_cart_endpoint(session_id: str):
         logger.info(f"Getting cart for session: {session_id}")
         
         # Get the tools instance
-        from app.modules.assistant.tools import EasymartAssistantTools
-        tools = EasymartAssistantTools()
+        from app.modules.assistant.tools import get_assistant_tools
+        tools = get_assistant_tools()
         
         # Call update_cart with 'view' action
         result = await tools.update_cart(

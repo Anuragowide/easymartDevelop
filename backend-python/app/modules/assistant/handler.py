@@ -93,9 +93,10 @@ class EasymartAssistantHandler:
             llm_client: Optional HF LLM client (creates new if not provided)
             session_store: Optional session store (uses global if not provided)
         """
+        from .tools import get_assistant_tools
         self.llm_client = llm_client
         self.session_store = session_store or get_session_store()
-        self.tools = EasymartAssistantTools()
+        self.tools = get_assistant_tools()
         self.intent_detector = IntentDetector()
         self.event_tracker = EventTracker()
         

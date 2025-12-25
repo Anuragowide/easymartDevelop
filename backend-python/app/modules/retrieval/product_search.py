@@ -40,7 +40,8 @@ class ProductSearcher:
     _cache_max_size = 100
     
     def __init__(self):
-        self.catalog = CatalogIndexer()
+        from app.core.dependencies import get_catalog_indexer
+        self.catalog = get_catalog_indexer()
     
     async def search(
         self, 
