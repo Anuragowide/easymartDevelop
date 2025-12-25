@@ -2,25 +2,31 @@
 
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
+import { CartView } from './CartView';
 import { useChatStore } from '@/store/chatStore';
 
 export function ChatWindow() {
-  const { messages, isLoading, sendMessage } = useChatStore();
+  const { messages, isLoading, sendMessage, isCartOpen } = useChatStore();
 
   const handleSendMessage = async (content: string) => {
     await sendMessage(content);
   };
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-b from-gray-50 to-white">
+    <div className="h-full flex flex-col bg-gradient-to-b from-gray-50 to-white relative overflow-hidden">
       {/* Messages */}
       <MessageList messages={messages} isLoading={isLoading} />
 
+      {/* Cart View Overlay */}
+      {isCartOpen && <CartView />}
+
       {/* Input */}
-      <MessageInput 
-        onSend={handleSendMessage} 
-        isLoading={isLoading} 
-      />
+      {!isCartOpen && (
+        <MessageInput 
+          onSend={handleSendMessage} 
+          isLoading={isLoading} 
+        />
+      )}
     </div>
   );
 }

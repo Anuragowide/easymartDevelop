@@ -535,7 +535,8 @@ class EasymartAssistantTools:
             {
                 "action": "add",
                 "success": true,
-                "message": "Added to cart"
+                "message": "Added to cart",
+                "cart": { ... }
             }
         """
         from app.modules.assistant.session_store import get_session_store
@@ -543,13 +544,14 @@ class EasymartAssistantTools:
         session_store = get_session_store()
         session = session_store.get_or_create_session(session_id)
         
-        if action == "view":
+        # Helper to get full cart state with product details
+        async def _get_cart_state():
             cart_details = []
             total_price = 0.0
             
             for item in session.cart_items:
-                product_id = item["product_id"]
-                product = await self.product_searcher.get_product(product_id)
+                pid = item["product_id"]
+                product = await self.product_searcher.get_product(pid)
                 if product:
                     price = product.get("price", 0.0)
                     qty = item["quantity"]
@@ -557,28 +559,44 @@ class EasymartAssistantTools:
                     total_price += item_total
                     
                     cart_details.append({
-                        "product_id": product_id,
-                        "name": product.get("title", "Unknown Product"),
+                        "product_id": pid,
+                        "id": pid,
+                        "title": product.get("title") or product.get("name", "Unknown Product"),
+                        "name": product.get("title") or product.get("name", "Unknown Product"),
                         "price": price,
+                        "image": product.get("image_url", ""),
+                        "image_url": product.get("image_url", ""),
                         "quantity": qty,
-                        "item_total": item_total
+                        "item_total": item_total,
+                        "added_at": item.get("added_at")
+                    })
+                else:
+                    cart_details.append({
+                        "product_id": pid,
+                        "id": pid,
+                        "title": "Unknown Product",
+                        "quantity": item.get("quantity", 1)
                     })
             
             return {
+                "items": cart_details,
+                "item_count": len(cart_details),
+                "total": total_price
+            }
+
+        if action == "view":
+            cart_state = await _get_cart_state()
+            return {
                 "action": "view",
                 "success": True,
-                "cart": {
-                    "items": cart_details,
-                    "item_count": len(cart_details),
-                    "total": total_price
-                },
-                "message": f"Your cart has {len(cart_details)} items totaling ${total_price:.2f}" if cart_details else "Your cart is currently empty."
+                "cart": cart_state,
+                "message": f"Your cart has {cart_state['item_count']} items totaling ${cart_state['total']:.2f}" if cart_state['items'] else "Your cart is currently empty."
             }
         
         if not product_id:
             return {"error": "product_id required for this action", "success": False}
         
-        # Get product info for better feedback
+        # Get product info for feedback
         product = await self.product_searcher.get_product(product_id)
         product_name = product.get("title", product_id) if product else product_id
         
@@ -586,47 +604,48 @@ class EasymartAssistantTools:
             if not quantity or quantity < 1:
                 quantity = 1
             session.add_to_cart(product_id, quantity)
+            cart_state = await _get_cart_state()
             return {
                 "action": "add",
                 "success": True,
                 "product_id": product_id,
                 "product_name": product_name,
                 "quantity": quantity,
-                "message": f"Added {quantity} x {product_name} to your cart."
+                "message": f"Added {quantity} x {product_name} to your cart.",
+                "cart": cart_state
             }
         
         elif action == "remove":
             session.remove_from_cart(product_id)
+            cart_state = await _get_cart_state()
             return {
                 "action": "remove",
                 "success": True,
                 "product_id": product_id,
                 "product_name": product_name,
-                "message": f"Removed {product_name} from your cart."
+                "message": f"Removed {product_name} from your cart.",
+                "cart": cart_state
             }
         
         elif action == "set":
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             
-            logger.info(f"[CART SET] Before remove - cart_items: {session.cart_items}")
-            
             # Remove item first
             session.remove_from_cart(product_id)
-            
-            logger.info(f"[CART SET] After remove - cart_items: {session.cart_items}")
             
             # Add back with new quantity if > 0
             if quantity > 0:
                 session.add_to_cart(product_id, quantity)
-                logger.info(f"[CART SET] After add ({quantity}) - cart_items: {session.cart_items}")
             
+            cart_state = await _get_cart_state()
             return {
                 "action": "set",
                 "success": True,
                 "product_id": product_id,
                 "quantity": quantity,
-                "message": f"Updated quantity to {quantity}" if quantity > 0 else "Removed from cart"
+                "message": f"Updated quantity to {quantity}" if quantity > 0 else "Removed from cart",
+                "cart": cart_state
             }
         
         else:

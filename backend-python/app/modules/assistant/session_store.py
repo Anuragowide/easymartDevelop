@@ -139,10 +139,22 @@ class SessionContext:
     
     def remove_from_cart(self, product_id: str):
         """Remove item from cart"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[REMOVE_FROM_CART] product_id={product_id}")
+        logger.info(f"[REMOVE_FROM_CART] Current cart_items: {self.cart_items}")
+        
+        original_count = len(self.cart_items)
         self.cart_items = [
             item for item in self.cart_items
-            if item["product_id"] != product_id
+            if item["product_id"] != product_id and item.get("id") != product_id
         ]
+        
+        if len(self.cart_items) < original_count:
+            logger.info(f"[REMOVE_FROM_CART] Successfully removed item. New count: {len(self.cart_items)}")
+        else:
+            logger.warning(f"[REMOVE_FROM_CART] Item not found in cart: {product_id}")
+            
         self.last_activity = datetime.now()
     
     def clear_cart(self):

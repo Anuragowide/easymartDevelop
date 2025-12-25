@@ -8,6 +8,7 @@ interface ChatState {
   messages: Message[];
   sessionId: string;
   isLoading: boolean;
+  isCartOpen: boolean;
   error: string | null;
 
   // Actions
@@ -15,6 +16,8 @@ interface ChatState {
   addMessage: (message: Message) => void;
   clearMessages: () => void;
   setError: (error: string | null) => void;
+  setCartOpen: (open: boolean) => void;
+  toggleCart: () => void;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -23,7 +26,11 @@ export const useChatStore = create<ChatState>()(
       messages: [],
       sessionId: generateUUID(),
       isLoading: false,
+      isCartOpen: false,
       error: null,
+
+      setCartOpen: (open: boolean) => set({ isCartOpen: open }),
+      toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
 
       sendMessage: async (text: string) => {
         const { sessionId, messages } = get();
