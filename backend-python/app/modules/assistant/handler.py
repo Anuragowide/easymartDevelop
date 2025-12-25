@@ -315,6 +315,39 @@ class EasymartAssistantHandler:
                         "function_calls_made": 0
                     }
                 )
+
+            # CHECK FOR ROOM REDO (vague furnishing requests)
+            room_redo_patterns = [
+                r'i am (redoing|furnishing|fixing up|updating|renovating) my (living room|bedroom|kitchen|office|dining room|room)',
+                r'i need (some )?furniture for my (living room|bedroom|kitchen|office|dining room|room)'
+            ]
+            
+            is_room_redo = any(re.search(pattern, message_lower) for pattern in room_redo_patterns)
+            # Check if any specific furniture items are mentioned
+            specific_items = ["chair", "table", "sofa", "desk", "bed", "shelf", "cabinet", "locker", "stool", "bench", "drawer", "wardrobe"]
+            mentions_specific_item = any(item in message_lower for item in specific_items)
+            
+            if is_room_redo and not mentions_specific_item:
+                logger.info(f"[HANDLER] Room redo detected without specific items: {request.message}")
+                # Extract room name
+                room_match = re.search(r'(living room|bedroom|kitchen|office|dining room|room)', message_lower)
+                room_name = room_match.group(0) if room_match else "room"
+                
+                assistant_message = f"tell me what furniture do you want for your {room_name} tell me i will assist you with what you want"
+                
+                session.add_message("assistant", assistant_message)
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "clarification_needed_room_redo",
+                        "entities": {"room": room_name},
+                        "function_calls_made": 0
+                    }
+                )
             
             if any(keyword in request.message.lower() for keyword in furniture_keywords):
                 if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA]:
