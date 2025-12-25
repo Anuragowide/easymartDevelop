@@ -412,7 +412,11 @@ class EasymartAssistantTools:
             }
         """
         try:
-            product = await getProductById(product_id)
+            # Import here to avoid circular dependencies
+            from ..catalog_index.catalog import get_catalog_indexer
+            catalog = get_catalog_indexer()
+            
+            product = catalog.get_product_by_id(product_id)
             if not product:
                 return {
                     "error": f"Product '{product_id}' not found",
@@ -420,18 +424,16 @@ class EasymartAssistantTools:
                     "in_stock": False
                 }
             
-            # FIX: Ensure product has 'name' field (map from 'title' if needed)
-            if 'name' not in product or not product.get('name'):
-                product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
+            # Use actual inventory data from catalog
+            qty = product.get("inventory_quantity", 0)
+            in_stock = qty > 0
             
-            # TODO: Integrate with actual inventory system
-            # For now, assume in stock
             return {
                 "product_id": product_id,
-                "product_name": product['name'],
-                "in_stock": True,
-                "quantity_available": 10,  # Mock data
-                "estimated_delivery": "5-10 business days"
+                "product_name": product.get("title", "Product"),
+                "in_stock": in_stock,
+                "quantity_available": qty,
+                "estimated_delivery": "5-10 business days" if in_stock else "Not available"
             }
         
         except Exception as e:

@@ -1,8 +1,8 @@
 """
 Hugging Face LLM Client
 
-Client for Mistral-7B-Instruct-v0.2 via Hugging Face Inference API.
-Supports function calling in native Mistral format.
+Client for Vicuna-7B via Hugging Face Inference API.
+Supports function calling in chat-completion format.
 """
 
 import os
@@ -35,18 +35,18 @@ class LLMResponse(BaseModel):
 
 class HuggingFaceLLMClient:
     """
-    Client for Hugging Face Inference API with Mistral-7B-Instruct-v0.2.
+    Client for Hugging Face Inference API with Vicuna-7B.
     
     Supports:
     - Text generation
-    - Function calling (Mistral native format)
+    - Function calling
     - Conversation history
     """
     
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "mistralai/Mistral-7B-Instruct-v0.2",
+        model: str = "lmsys/vicuna-7b-v1.5",
         base_url: str = "https://router.huggingface.co",
         timeout: int = 30,
         max_retries: int = 3
@@ -86,7 +86,7 @@ class HuggingFaceLLMClient:
         max_tokens: int = 512
     ) -> LLMResponse:
         """
-        Send chat request to Mistral-7B via HF Inference API.
+        Send chat request to Vicuna-7B via HF Inference API.
         
         Args:
             messages: Conversation history
@@ -101,13 +101,10 @@ class HuggingFaceLLMClient:
         hf_messages = []
         
         # Handle tools injection if needed
-        # Mistral-7B-Instruct-v0.2 doesn't support native tools in API, so we inject into prompt
-        # We'll add tool definitions to the first user message or system message
-        
         tool_prompt = ""
         if tools:
             tool_def = self._format_tools(tools)
-            tool_prompt = f"[AVAILABLE_TOOLS] {tool_def} [/AVAILABLE_TOOLS]\n\n"
+            tool_prompt = f"Available tools:\n{tool_def}\n\nTo call a tool, use: [TOOLCALLS] [{{\"name\": \"tool_name\", \"arguments\": {{...}}}}] [/TOOLCALLS]\n\n"
         
         # Process messages
         for i, msg in enumerate(messages):
@@ -117,12 +114,8 @@ class HuggingFaceLLMClient:
             if i == 0 and tool_prompt:
                 content = f"{tool_prompt}{content}"
             
-            # Map role 'tool' to 'user' or handle appropriately
-            # Mistral usually expects tool outputs in a specific format, but here we just pass content
             role = msg.role
             if role == "tool":
-                # For now, treat tool outputs as user messages with special marker if needed
-                # Or just user messages
                 role = "user"
                 content = f"[TOOL_RESULTS] {content} [/TOOL_RESULTS]"
             
@@ -133,7 +126,7 @@ class HuggingFaceLLMClient:
                 messages=hf_messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                seed=42 # Optional, for reproducibility
+                seed=42
             )
             
             generated_text = response.choices[0].message.content
@@ -146,26 +139,19 @@ class HuggingFaceLLMClient:
     
     def _format_tools(self, tools: List[Dict[str, Any]]) -> str:
         """
-        Format tools into Mistral function calling format.
-        
-        Args:
-            tools: Tool definitions (OpenAI format)
-        
-        Returns:
-            JSON string of tools
+        Format tools into a readable JSON string.
         """
-        # Convert OpenAI format to simpler format for Mistral
-        mistral_tools = []
+        formatted_tools = []
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                mistral_tools.append({
+                formatted_tools.append({
                     "name": func.get("name"),
                     "description": func.get("description"),
                     "parameters": func.get("parameters", {})
                 })
         
-        return json.dumps(mistral_tools)
+        return json.dumps(formatted_tools)
     
     def _parse_response(
         self,
