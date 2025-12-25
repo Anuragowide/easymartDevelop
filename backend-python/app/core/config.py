@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     
     # Hugging Face Configuration (for Vicuna-7B)
     HUGGINGFACE_API_KEY: Optional[str] = Field(default=None, description="Hugging Face API key")
-    HUGGINGFACE_MODEL: str = Field(default="lmsys/vicuna-7b-v1.5", description="HF model identifier")
+    HUGGINGFACE_MODEL: str = Field(default="mistralai/Mistral-7B-Instruct-v0.3", description="HF model identifier")
     HUGGINGFACE_BASE_URL: str = Field(default="https://router.huggingface.co", description="HF Inference API base URL")
     HUGGINGFACE_TIMEOUT: int = Field(default=30, description="HF API timeout in seconds")
     HUGGINGFACE_MAX_RETRIES: int = Field(default=3, description="HF API max retries")
