@@ -109,7 +109,7 @@ class BM25Index:
             session.close()
     
     def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search using BM25"""
+        """Search using BM25 with optimized batch database retrieval"""
         if self.bm25 is None:
             self.load()
             if self.bm25 is None:
@@ -117,40 +117,43 @@ class BM25Index:
         
         query_tokens = self._tokenize(query)
         scores = self.bm25.get_scores(query_tokens)
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:limit]
+        
+        # Get top indices where score > 0
+        top_indices = sorted(
+            [i for i in range(len(scores)) if scores[i] > 0],
+            key=lambda i: scores[i], 
+            reverse=True
+        )[:limit]
+        
+        if not top_indices:
+            return []
+            
+        doc_ids = [self.doc_ids[idx] for idx in top_indices]
+        results_map = {}
         
         session = self.db_manager.get_session()
-        results = []
-        
         try:
-            for idx in top_indices:
-                if scores[idx] <= 0:
-                    continue
-                
-                doc_id = self.doc_ids[idx]
-                
-                if self.index_name == "products_index":
-                    product = session.query(ProductDB).filter_by(sku=doc_id).first()
-                    if product:
-                        results.append({
-                            'id': doc_id,
-                            'score': float(scores[idx]),
-                            'content': product.to_dict(),
-                            'type': 'product'
-                        })
-                
-                elif self.index_name == "product_specs_index":
-                    spec = session.query(ProductSpecDB).filter_by(id=doc_id).first()
-                    if spec:
-                        results.append({
-                            'id': doc_id,
-                            'score': float(scores[idx]),
-                            'content': spec.to_dict(),
-                            'type': 'spec'
-                        })
-        
+            # Batch query instead of loop (Fixes N+1 problem)
+            if self.index_name == "products_index":
+                products = session.query(ProductDB).filter(ProductDB.sku.in_(doc_ids)).all()
+                results_map = {p.sku: p.to_dict() for p in products}
+            elif self.index_name == "product_specs_index":
+                specs = session.query(ProductSpecDB).filter(ProductSpecDB.id.in_(doc_ids)).all()
+                results_map = {s.id: s.to_dict() for s in specs}
         finally:
             session.close()
+            
+        # Re-assemble results in correct order with scores
+        results = []
+        for idx in top_indices:
+            doc_id = self.doc_ids[idx]
+            if doc_id in results_map:
+                results.append({
+                    'id': doc_id,
+                    'score': float(scores[idx]),
+                    'content': results_map[doc_id],
+                    'type': 'product' if self.index_name == "products_index" else 'spec'
+                })
         
         return results
     

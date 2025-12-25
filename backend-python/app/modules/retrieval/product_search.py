@@ -9,18 +9,35 @@ High-level interface for product search with additional features:
 """
 
 import asyncio
+import re
 from typing import List, Dict, Any, Optional
 from app.modules.catalog_index import CatalogIndexer
 from app.modules.observability.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Pre-compiled regex patterns for performance
+PRICE_PATTERNS = [
+    re.compile(r'under\s+\$?(\d+)', re.IGNORECASE),
+    re.compile(r'less\s+than\s+\$?(\d+)', re.IGNORECASE),
+    re.compile(r'below\s+\$?(\d+)', re.IGNORECASE),
+    re.compile(r'cheaper\s+than\s+\$?(\d+)', re.IGNORECASE),
+    re.compile(r'max\s+\$?(\d+)', re.IGNORECASE),
+    re.compile(r'maximum\s+\$?(\d+)', re.IGNORECASE),
+]
+
+COLOR_KEYWORDS = ['black', 'white', 'red', 'green', 'blue', 'brown', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'beige']
+MATERIAL_KEYWORDS = ['wood', 'metal', 'leather', 'fabric', 'glass', 'plastic', 'steel']
+ROOM_KEYWORDS = ['office', 'bedroom', 'living room', 'dining room']
 
 class ProductSearcher:
     """
     High-level product search interface.
     Wraps CatalogIndexer with additional features.
     """
+    
+    _cache = {}  # Simple in-memory cache
+    _cache_max_size = 100
     
     def __init__(self):
         self.catalog = CatalogIndexer()
@@ -32,38 +49,24 @@ class ProductSearcher:
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Search products with optional filters.
-        
-        Args:
-            query: Search query string
-            limit: Maximum number of results
-            filters: Optional filters (price_min, price_max, vendor, tags)
-        
-        Returns:
-            List of product results with scores
-        
-        Example:
-            >>> searcher = ProductSearcher()
-            >>> results = await searcher.search(
-            ...     "leather wallet",
-            ...     limit=5,
-            ...     filters={"price_max": 100, "vendor": "Easymart"}
-            ... )
+        Search products with optional filters and caching.
         """
+        # Create cache key
+        cache_key = f"{query}:{limit}:{str(filters)}"
+        if cache_key in self._cache:
+            logger.info(f"[SEARCH] Cache hit for: {query}")
+            return self._cache[cache_key]
         
         # Get raw search results from catalog
         results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 5)
         
-        # Format results properly with product names
+        # Format results properly
         formatted_results = []
         for result in results:
-            # Extract product data from 'content' field (actual data structure from searchProducts)
             product_data = result.get("content", {})
-            
-            # Build formatted product with proper name
             formatted_product = {
                 "id": product_data.get("sku", result.get("id", "")),
-                "name": product_data.get("title", "Unknown Product"),  # Use title as name
+                "name": product_data.get("title", "Unknown Product"),
                 "price": product_data.get("price", 0.00),
                 "description": product_data.get("description", ""),
                 "image_url": product_data.get("image_url", ""),
@@ -82,59 +85,48 @@ class ProductSearcher:
         if filters is None:
             filters = {}
             
-        # AUTO-DETECT FILTERS from query if not already provided
+        # AUTO-DETECT FILTERS from query
         query_lower = query.lower()
         
-        # Colors
-        colors = ['black', 'white', 'red', 'green', 'blue', 'brown', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'beige']
         if "color" not in filters:
-            for color in colors:
-                if f" {color} " in f" {query_lower} ":  # exact word match
+            for color in COLOR_KEYWORDS:
+                if f" {color} " in f" {query_lower} ":
                     filters["color"] = color
                     break
         
-        # Materials
-        materials = ['wood', 'metal', 'leather', 'fabric', 'glass', 'plastic', 'steel']
         if "material" not in filters:
-            for mat in materials:
+            for mat in MATERIAL_KEYWORDS:
                 if f" {mat} " in f" {query_lower} ":
                     filters["material"] = mat
                     break
                     
-        # Room Types
-        rooms = ['office', 'bedroom', 'living room', 'dining room']
         if "room_type" not in filters:
-            for room in rooms:
+            for room in ROOM_KEYWORDS:
                 if room in query_lower:
                     filters["room_type"] = room
                     break
         
-        # Price filters - detect "under $X", "less than $X", "below $X"
         if "price_max" not in filters:
-            import re
-            # Match patterns like "under $100", "under 100", "less than $200", "below 150"
-            price_patterns = [
-                r'under\s+\$?(\d+)',
-                r'less\s+than\s+\$?(\d+)',
-                r'below\s+\$?(\d+)',
-                r'cheaper\s+than\s+\$?(\d+)',
-                r'max\s+\$?(\d+)',
-                r'maximum\s+\$?(\d+)',
-            ]
-            
-            for pattern in price_patterns:
-                match = re.search(pattern, query_lower)
+            for pattern in PRICE_PATTERNS:
+                match = pattern.search(query_lower)
                 if match:
-                    price_value = float(match.group(1))
-                    filters["price_max"] = price_value
-                    logger.info(f"[SEARCH] Auto-detected price_max filter: ${price_value}")
+                    filters["price_max"] = float(match.group(1))
                     break
         
         if filters:
             formatted_results = self._apply_filters(formatted_results, filters)
         
-        # Return top N results
-        return formatted_results[:limit]
+        final_results = formatted_results[:limit]
+        
+        # Update cache
+        if len(self._cache) >= self._cache_max_size:
+            # Simple eviction: clear oldest (dictionary insertion order in 3.7+)
+            first_key = next(iter(self._cache))
+            del self._cache[first_key]
+        
+        self._cache[cache_key] = final_results
+        
+        return final_results
     
     def _apply_filters(
         self, 

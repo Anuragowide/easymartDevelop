@@ -49,9 +49,10 @@ class VectorIndex:
                 sanitized[key] = value
         return sanitized
     
-    def _generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for texts"""
-        embeddings = self.model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+    def _generate_embeddings(self, texts: List[str], is_search: bool = False) -> List[List[float]]:
+        """Generate embeddings for texts with optimized progress bar handling"""
+        show_bar = not is_search and len(texts) > 10
+        embeddings = self.model.encode(texts, show_progress_bar=show_bar, convert_to_numpy=True)
         return embeddings.tolist()
     
     def add_documents(self, documents: List[IndexDocument], batch_size: int = 100) -> None:
@@ -68,7 +69,7 @@ class VectorIndex:
             texts = [doc.content for doc in batch]
             metadatas = [self._sanitize_metadata(doc.metadata) for doc in batch]
             
-            embeddings = self._generate_embeddings(texts)
+            embeddings = self._generate_embeddings(texts, is_search=False)
             
             self.collection.upsert(
                 ids=ids,
@@ -81,7 +82,7 @@ class VectorIndex:
     
     def search(self, query: str, limit: int = 5, where: Optional[Dict] = None) -> List[Dict[str, Any]]:
         """Search using vector similarity"""
-        query_embedding = self._generate_embeddings([query])[0]
+        query_embedding = self._generate_embeddings([query], is_search=True)[0]
         
         results = self.collection.query(
             query_embeddings=[query_embedding],

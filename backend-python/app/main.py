@@ -4,6 +4,7 @@ FastAPI application entry point.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import get_settings
 from app.api import health_router, assistant_router
 from app.modules.catalog_index.load_catalog import load_all_products
@@ -19,6 +20,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# GZip middleware for faster transfers
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # CORS middleware
 app.add_middleware(

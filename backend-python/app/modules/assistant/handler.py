@@ -51,19 +51,40 @@ class AssistantResponse(BaseModel):
 class EasymartAssistantHandler:
     """
     Main handler for Easymart conversational assistant.
-    
-    Orchestrates:
-    - Session management
-    - Intent detection
-    - LLM inference with function calling
-    - Tool execution
-    - Response formatting
     """
     
+    # Pre-compiled off-topic patterns for efficiency
+    OFF_TOPIC_PATTERNS = [
+        re.compile(p, re.IGNORECASE) for p in [
+            r'\b(python|javascript|java|code|programming|function|class|variable|algorithm|debug)\s+(code|snippet|program|script)',
+            r'\b(write|create|make|generate)\s+(a|an|the)?\s*(code|program|script|function)',
+            r'\bstar pattern\b|\bdiamond pattern\b|\bpyramid pattern\b',
+            r'\bhow to (code|program|write code|make a program)',
+            r'\bsolve\s+(the|this)?\s*(equation|problem|math)',
+            r'\bcalculate\s+(?!shipping|price|cost|total)',
+            r'\bwhat is\s+\d+\s*[\+\-\*\/]\s*\d+',
+            r'\b(who is|what is|when did|where is|why did)\s+(?!the (price|cost|shipping|delivery|return policy))',
+            r'\b(capital of|president of|population of|history of)\b',
+            r'\b(write|tell|create)\s+(a|an|the)?\s*(story|poem|joke|song|essay)',
+            r'\bwrite me (a|an)\b',
+        ]
+    ]
+    
+    # Common shopping keywords for quick validation
+    SHOPPING_KEYWORDS = {
+        'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'product', 'item',
+        'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
+        'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
+        'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
+        'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
+    }
+    
+    RESET_KEYWORDS = {'clear chat', 'reset chat', 'start over', 'clear history', 'clear session', 'reset session', 'clear all', 'restart chat'}
+
     def __init__(
         self,
         llm_client: Optional[HuggingFaceLLMClient] = None,
-        session_store: Optional[SessionStore] = None  # ✅ Correct
+        session_store: Optional[SessionStore] = None
     ):
         """
         Initialize assistant handler.
@@ -136,43 +157,16 @@ class EasymartAssistantHandler:
             session.add_message("user", request.message)
             
             # VALIDATION: Check if query is off-topic (not related to e-commerce/shopping)
-            off_topic_patterns = [
-                # Programming/coding
-                r'\b(python|javascript|java|code|programming|function|class|variable|algorithm|debug)\s+(code|snippet|program|script)',
-                r'\b(write|create|make|generate)\s+(a|an|the)?\s*(code|program|script|function)',
-                r'\bstar pattern\b|\bdiamond pattern\b|\bpyramid pattern\b',
-                r'\bhow to (code|program|write code|make a program)',
-                # Math/calculations (not pricing)
-                r'\bsolve\s+(the|this)?\s*(equation|problem|math)',
-                r'\bcalculate\s+(?!shipping|price|cost|total)',
-                r'\bwhat is\s+\d+\s*[\+\-\*\/]\s*\d+',
-                # General knowledge/trivia
-                r'\b(who is|what is|when did|where is|why did)\s+(?!the (price|cost|shipping|delivery|return policy))',
-                r'\b(capital of|president of|population of|history of)\b',
-                # Creative/entertainment
-                r'\b(write|tell|create)\s+(a|an|the)?\s*(story|poem|joke|song|essay)',
-                r'\bwrite me (a|an)\b',
-            ]
-            
             message_lower = request.message.lower()
             
-            # Check if message matches any off-topic pattern
-            is_off_topic = any(re.search(pattern, message_lower) for pattern in off_topic_patterns)
+            # Check if message matches any pre-compiled off-topic pattern
+            is_off_topic = any(pattern.search(message_lower) for pattern in self.OFF_TOPIC_PATTERNS)
             
             # Additional check: if message contains none of the shopping keywords
-            shopping_keywords = [
-                'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'product', 'item',
-                'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
-                'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
-                'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
-                'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
-            ]
-            
-            has_shopping_context = any(keyword in message_lower for keyword in shopping_keywords)
+            has_shopping_context = any(keyword in message_lower for keyword in self.SHOPPING_KEYWORDS)
             
             # CHECK FOR RESET/CLEAR COMMANDS
-            reset_keywords = ['clear chat', 'reset chat', 'start over', 'clear history', 'clear session', 'reset session', 'clear all', 'restart chat']
-            is_reset = any(keyword in message_lower for keyword in reset_keywords)
+            is_reset = any(keyword in message_lower for keyword in self.RESET_KEYWORDS)
             
             if is_reset:
                 logger.info(f"[HANDLER] Reset command detected: {request.message}")
