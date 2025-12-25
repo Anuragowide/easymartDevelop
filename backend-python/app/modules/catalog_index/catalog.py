@@ -89,6 +89,26 @@ class CatalogIndexer:
         finally:
             session.close()
     
+    def getProductsByIds(self, skus: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get multiple products by their SKUs in a single query.
+        
+        Args:
+            skus: List of product SKUs
+            
+        Returns:
+            List of product dictionaries
+        """
+        if not skus:
+            return []
+            
+        session = self.db_manager.get_session()
+        try:
+            products = session.query(ProductDB).filter(ProductDB.sku.in_(skus)).all()
+            return [p.to_dict() for p in products]
+        finally:
+            session.close()
+    
     def getSpecsForProduct(self, sku: str) -> List[Dict[str, Any]]:
         """
         Get all specifications for a product

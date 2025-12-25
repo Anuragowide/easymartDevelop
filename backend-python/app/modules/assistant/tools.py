@@ -549,9 +549,17 @@ class EasymartAssistantTools:
             cart_details = []
             total_price = 0.0
             
+            if not session.cart_items:
+                return {"items": [], "item_count": 0, "total": 0.0}
+                
+            # Batch fetch all products in cart
+            pids = [item["product_id"] for item in session.cart_items]
+            products_list = await self.product_searcher.get_products_batch(pids)
+            products_map = {p.get("sku") or p.get("id"): p for p in products_list}
+            
             for item in session.cart_items:
                 pid = item["product_id"]
-                product = await self.product_searcher.get_product(pid)
+                product = products_map.get(pid)
                 if product:
                     price = product.get("price", 0.0)
                     qty = item["quantity"]
@@ -571,6 +579,7 @@ class EasymartAssistantTools:
                         "added_at": item.get("added_at")
                     })
                 else:
+                    # Fallback for products not in DB
                     cart_details.append({
                         "product_id": pid,
                         "id": pid,

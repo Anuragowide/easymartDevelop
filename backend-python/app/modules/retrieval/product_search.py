@@ -270,6 +270,18 @@ class ProductSearcher:
         """
         return await asyncio.to_thread(self.catalog.getProductById, sku)
     
+    async def get_products_batch(self, skus: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get multiple products by SKUs in batch.
+        
+        Args:
+            skus: List of product SKUs
+            
+        Returns:
+            List of product dictionaries
+        """
+        return await asyncio.to_thread(self.catalog.getProductsByIds, skus)
+    
     async def search_by_category(self, category: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Search products by category.

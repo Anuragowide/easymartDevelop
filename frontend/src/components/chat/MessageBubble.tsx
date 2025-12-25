@@ -1,10 +1,20 @@
 import { MessageBubbleProps, ProductCard as ProductCardType, SearchResultsAction } from '@/lib/types';
 import { ProductCard } from './ProductCard';
 import { format } from 'date-fns';
+import { useCartStore } from '@/store/cartStore';
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const time = format(new Date(message.timestamp), 'h:mm a');
+  const { addToCart } = useCartStore();
+
+  const handleAddToCart = async (productId: string) => {
+    try {
+      await addToCart(productId);
+    } catch (error) {
+      console.error('Failed to add to cart:', error);
+    }
+  };
 
   // Render search results action
   const renderSearchResults = (action: SearchResultsAction) => {
@@ -21,7 +31,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         {/* Remove "Found X products" label - cards speak for themselves */}
         <div className="grid grid-cols-1 gap-3">
           {action.data.results.map((product) => (
-            <ProductCard key={product.id} product={product} />
+            <ProductCard 
+              key={product.id} 
+              product={product} 
+              onAddToCart={handleAddToCart}
+            />
           ))}
         </div>
       </div>
@@ -32,7 +46,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const renderProductCard = (product: ProductCardType) => {
     return (
       <div className="mt-3">
-        <ProductCard product={product} />
+        <ProductCard 
+          product={product} 
+          onAddToCart={handleAddToCart}
+        />
       </div>
     );
   };

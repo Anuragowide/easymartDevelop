@@ -6,7 +6,7 @@ import { useChatStore } from '@/store/chatStore';
 import Image from 'next/image';
 
 export function CartView() {
-  const { items, total, decreaseQuantity, increaseQuantity, isLoading } = useCartStore();
+  const { items, total, decreaseQuantity, increaseQuantity, removeFromCart, isLoading } = useCartStore();
   const { setCartOpen } = useChatStore();
 
   if (items.length === 0) {
@@ -79,12 +79,13 @@ export function CartView() {
                   </button>
                 </div>
                 
-                <button
-                  onClick={() => decreaseQuantity(item.id || item.product_id!)} // Logic handles removal if qty becomes 0, but we can call it directly
-                  className="text-xs text-gray-400 hover:text-red-600 transition-colors"
-                >
-                  Remove
-                </button>
+                  <button
+                    onClick={() => removeFromCart(item.id || item.product_id!)}
+                    className="text-xs text-gray-400 hover:text-red-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+
               </div>
             </div>
           </div>
