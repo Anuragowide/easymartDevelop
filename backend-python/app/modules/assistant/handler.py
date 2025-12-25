@@ -1409,6 +1409,23 @@ class EasymartAssistantHandler:
                 # Store in session for reference
                 session.update_shown_products(result["products"])
             
+            # Track cart actions
+            if tool_name == "update_cart" and result.get("success"):
+                # Store cart action in session for later retrieval
+                action_type = result.get("action")
+                if action_type in ["add", "set"]:
+                    session.metadata["last_cart_action"] = {
+                        "type": "add_to_cart",
+                        "product_id": result.get("product_id"),
+                        "product_name": result.get("product_name"),
+                        "quantity": result.get("quantity", 1)
+                    }
+                elif action_type == "remove":
+                    session.metadata["last_cart_action"] = {
+                        "type": "remove_from_cart",
+                        "product_id": result.get("product_id")
+                    }
+            
             results[tool_name] = result
         
         return results

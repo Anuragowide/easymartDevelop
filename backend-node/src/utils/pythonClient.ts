@@ -97,8 +97,18 @@ class PythonAssistantClient {
         description: product.description,
       }));
 
-      // Transform actions from strings to proper action objects
-      const transformedActions = (response.data.suggested_actions || []).map((action: string) => {
+      // Transform actions from strings/objects to proper action objects
+      const transformedActions = (response.data.suggested_actions || []).map((action: string | any) => {
+        // Handle object actions (like add_to_cart)
+        if (typeof action === 'object' && action.type) {
+          return action;  // Return as-is
+        }
+        
+        // Handle string actions
+        if (typeof action !== 'string') {
+          return null;
+        }
+        
         // If action is "search_results", create search_results action with products
         if (action === "search_results") {
           return {
@@ -111,7 +121,7 @@ class PythonAssistantClient {
           };
         }
         
-        // Other actions are just button labels (not rendered as actions currently)
+        // Other string actions are just button labels (not rendered as actions currently)
         return null;
       }).filter(Boolean);  // Remove null actions
 

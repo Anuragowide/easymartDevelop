@@ -85,6 +85,23 @@ export const useChatStore = create<ChatState>()(
             messages: [...state.messages, assistantMessage],
             isLoading: false,
           }));
+          
+          // Process actions (e.g., add_to_cart)
+          if (response.actions && Array.isArray(response.actions)) {
+            const { useCartStore } = await import('./cartStore');
+            const cartStore = useCartStore.getState();
+            
+            for (const action of response.actions) {
+              if (action.type === 'add_to_cart' && action.product_id) {
+                try {
+                  await cartStore.addToCart(action.product_id, action.quantity || 1);
+                  console.log(`Added ${action.product_id} to cart (qty: ${action.quantity || 1})`);
+                } catch (error) {
+                  console.error('Failed to add to cart:', error);
+                }
+              }
+            }
+          }
         } catch (error: any) {
           const errorMessage = error.response?.data?.message || error.message || 'Failed to send message';
 

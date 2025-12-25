@@ -40,6 +40,9 @@ class SessionContext:
     last_query: Optional[str] = None
     active_filters: Dict[str, Any] = field(default_factory=dict)
     
+    # Metadata (for storing temporary data like cart actions)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
     # Metadata
     user_id: Optional[str] = None
     

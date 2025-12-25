@@ -59,6 +59,22 @@ async def handle_message(
         # Build suggested actions based on intent
         suggested_actions = _get_suggested_actions(intent, assistant_response.products)
         
+        # Check if there was a cart action
+        session_store = get_session_store()
+        session = session_store.get_or_create_session(assistant_response.session_id)
+        cart_action = session.metadata.get("last_cart_action")
+        
+        # Add cart action to suggested_actions if present
+        if cart_action:
+            if cart_action.get("type") == "add_to_cart":
+                suggested_actions.append({
+                    "type": "add_to_cart",
+                    "product_id": cart_action.get("product_id"),
+                    "quantity": cart_action.get("quantity", 1)
+                })
+            # Clear the cart action after including it
+            session.metadata.pop("last_cart_action", None)
+        
         elapsed_ms = (time.time() - start_time) * 1000
         
         return MessageResponse(

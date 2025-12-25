@@ -15,8 +15,7 @@ const nextConfig = {
 
     // Image configuration for Shopify CDN (updated to remotePatterns)
     images: {
-        remotePatterns: [
-            {
+        remotePatterns: [{
                 protocol: 'https',
                 hostname: 'cdn.shopify.com',
                 pathname: '/**',
