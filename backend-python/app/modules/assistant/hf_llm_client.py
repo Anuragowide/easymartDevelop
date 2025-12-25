@@ -8,9 +8,9 @@ Supports function calling in chat-completion format.
 import os
 import json
 import asyncio
+import aiohttp
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-from huggingface_hub import AsyncInferenceClient
 
 
 class Message(BaseModel):
@@ -66,17 +66,26 @@ class HuggingFaceLLMClient:
             raise ValueError("HUGGINGFACE_API_KEY not found in environment or parameters")
         
         self.model = model
-        self.base_url = base_url
         self.timeout = timeout
         self.max_retries = max_retries
         
-        # Initialize AsyncInferenceClient
-        # If base_url is the default router, we don't pass it to avoid conflict with model
-        if not base_url or "router.huggingface.co" in base_url or "api-inference.huggingface.co" in base_url:
-            self.client = AsyncInferenceClient(model=model, token=self.api_key)
+        # Determine API URL
+        if "router.huggingface.co" in base_url or "api-inference.huggingface.co" in base_url:
+            # Use standard inference API URL for the model (updated to router)
+            self.api_url = f"https://router.huggingface.co/hf-inference/models/{model}"
         else:
             # Custom endpoint
-            self.client = AsyncInferenceClient(base_url=base_url, token=self.api_key)
+            self.api_url = base_url
+            
+        self.session = None
+    
+    async def _get_session(self):
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            )
+        return self.session
     
     async def chat(
         self,
@@ -97,16 +106,15 @@ class HuggingFaceLLMClient:
         Returns:
             LLMResponse with content and optional function calls
         """
-        # Convert messages to format expected by AsyncInferenceClient
-        hf_messages = []
-        
         # Handle tools injection if needed
         tool_prompt = ""
         if tools:
             tool_def = self._format_tools(tools)
             tool_prompt = f"Available tools:\n{tool_def}\n\nTo call a tool, use: [TOOLCALLS] [{{\"name\": \"tool_name\", \"arguments\": {{...}}}}] [/TOOLCALLS]\n\n"
         
-        # Process messages
+        # Manual prompt construction for Vicuna
+        prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.\n\n"
+        
         for i, msg in enumerate(messages):
             content = msg.content
             
@@ -119,23 +127,55 @@ class HuggingFaceLLMClient:
                 role = "user"
                 content = f"[TOOL_RESULTS] {content} [/TOOL_RESULTS]"
             
-            hf_messages.append({"role": role, "content": content})
-            
-        try:
-            response = await self.client.chat_completion(
-                messages=hf_messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                seed=42
-            )
-            
-            generated_text = response.choices[0].message.content
-            
-            # Parse function calls if tools provided
-            return self._parse_response(generated_text, tools)
-            
-        except Exception as e:
-            raise Exception(f"LLM request failed: {str(e)}")
+            if role == "system":
+                prompt += f"{content}\n\n"
+            elif role == "user":
+                prompt += f"USER: {content}\n"
+            elif role == "assistant":
+                prompt += f"ASSISTANT: {content}\n"
+        
+        prompt += "ASSISTANT:"
+        
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": temperature,
+                "return_full_text": False,
+                "stop": ["USER:"]
+            }
+        }
+        
+        session = await self._get_session()
+        
+        for attempt in range(self.max_retries):
+            try:
+                async with session.post(self.api_url, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        # If model is loading, wait and retry
+                        if "loading" in error_text.lower():
+                            await asyncio.sleep(2 * (attempt + 1))
+                            continue
+                        raise Exception(f"HF API Error {response.status}: {error_text}")
+                    
+                    result = await response.json()
+                    
+                    # Result is usually a list of dicts: [{"generated_text": "..."}]
+                    if isinstance(result, list) and len(result) > 0:
+                        generated_text = result[0].get("generated_text", "")
+                    elif isinstance(result, dict):
+                        generated_text = result.get("generated_text", "")
+                    else:
+                        generated_text = str(result)
+                    
+                    # Parse function calls if tools provided
+                    return self._parse_response(generated_text, tools)
+                    
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    raise Exception(f"LLM request failed after {self.max_retries} retries: {str(e)}")
+                await asyncio.sleep(1)
     
     def _format_tools(self, tools: List[Dict[str, Any]]) -> str:
         """

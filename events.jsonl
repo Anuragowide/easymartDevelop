@@ -1,0 +1,7 @@
+{"event_type": "assistant_request", "timestamp": "2025-12-25T14:54:28.609856", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"message_length": 3, "has_session": true}}
+{"event_type": "assistant_response_success", "timestamp": "2025-12-25T14:54:31.566789", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"intent": "off_topic_rejected", "response_length": 214}}
+{"event_type": "assistant_request", "timestamp": "2025-12-25T14:54:55.293967", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"message_length": 27, "has_session": true}}
+{"event_type": "assistant_request", "timestamp": "2025-12-25T14:55:33.439481", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"message_length": 12, "has_session": true}}
+{"event_type": "assistant_error", "timestamp": "2025-12-25T14:55:33.550042", "user_id": null, "session_id": null, "properties": {"error": "HUGGINGFACE_API_KEY not found in environment or parameters"}}
+{"event_type": "assistant_request", "timestamp": "2025-12-25T14:55:42.263322", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"message_length": 20, "has_session": true}}
+{"event_type": "assistant_error", "timestamp": "2025-12-25T14:55:42.266237", "user_id": null, "session_id": null, "properties": {"error": "HUGGINGFACE_API_KEY not found in environment or parameters"}}
