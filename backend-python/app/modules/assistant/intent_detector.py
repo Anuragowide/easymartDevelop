@@ -73,6 +73,11 @@ class IntentDetector:
             r'\bdo you accept\b.*\b(card|paypal|afterpay|zip)\b',
             r'\b(afterpay|zip pay|buy now pay later)\b',
         ],
+        IntentType.PROMOTIONS: [
+            r'\b(discount|offer|sale|promo|promotion|coupon|deal|clearance)\b',
+            r'\bany\s+(deals|offers|discounts)\b',
+            r'\bis there a sale\b',
+        ],
         IntentType.WARRANTY_INFO: [
             r'\b(warranty|guarantee)\b',
             r'\bhow long\b.*\b(warranty|covered)\b',

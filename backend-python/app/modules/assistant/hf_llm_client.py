@@ -211,9 +211,11 @@ class HuggingFaceLLMClient:
                     print(f"[DEBUG HF] Extracted tool_calls_str: {tool_calls_str[:200]}")
                     
                     # Extract content (everything not in tool calls)
-                    content_before = text_normalized[:text_normalized.index(marker)].strip()
-                    content_after = text_normalized[end + len(end_marker):].strip()
-                    content = f"{content_before}\n{content_after}".strip()
+                    # FIX: Use more robust extraction to handle multiple occurrences or messy text
+                    content = re.sub(rf'\\?{re.escape(marker)}.*?\\?{re.escape(end_marker)}', '', text_normalized, flags=re.IGNORECASE | re.DOTALL).strip()
+                    
+                    # Also strip any leftover markers that might be escaped or repeated
+                    content = re.sub(r'\\?\[/?TOOL_?CALLS\]', '', content, flags=re.IGNORECASE).strip()
                 
                     tool_calls_json = json.loads(tool_calls_str)
                     if not isinstance(tool_calls_json, list):

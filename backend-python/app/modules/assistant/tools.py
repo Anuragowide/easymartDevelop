@@ -58,6 +58,15 @@ TOOL_DEFINITIONS = [
                         "type": "number",
                         "description": "Maximum price in AUD"
                     },
+                    "sort_by": {
+                        "type": "string",
+                        "enum": ["price_low", "price_high", "relevance"],
+                        "description": "Sort order for results"
+                    },
+                    "color": {
+                        "type": "string",
+                        "description": "Color filter (e.g., 'black', 'white')"
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "Maximum results to return (default 5, max 10)",
@@ -237,28 +246,13 @@ class EasymartAssistantTools:
         material: Optional[str] = None,
         style: Optional[str] = None,
         room_type: Optional[str] = None,
-        color: Optional[str] = None,  # NEW: Add color parameter
+        color: Optional[str] = None,
         price_max: Optional[float] = None,
+        sort_by: Optional[str] = "relevance",  # NEW: Add sort_by
         limit: int = 5
     ) -> Dict[str, Any]:
         """
-        Search products with filters.
-        
-        Returns:
-            {
-                "products": [
-                    {
-                        "id": "CHR-001",
-                        "name": "Modern Office Chair",
-                        "price": 199.00,
-                        "description": "...",
-                        "category": "chair",
-                        "image_url": "..."
-                    }
-                ],
-                "total": 15,
-                "showing": 5
-            }
+        Search products with filters and sorting.
         """
         try:
             # Build filters
@@ -272,7 +266,7 @@ class EasymartAssistantTools:
             if room_type:
                 filters["room_type"] = room_type
             if color:
-                filters["color"] = color  # NEW: Add color to filters
+                filters["color"] = color
             if price_max:
                 filters["price_max"] = price_max
             
@@ -283,24 +277,28 @@ class EasymartAssistantTools:
                 limit=min(limit, 10)
             )
             
-            # FIX: Ensure all products have proper names (not product_1, product_2, etc.)
+            # SORTING: Handle price_low, price_high
+            if sort_by == "price_low":
+                results.sort(key=lambda x: x.get("price", 0))
+            elif sort_by == "price_high":
+                results.sort(key=lambda x: x.get("price", 0), reverse=True)
+            
+            # FIX: Ensure all products have proper names
             formatted_products = []
             for idx, product in enumerate(results):
-                # Use title as name, fallback to description or generic name
                 if not product.get("name") or product.get("name").startswith("product_"):
                     product["name"] = product.get("title") or product.get("description", f"Product {idx + 1}")
                 
-                # Ensure we have all required fields
                 product["id"] = product.get("sku") or product.get("id")
                 product["price"] = product.get("price", 0.00)
-                product["description"] = product.get("description", "")
                 
                 formatted_products.append(product)
             
             return {
                 "products": formatted_products,
                 "total": len(formatted_products),
-                "showing": len(formatted_products)
+                "showing": len(formatted_products),
+                "sort_applied": sort_by
             }
         
         except Exception as e:
@@ -390,6 +388,7 @@ class EasymartAssistantTools:
                 "price": product.get("price"),
                 "specs": formatted_specs,
                 "answer": answer,
+                "estimated_delivery": "5-10 business days (metro Australia)",
                 "full_spec_text": " | ".join(full_text_parts)
             }
         
@@ -412,7 +411,7 @@ class EasymartAssistantTools:
             }
         """
         try:
-            product = await getProductById(product_id)
+            product = await self.product_searcher.get_product(product_id)
             if not product:
                 return {
                     "error": f"Product '{product_id}' not found",
@@ -420,17 +419,19 @@ class EasymartAssistantTools:
                     "in_stock": False
                 }
             
-            # FIX: Ensure product has 'name' field (map from 'title' if needed)
+            # FIX: Ensure product has 'name' field
             if 'name' not in product or not product.get('name'):
                 product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
             
-            # TODO: Integrate with actual inventory system
-            # For now, assume in stock
+            # Use actual inventory quantity if available
+            qty = product.get("inventory_quantity", 10)
+            in_stock = qty > 0
+            
             return {
                 "product_id": product_id,
                 "product_name": product['name'],
-                "in_stock": True,
-                "quantity_available": 10,  # Mock data
+                "in_stock": in_stock,
+                "quantity_available": qty,
                 "estimated_delivery": "5-10 business days"
             }
         

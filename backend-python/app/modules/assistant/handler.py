@@ -194,11 +194,16 @@ class EasymartAssistantHandler:
             
             if is_off_topic and not has_shopping_context:
                 logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
-                assistant_message = (
-                    "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. "
-                    "I can help you search for chairs, tables, desks, storage solutions, and more. "
-                    "What products are you looking for today?"
-                )
+                
+                # Check for joke specifically
+                if re.search(r'\bjoke\b', message_lower):
+                    assistant_message = "I'm here to help you find furniture and home products, but I don't really have a sense of humor for jokes! Is there any furniture I can help you search for today?"
+                else:
+                    assistant_message = (
+                        "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. "
+                        "I can help you search for chairs, tables, desks, storage solutions, and more. "
+                        "What products are you looking for today?"
+                    )
                 
                 session.add_message("assistant", assistant_message)
                 
@@ -278,6 +283,23 @@ class EasymartAssistantHandler:
                 )
                 
                 return response
+            
+            # SHORTCUT: Handle PROMOTIONS intent
+            if intent_str == "promotions":
+                logger.info("[HANDLER] Promotions intent detected")
+                assistant_message = (
+                    "We currently have great deals across our furniture range! "
+                    "You can find clearance items in our 'Sale' section, and we often have seasonal promotions. "
+                    "Is there a specific type of furniture you're looking for a deal on?"
+                )
+                session.add_message("assistant", assistant_message)
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={"intent": "promotions", "entities": entities}
+                )
             
             # FORCE product_search intent for furniture-related queries
             # BUT: Reject vague single-word queries that need clarification

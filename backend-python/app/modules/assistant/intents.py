@@ -28,6 +28,7 @@ class IntentType(str, Enum):
     SHIPPING_INFO = "shipping_info"
     PAYMENT_OPTIONS = "payment_options"
     WARRANTY_INFO = "warranty_info"
+    PROMOTIONS = "promotions"
     
     # Contact & Support intents
     CONTACT_INFO = "contact_info"
@@ -126,8 +127,14 @@ class ContactInfoIntent(BaseModel):
     intent: IntentType = IntentType.CONTACT_INFO
 
 
+class PromotionsIntent(BaseModel):
+    """Promotions and discounts request"""
+    intent: IntentType = IntentType.PROMOTIONS
+
+
 # Union type for all intents
 IntentData = (
     ProductSearchIntent | CartAddIntent | CartRemoveIntent | CartShowIntent | 
-    ProductSpecQAIntent | ReturnPolicyIntent | ShippingInfoIntent | ContactInfoIntent
+    ProductSpecQAIntent | ReturnPolicyIntent | ShippingInfoIntent | ContactInfoIntent |
+    PromotionsIntent
 )
