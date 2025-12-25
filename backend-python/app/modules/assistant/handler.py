@@ -181,7 +181,7 @@ class EasymartAssistantHandler:
                 r'\b(who is|what is|when did|where is|why did)\s+(?!the (price|cost|shipping|delivery|return policy))',
                 r'\b(capital of|president of|population of|history of)\b',
                 # Creative/entertainment
-                r'\b(write|tell|create)\s+(a|an|the)?\s*(story|poem|joke|song|essay)',
+                r'\b(write|tell|create|give)\b.*\b(story|poem|joke|song|essay|riddle)\b',
                 r'\bwrite me (a|an)\b',
             ]
             
@@ -196,10 +196,15 @@ class EasymartAssistantHandler:
                 'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
                 'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
                 'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
-                'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
+                'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen',
+                'discount', 'sale', 'offer', 'coupon', 'promo', 'deal'
             ]
             
             has_shopping_context = any(keyword in message_lower for keyword in shopping_keywords)
+            
+            # Absolute off-topic: matches an off-topic pattern (even if it mentions shopping keywords like 'furniture joke')
+            # OR has no shopping context at all.
+            is_absolute_off_topic = is_off_topic or not has_shopping_context
             
             # CHECK FOR RESET/CLEAR COMMANDS
             reset_keywords = ['clear chat', 'reset chat', 'start over', 'clear history', 'clear session', 'reset session', 'clear all', 'restart chat']
@@ -223,7 +228,7 @@ class EasymartAssistantHandler:
                     }
                 )
             
-            if is_off_topic and not has_shopping_context:
+            if is_absolute_off_topic:
                 logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
                 assistant_message = (
                     "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. "
@@ -406,7 +411,8 @@ class EasymartAssistantHandler:
                 assistant_message = llm_response.content
             
             # Final cleanup
-            assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL).strip()
+            assistant_message = re.sub(r'\[TOOL_?CALLS?\].*?\[/TOOL_?CALLS?\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+            assistant_message = re.sub(r'\[TOOL_?RESULTS?\].*?\[/TOOL_?RESULTS?\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL).strip()
             
             # Add assistant response to history
             session.add_message("assistant", assistant_message)

@@ -78,6 +78,16 @@ class IntentDetector:
             r'\bhow long\b.*\b(warranty|covered)\b',
             r'\bwhat\'s covered\b.*\b(warranty)\b',
         ],
+        IntentType.PROMOTIONS_INFO: [
+            r'\b(discount|sale|offer|coupon|promo|deal|promotion)s?\b',
+            r'\bany\s+(codes|vouchers)\b',
+            r'\bhow can i save\b',
+        ],
+        IntentType.OFF_TOPIC: [
+            r'\b(write|tell|create|give)\b.*\b(story|poem|joke|song|essay|riddle)\b',
+            r'\b(pm of india|capital of|president of|history of)\b',
+            r'\bhow to (code|program|write code)\b',
+        ],
         IntentType.CONTACT_INFO: [
             r'\b(contact|call|phone|email|reach)\b.*\b(you|customer service|support)\b',
             r'\b(phone number|email address|contact details)\b',

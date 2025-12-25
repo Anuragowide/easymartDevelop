@@ -26,7 +26,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search Easymart furniture catalog by keyword, category, style, material, or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
+            "description": "Search Easymart furniture catalog by keyword, category, style, material, color or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -54,9 +54,22 @@ TOOL_DEFINITIONS = [
                         "enum": ["office", "bedroom", "living_room", "dining_room", "outdoor"],
                         "description": "Room type filter"
                     },
+                    "price_min": {
+                        "type": "number",
+                        "description": "Minimum price in AUD"
+                    },
                     "price_max": {
                         "type": "number",
                         "description": "Maximum price in AUD"
+                    },
+                    "color": {
+                        "type": "string",
+                        "description": "Color filter (e.g., 'red', 'black')"
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["relevance", "price_asc", "price_desc"],
+                        "description": "Sort order for results (relevance, price_asc, price_desc)"
                     },
                     "limit": {
                         "type": "integer",
@@ -78,11 +91,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "product_id": {
                         "type": "string",
-                        "description": "Product SKU or ID (e.g., 'CHR-001')"
-                    },
-                    "question": {
-                        "type": "string",
-                        "description": "Specific question about the product (optional, for Q&A search in specs)"
+                        "description": "Product SKU or ID"
                     }
                 },
                 "required": ["product_id"]
@@ -167,8 +176,8 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "policy_type": {
                         "type": "string",
-                        "enum": ["returns", "shipping", "payment", "warranty"],
-                        "description": "Type of policy information requested"
+                        "enum": ["returns", "shipping", "payment", "warranty", "promotions"],
+                        "description": "Type of policy to retrieve"
                     }
                 },
                 "required": ["policy_type"]

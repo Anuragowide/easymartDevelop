@@ -29,111 +29,49 @@ class ProductSearcher:
         self, 
         query: str, 
         limit: int = 5,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Search products with optional filters.
-        
-        Args:
-            query: Search query string
-            limit: Maximum number of results
-            filters: Optional filters (price_min, price_max, vendor, tags)
-        
-        Returns:
-            List of product results with scores
-        
-        Example:
-            >>> searcher = ProductSearcher()
-            >>> results = await searcher.search(
-            ...     "leather wallet",
-            ...     limit=5,
-            ...     filters={"price_max": 100, "vendor": "Easymart"}
-            ... )
+        Search for products based on a query and optional filters.
         """
+        # 1. Broad search using CatalogIndexer
+        # We fetch more results than limit to allow for post-filtering
+        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 10)
         
-        # Get raw search results from catalog
-        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 5)
-        
-        # Format results properly with product names
+        # 2. Format results
         formatted_results = []
-        for result in results:
-            # Extract product data from 'content' field (actual data structure from searchProducts)
-            product_data = result.get("content", {})
+        for res in results:
+            product = res.get("product", {})
+            score = res.get("score", 0)
             
-            # Build formatted product with proper name
-            formatted_product = {
-                "id": product_data.get("sku", result.get("id", "")),
-                "name": product_data.get("title", "Unknown Product"),  # Use title as name
-                "price": product_data.get("price", 0.00),
-                "description": product_data.get("description", ""),
-                "image_url": product_data.get("image_url", ""),
-                "handle": product_data.get("handle", ""),
-                "vendor": product_data.get("vendor", ""),
-                "tags": product_data.get("tags", []),
-                "currency": product_data.get("currency", "AUD"),
-                "product_url": product_data.get("product_url", ""),
-                "category": product_data.get("category", ""),
-                "score": result.get("score", 0),
-                "inventory_quantity": product_data.get("inventory_quantity", 0),
-            }
-            formatted_results.append(formatted_product)
-        
-        # Apply filters if provided
-        if filters is None:
-            filters = {}
+            # Extract essential fields
+            formatted_results.append({
+                "id": str(product.get("id", "")),
+                "sku": product.get("sku", ""),
+                "name": product.get("name", ""),
+                "price": float(product.get("price", 0)),
+                "category": product.get("category", ""),
+                "description": product.get("description", ""),
+                "image_url": product.get("image_url", ""),
+                "attributes": product.get("attributes", {}),
+                "score": score
+            })
             
-        # AUTO-DETECT FILTERS from query if not already provided
-        query_lower = query.lower()
-        
-        # Colors
-        colors = ['black', 'white', 'red', 'green', 'blue', 'brown', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'beige']
-        if "color" not in filters:
-            for color in colors:
-                if f" {color} " in f" {query_lower} ":  # exact word match
-                    filters["color"] = color
-                    break
-        
-        # Materials
-        materials = ['wood', 'metal', 'leather', 'fabric', 'glass', 'plastic', 'steel']
-        if "material" not in filters:
-            for mat in materials:
-                if f" {mat} " in f" {query_lower} ":
-                    filters["material"] = mat
-                    break
-                    
-        # Room Types
-        rooms = ['office', 'bedroom', 'living room', 'dining room']
-        if "room_type" not in filters:
-            for room in rooms:
-                if room in query_lower:
-                    filters["room_type"] = room
-                    break
-        
-        # Price filters - detect "under $X", "less than $X", "below $X"
-        if "price_max" not in filters:
-            import re
-            # Match patterns like "under $100", "under 100", "less than $200", "below 150"
-            price_patterns = [
-                r'under\s+\$?(\d+)',
-                r'less\s+than\s+\$?(\d+)',
-                r'below\s+\$?(\d+)',
-                r'cheaper\s+than\s+\$?(\d+)',
-                r'max\s+\$?(\d+)',
-                r'maximum\s+\$?(\d+)',
-            ]
-            
-            for pattern in price_patterns:
-                match = re.search(pattern, query_lower)
-                if match:
-                    price_value = float(match.group(1))
-                    filters["price_max"] = price_value
-                    logger.info(f"[SEARCH] Auto-detected price_max filter: ${price_value}")
-                    break
-        
+        # 3. Apply filters if provided
         if filters:
             formatted_results = self._apply_filters(formatted_results, filters)
         
-        # Return top N results
+        # 4. Apply sorting if provided
+        if sort == "price_asc":
+            formatted_results.sort(key=lambda x: x.get("price", 0))
+        elif sort == "price_desc":
+            formatted_results.sort(key=lambda x: x.get("price", 0), reverse=True)
+        elif sort == "relevance":
+            # Already sorted by score from CatalogIndexer, but let's be explicit
+            formatted_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+            
+        # 5. Return top N results
         return formatted_results[:limit]
     
     def _apply_filters(

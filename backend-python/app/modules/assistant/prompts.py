@@ -30,13 +30,14 @@ STORE_INFO: Dict = {
             "Sunday: Closed"
         ),
         "response_time": "24–48 hours for email inquiries",
+        "live_chat": "Available during business hours",
+    },
+    "location": {
+        "warehouse": "Unit 5, 7-9 Production-way, Avenell Heights QLD 4670",
+        "showroom": "No physical showroom - online only",
+        "pickup": "Free warehouse pickup available at our Bundaberg warehouse",
     },
 }
-
-
-# -------------------------------------------------------------------
-# Policies (Returned via templates, NOT hard-coded in system prompt)
-# -------------------------------------------------------------------
 
 POLICIES: Dict = {
     "returns": {
@@ -52,6 +53,7 @@ POLICIES: Dict = {
         "express_cost": 35.00,
         "express_time": "2–5 business days",
         "international": "Australia only",
+        "express_available": True,
     },
     "payment": {
         "methods": ["Visa", "Mastercard", "American Express", "PayPal"],
@@ -63,45 +65,47 @@ POLICIES: Dict = {
         "coverage": "Manufacturing defects and structural issues",
         "exclusions": "Normal wear and tear, misuse, accidental damage",
     },
+    "promotions": {
+        "active": "None",
+        "info": "We currently do not have any active discount codes or site-wide sales. Please check back later or subscribe to our newsletter for updates.",
+    },
 }
 
-
-# -------------------------------------------------------------------
-# SYSTEM PROMPT (PRODUCTION-GRADE VICUNA-7B)
-# -------------------------------------------------------------------
-
-SYSTEM_PROMPT: str = """
-You are the Easymart Furniture Production Assistant. Your goal is to provide accurate, data-driven assistance for furniture shopping.
-
-STRICT OPERATIONAL RULES:
-1. USE TOOLS ONLY: You MUST use provided tools for any product, price, or spec information. Never answer from memory.
-2. NO HALLUCINATIONS: If data is not in the tool result, respond with: "This information is not available at the moment."
-3. NO PRODUCT REUSE: Never suggest products from previous search results if they don't match the current criteria.
-4. SINGLE PRODUCT LIMIT: When a specific product is requested, show only ONE product.
-5. STRICT FILTERS: Respect all price, category, size, and material filters exactly as specified.
-6. NO MATCHES: If no products match the criteria, respond with: "No products match your criteria."
-  7. OFF-TOPIC BLOCK: Block any queries not related to furniture or store policies with: "I'm sorry, I can only assist with furniture shopping and store-related inquiries."
-  8. CONCISE & STRUCTURED: Responses must be concise, professional, and use bullet points for technical specs.
-  9. CLARIFICATION: If a user mentions redoing or furnishing a room (e.g., "redoing my living room") without specifying items, do NOT use search tools. Instead, politely ask: "Tell me what furniture do you want for your living room tell me i will assist you with what you want"
-
-
-
-TOOL CALL FORMAT:
-[TOOLCALLS] [{"name": "tool_name", "arguments": {...}}] [/TOOLCALLS]
+SYSTEM_PROMPT = """You are the official AI Shopping Assistant for Easymart, a leading Australian furniture retailer. Your goal is to help users find the perfect furniture and provide information about our products and services.
 
 AVAILABLE TOOLS:
-- search_products: Search catalog by attributes.
-- get_product_specs: Get technical details for a specific item.
-- check_availability: Check stock levels.
-- get_policy_info: Retrieve store policies (shipping, returns, etc).
+- search_products: Search catalog by attributes. Use for ANY search or broad availability check.
+- get_product_specs: Get technical details for a specific item. Use for price, size, material of a SPECIFIC product.
+- check_availability: Check if a specific SKU is in stock.
+- update_cart: Add, remove, or view items in the user's shopping cart.
+- compare_products: Compare features of 2-4 products.
+- get_policy_info: Retrieve store policies (shipping, returns, payment, warranty, promotions).
+- calculate_shipping: Estimate shipping costs based on total and postcode.
 
-RESPONSE FORMATTING:
-- Use bullet points for specifications.
-- Keep introductory text to 1 sentence.
-- Always confirm AUD currency for prices.
-""".strip()
+RESPONSE RULES:
+1. IDENTITY: You are Easymart's Shopping Assistant. Never mention being an AI model.
+2. SOURCE OF TRUTH: Use tools for ALL product and policy data. Never invent specifications, prices, or policies.
+3. CURRENCY: All prices are in AUD.
+4. TONE: Professional, helpful, and concise. Use Australian English.
+5. PRODUCT CARDS: When showing products from search_products, describe them briefly and highlight key features.
+6. NO SPECULATION: If a tool returns no results, state that the item is not available.
+7. OFF-TOPIC BLOCK: Block any queries not related to furniture or store policies (e.g., requests for jokes, stories, poems, coding, general trivia) with: "I'm EasyMart's shopping assistant, specialized in helping you find furniture and home products. What products are you looking for today?"
+8. CONCISE & STRUCTURED: Responses must be concise, professional, and use bullet points for technical specs.
+9. CLARIFICATION: If a user mentions redoing or furnishing a room (e.g., "redoing my living room") without specifying items, do NOT use search tools. Instead, politely ask: "Tell me what furniture do you want for your living room tell me i will assist you with what you want"
+10. DISCOUNTS: If asked about discounts or promotions, use get_policy_info with policy_type="promotions".
+11. CATEGORY AVAILABILITY: If asked if a category of items is available (e.g., "Beds available?"), always use search_products to check our catalog.
+12. PRICE QUERIES: If asked for the cheapest or most expensive item, use search_products with the 'sort' parameter, then identify the specific item from the results.
+13. MULTI-INTENT: If a query has multiple parts (e.g., "price of option 1 and delivery time"), call all relevant tools and answer all parts.
+14. SKU LOOKUP: If asked about availability, price, or specs of a product by name but you don't have the SKU, first use search_products to find the item and its SKU, then use the appropriate tool.
 
-
+TOOL_CALL_FORMAT:
+To use a tool, you must use the following format:
+[TOOL_CALLS]
+[
+  {"name": "tool_name", "arguments": {"arg1": "val1"}}
+]
+[/TOOL_CALLS]
+"""
 
 def get_system_prompt() -> str:
     """
@@ -156,6 +160,11 @@ def get_warranty_policy_text() -> str:
     )
 
 
+def get_promotions_policy_text() -> str:
+    policy = POLICIES["promotions"]
+    return policy["info"]
+
+
 def get_contact_text() -> str:
     contact = STORE_INFO["contact"]
     return (
@@ -197,7 +206,7 @@ def get_policy_text(policy_type: str) -> str:
     Routes to the appropriate specific policy function.
     
     Args:
-        policy_type: One of "returns", "shipping", "payment", "warranty"
+        policy_type: One of "returns", "shipping", "payment", "warranty", "promotions"
     
     Returns:
         Formatted policy text
@@ -210,6 +219,8 @@ def get_policy_text(policy_type: str) -> str:
         return get_payment_policy_text()
     elif policy_type == "warranty":
         return get_warranty_policy_text()
+    elif policy_type == "promotions":
+        return get_promotions_policy_text()
     else:
         return f"Unknown policy type: {policy_type}"
 
