@@ -544,19 +544,43 @@ class EasymartAssistantTools:
         session = session_store.get_or_create_session(session_id)
         
         if action == "view":
+            cart_details = []
+            total_price = 0.0
+            
+            for item in session.cart_items:
+                product_id = item["product_id"]
+                product = await self.product_searcher.get_product(product_id)
+                if product:
+                    price = product.get("price", 0.0)
+                    qty = item["quantity"]
+                    item_total = price * qty
+                    total_price += item_total
+                    
+                    cart_details.append({
+                        "product_id": product_id,
+                        "name": product.get("title", "Unknown Product"),
+                        "price": price,
+                        "quantity": qty,
+                        "item_total": item_total
+                    })
+            
             return {
                 "action": "view",
                 "success": True,
                 "cart": {
-                    "items": session.cart_items,
-                    "item_count": len(session.cart_items),
-                    "total": 0.00
+                    "items": cart_details,
+                    "item_count": len(cart_details),
+                    "total": total_price
                 },
-                "message": "Cart retrieved" if session.cart_items else "Cart is empty"
+                "message": f"Your cart has {len(cart_details)} items totaling ${total_price:.2f}" if cart_details else "Your cart is currently empty."
             }
         
         if not product_id:
             return {"error": "product_id required for this action", "success": False}
+        
+        # Get product info for better feedback
+        product = await self.product_searcher.get_product(product_id)
+        product_name = product.get("title", product_id) if product else product_id
         
         if action == "add":
             if not quantity or quantity < 1:
@@ -566,8 +590,9 @@ class EasymartAssistantTools:
                 "action": "add",
                 "success": True,
                 "product_id": product_id,
+                "product_name": product_name,
                 "quantity": quantity,
-                "message": f"Added to cart"
+                "message": f"Added {quantity} x {product_name} to your cart."
             }
         
         elif action == "remove":
@@ -576,7 +601,8 @@ class EasymartAssistantTools:
                 "action": "remove",
                 "success": True,
                 "product_id": product_id,
-                "message": "Removed from cart"
+                "product_name": product_name,
+                "message": f"Removed {product_name} from your cart."
             }
         
         elif action == "set":

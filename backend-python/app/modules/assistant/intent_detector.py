@@ -298,13 +298,59 @@ class IntentDetector:
         
         elif intent == IntentType.CART_ADD:
             # Extract product reference and quantity
-            index_match = re.search(r'\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|\d+)\b', message_lower)
+            # Try patterns like "option 1", "number 2", "first one", etc.
+            index_match = re.search(r'\b(?:option|product|number|item|choice)\s+(\d+)\b', message_lower)
+            if not index_match:
+                index_match = re.search(r'\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b', message_lower)
+            
             if index_match:
-                index_word = index_match.group(1)
-                index_map = {"first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5",
-                           "1st": "1", "2nd": "2", "3rd": "3", "4th": "4", "5th": "5"}
-                entities["product_reference"] = index_map.get(index_word, index_word)
+                index_val = index_match.group(1)
+                ordinal_map = {
+                    "first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5",
+                    "sixth": "6", "seventh": "7", "eighth": "8", "ninth": "9", "tenth": "10",
+                    "1st": "1", "2nd": "2", "3rd": "3", "4th": "4", "5th": "5",
+                    "6th": "6", "7th": "7", "8th": "8", "9th": "9", "10th": "10"
+                }
+                entities["product_reference"] = ordinal_map.get(index_val, index_val)
                 entities["reference_type"] = "index"
+            
+            # Extract SKU if mentioned
+            sku_match = re.search(r'\b([A-Z]+-\d+)\b', message)
+            if sku_match and not entities.get("product_reference"):
+                entities["product_reference"] = sku_match.group(1)
+                entities["reference_type"] = "sku"
+            
+            # Extract quantity
+            qty_match = re.search(r'\b(\d+)\s+(?:units?|items?|of|quantity)\b', message_lower)
+            if not qty_match:
+                qty_match = re.search(r'\b(?:qty|quantity|add)\s+(\d+)\b', message_lower)
+            
+            if qty_match:
+                entities["quantity"] = int(qty_match.group(1))
+            else:
+                entities["quantity"] = 1
+        
+        elif intent == IntentType.CART_REMOVE:
+            # Extract product reference
+            index_match = re.search(r'\b(?:option|product|number|item|choice)\s+(\d+)\b', message_lower)
+            if not index_match:
+                index_match = re.search(r'\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b', message_lower)
+            
+            if index_match:
+                index_val = index_match.group(1)
+                ordinal_map = {
+                    "first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5",
+                    "sixth": "6", "seventh": "7", "eighth": "8", "ninth": "9", "tenth": "10",
+                    "1st": "1", "2nd": "2", "3rd": "3", "4th": "4", "5th": "5"
+                }
+                entities["product_reference"] = ordinal_map.get(index_val, index_val)
+                entities["reference_type"] = "index"
+            
+            # Extract SKU if mentioned
+            sku_match = re.search(r'\b([A-Z]+-\d+)\b', message)
+            if sku_match and not entities.get("product_reference"):
+                entities["product_reference"] = sku_match.group(1)
+                entities["reference_type"] = "sku"
             
             # Extract quantity
             qty_match = re.search(r'\b(need|want|get|buy)\s+(\d+)', message_lower)

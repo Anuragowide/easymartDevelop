@@ -485,11 +485,11 @@ class EasymartAssistantHandler:
                     logger.info(f"[DEBUG] Product IDs in session: {[p.get('id', 'NO-ID') for p in session.last_shown_products]}")
                 logger.info(f"[DEBUG] Original message: '{original_message}'")
                 
-                # VALIDATION: Fix product IDs for spec/availability/comparison tools
+                # VALIDATION: Fix product IDs for spec/availability/comparison/cart tools
                 # LLM might guess wrong IDs (e.g., "LCK-005" for option 5)
                 # Replace with actual IDs from session.last_shown_products
                 for func_call in llm_response.function_calls:
-                    if func_call.name in ['get_product_specs', 'check_availability']:
+                    if func_call.name in ['get_product_specs', 'check_availability', 'update_cart']:
                         product_id = func_call.arguments.get('product_id', '')
                         logger.info(f"[DEBUG] Tool: {func_call.name}, LLM provided ID: '{product_id}'")
                         
