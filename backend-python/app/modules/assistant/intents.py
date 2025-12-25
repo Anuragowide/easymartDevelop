@@ -28,7 +28,6 @@ class IntentType(str, Enum):
     SHIPPING_INFO = "shipping_info"
     PAYMENT_OPTIONS = "payment_options"
     WARRANTY_INFO = "warranty_info"
-    PROMOTIONS_INFO = "promotions_info"
     
     # Contact & Support intents
     CONTACT_INFO = "contact_info"
@@ -38,7 +37,6 @@ class IntentType(str, Enum):
     # General intents
     GREETING = "greeting"
     GENERAL_HELP = "general_help"
-    OFF_TOPIC = "off_topic"
     OUT_OF_SCOPE = "out_of_scope"
 
 

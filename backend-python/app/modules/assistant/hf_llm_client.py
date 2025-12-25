@@ -1,16 +1,16 @@
 """
 Hugging Face LLM Client
 
-Client for Vicuna-7B via Hugging Face Inference API.
-Supports function calling in chat-completion format.
+Client for Mistral-7B-Instruct-v0.2 via Hugging Face Inference API.
+Supports function calling in native Mistral format.
 """
 
 import os
 import json
 import asyncio
-import aiohttp
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+from huggingface_hub import AsyncInferenceClient
 
 
 class Message(BaseModel):
@@ -35,18 +35,18 @@ class LLMResponse(BaseModel):
 
 class HuggingFaceLLMClient:
     """
-    Client for Hugging Face Inference API with Vicuna-7B.
+    Client for Hugging Face Inference API with Mistral-7B-Instruct-v0.2.
     
     Supports:
     - Text generation
-    - Function calling
+    - Function calling (Mistral native format)
     - Conversation history
     """
     
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "lmsys/vicuna-7b-v1.5",
+        model: str = "mistralai/Mistral-7B-Instruct-v0.2",
         base_url: str = "https://router.huggingface.co",
         timeout: int = 30,
         max_retries: int = 3
@@ -66,26 +66,17 @@ class HuggingFaceLLMClient:
             raise ValueError("HUGGINGFACE_API_KEY not found in environment or parameters")
         
         self.model = model
+        self.base_url = base_url
         self.timeout = timeout
         self.max_retries = max_retries
         
-        # Determine API URL
-        if "router.huggingface.co" in base_url or "api-inference.huggingface.co" in base_url:
-            # Use standard inference API URL for the model (updated to router)
-            self.api_url = f"https://router.huggingface.co/hf-inference/models/{model}"
+        # Initialize AsyncInferenceClient
+        # If base_url is the default router, we don't pass it to avoid conflict with model
+        if not base_url or "router.huggingface.co" in base_url or "api-inference.huggingface.co" in base_url:
+            self.client = AsyncInferenceClient(model=model, token=self.api_key)
         else:
             # Custom endpoint
-            self.api_url = base_url
-            
-        self.session = None
-    
-    async def _get_session(self):
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession(
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
-            )
-        return self.session
+            self.client = AsyncInferenceClient(base_url=base_url, token=self.api_key)
     
     async def chat(
         self,
@@ -95,7 +86,7 @@ class HuggingFaceLLMClient:
         max_tokens: int = 512
     ) -> LLMResponse:
         """
-        Send chat request to Vicuna-7B via HF Inference API.
+        Send chat request to Mistral-7B via HF Inference API.
         
         Args:
             messages: Conversation history
@@ -106,15 +97,19 @@ class HuggingFaceLLMClient:
         Returns:
             LLMResponse with content and optional function calls
         """
+        # Convert messages to format expected by AsyncInferenceClient
+        hf_messages = []
+        
         # Handle tools injection if needed
+        # Mistral-7B-Instruct-v0.2 doesn't support native tools in API, so we inject into prompt
+        # We'll add tool definitions to the first user message or system message
+        
         tool_prompt = ""
         if tools:
             tool_def = self._format_tools(tools)
-            tool_prompt = f"Available tools:\n{tool_def}\n\nTo call a tool, use: [TOOLCALLS] [{{\"name\": \"tool_name\", \"arguments\": {{...}}}}] [/TOOLCALLS]\n\n"
+            tool_prompt = f"[AVAILABLE_TOOLS] {tool_def} [/AVAILABLE_TOOLS]\n\n"
         
-        # Manual prompt construction for Vicuna
-        prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.\n\n"
-        
+        # Process messages
         for i, msg in enumerate(messages):
             content = msg.content
             
@@ -122,76 +117,55 @@ class HuggingFaceLLMClient:
             if i == 0 and tool_prompt:
                 content = f"{tool_prompt}{content}"
             
+            # Map role 'tool' to 'user' or handle appropriately
+            # Mistral usually expects tool outputs in a specific format, but here we just pass content
             role = msg.role
             if role == "tool":
+                # For now, treat tool outputs as user messages with special marker if needed
+                # Or just user messages
                 role = "user"
                 content = f"[TOOL_RESULTS] {content} [/TOOL_RESULTS]"
             
-            if role == "system":
-                prompt += f"{content}\n\n"
-            elif role == "user":
-                prompt += f"USER: {content}\n"
-            elif role == "assistant":
-                prompt += f"ASSISTANT: {content}\n"
-        
-        prompt += "ASSISTANT:"
-        
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "temperature": temperature,
-                "return_full_text": False,
-                "stop": ["USER:"]
-            }
-        }
-        
-        session = await self._get_session()
-        
-        for attempt in range(self.max_retries):
-            try:
-                async with session.post(self.api_url, json=payload) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        # If model is loading, wait and retry
-                        if "loading" in error_text.lower():
-                            await asyncio.sleep(2 * (attempt + 1))
-                            continue
-                        raise Exception(f"HF API Error {response.status}: {error_text}")
-                    
-                    result = await response.json()
-                    
-                    # Result is usually a list of dicts: [{"generated_text": "..."}]
-                    if isinstance(result, list) and len(result) > 0:
-                        generated_text = result[0].get("generated_text", "")
-                    elif isinstance(result, dict):
-                        generated_text = result.get("generated_text", "")
-                    else:
-                        generated_text = str(result)
-                    
-                    # Parse function calls if tools provided
-                    return self._parse_response(generated_text, tools)
-                    
-            except Exception as e:
-                if attempt == self.max_retries - 1:
-                    raise Exception(f"LLM request failed after {self.max_retries} retries: {str(e)}")
-                await asyncio.sleep(1)
+            hf_messages.append({"role": role, "content": content})
+            
+        try:
+            response = await self.client.chat_completion(
+                messages=hf_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                seed=42 # Optional, for reproducibility
+            )
+            
+            generated_text = response.choices[0].message.content
+            
+            # Parse function calls if tools provided
+            return self._parse_response(generated_text, tools)
+            
+        except Exception as e:
+            raise Exception(f"LLM request failed: {str(e)}")
     
     def _format_tools(self, tools: List[Dict[str, Any]]) -> str:
         """
-        Format tools into a readable JSON string.
+        Format tools into Mistral function calling format.
+        
+        Args:
+            tools: Tool definitions (OpenAI format)
+        
+        Returns:
+            JSON string of tools
         """
-        formatted_tools = []
+        # Convert OpenAI format to simpler format for Mistral
+        mistral_tools = []
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                formatted_tools.append({
+                mistral_tools.append({
                     "name": func.get("name"),
                     "description": func.get("description"),
                     "parameters": func.get("parameters", {})
                 })
         
-        return json.dumps(formatted_tools)
+        return json.dumps(mistral_tools)
     
     def _parse_response(
         self,

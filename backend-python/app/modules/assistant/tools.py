@@ -26,7 +26,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search Easymart furniture catalog by keyword, category, style, material, color or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
+            "description": "Search Easymart furniture catalog by keyword, category, style, material, or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -54,22 +54,9 @@ TOOL_DEFINITIONS = [
                         "enum": ["office", "bedroom", "living_room", "dining_room", "outdoor"],
                         "description": "Room type filter"
                     },
-                    "price_min": {
-                        "type": "number",
-                        "description": "Minimum price in AUD"
-                    },
                     "price_max": {
                         "type": "number",
                         "description": "Maximum price in AUD"
-                    },
-                    "color": {
-                        "type": "string",
-                        "description": "Color filter (e.g., 'red', 'black')"
-                    },
-                    "sort": {
-                        "type": "string",
-                        "enum": ["relevance", "price_asc", "price_desc"],
-                        "description": "Sort order for results (relevance, price_asc, price_desc)"
                     },
                     "limit": {
                         "type": "integer",
@@ -91,7 +78,11 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "product_id": {
                         "type": "string",
-                        "description": "Product SKU or ID"
+                        "description": "Product SKU or ID (e.g., 'CHR-001')"
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Specific question about the product (optional, for Q&A search in specs)"
                     }
                 },
                 "required": ["product_id"]
@@ -176,8 +167,8 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "policy_type": {
                         "type": "string",
-                        "enum": ["returns", "shipping", "payment", "warranty", "promotions"],
-                        "description": "Type of policy to retrieve"
+                        "enum": ["returns", "shipping", "payment", "warranty"],
+                        "description": "Type of policy information requested"
                     }
                 },
                 "required": ["policy_type"]
@@ -421,11 +412,7 @@ class EasymartAssistantTools:
             }
         """
         try:
-            # Import here to avoid circular dependencies
-            from ..catalog_index.catalog import get_catalog_indexer
-            catalog = get_catalog_indexer()
-            
-            product = catalog.get_product_by_id(product_id)
+            product = await getProductById(product_id)
             if not product:
                 return {
                     "error": f"Product '{product_id}' not found",
@@ -433,16 +420,18 @@ class EasymartAssistantTools:
                     "in_stock": False
                 }
             
-            # Use actual inventory data from catalog
-            qty = product.get("inventory_quantity", 0)
-            in_stock = qty > 0
+            # FIX: Ensure product has 'name' field (map from 'title' if needed)
+            if 'name' not in product or not product.get('name'):
+                product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
             
+            # TODO: Integrate with actual inventory system
+            # For now, assume in stock
             return {
                 "product_id": product_id,
-                "product_name": product.get("title", "Product"),
-                "in_stock": in_stock,
-                "quantity_available": qty,
-                "estimated_delivery": "5-10 business days" if in_stock else "Not available"
+                "product_name": product['name'],
+                "in_stock": True,
+                "quantity_available": 10,  # Mock data
+                "estimated_delivery": "5-10 business days"
             }
         
         except Exception as e:
