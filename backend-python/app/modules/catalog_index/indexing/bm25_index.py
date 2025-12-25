@@ -179,18 +179,26 @@ class BM25Index:
         if not self.index_path.exists():
             return
         
-        with open(self.index_path, 'rb') as f:
-            index_data = pickle.load(f)
-            self.bm25 = index_data['bm25']
-            self.doc_ids = index_data['doc_ids']
-            self.corpus = index_data.get('corpus', [])
-        
-        print(f"[BM25] Loaded index from {self.index_path}")
-        
-        self.bm25 = index_data['bm25']
-        self.doc_ids = index_data['doc_ids']
-        
-        print(f"[BM25] Loaded index from {self.index_path}")
+        try:
+            with open(self.index_path, 'rb') as f:
+                index_data = pickle.load(f)
+                self.bm25 = index_data['bm25']
+                self.doc_ids = index_data['doc_ids']
+                self.corpus = index_data.get('corpus', [])
+            
+            print(f"[BM25] Loaded index from {self.index_path}")
+        except (EOFError, pickle.UnpicklingError, Exception) as e:
+            print(f"[BM25] Error loading index from {self.index_path}: {e}")
+            print(f"[BM25] Index file may be corrupted. Deleting and will rebuild on next sync.")
+            
+            # Delete corrupted file
+            if self.index_path.exists():
+                self.index_path.unlink()
+            
+            # Reset state
+            self.bm25 = None
+            self.doc_ids = []
+            self.corpus = []
     
     def clear(self) -> None:
         """Clear the index"""
