@@ -1,0 +1,6 @@
+S. No,Query Type,User Query,Bot Response,Expected Response,Status
+1,Greeting,Hi,ERROR: ,Friendly greeting,Failed
+2,Greeting,Hello,ERROR: All connection attempts failed,Greet user politely,Failed
+3,Greeting,Hey,ERROR: All connection attempts failed,Casual greeting,Failed
+4,Greeting,Good morning,ERROR: All connection attempts failed,Time-appropriate greeting,Failed
+5,Greeting,Is anyone there?,ERROR: All connection attempts failed,Ask how to help,Failed

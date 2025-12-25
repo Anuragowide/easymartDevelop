@@ -60,13 +60,11 @@ async def startup_event():
     print(f"  Debug: {settings.DEBUG}")
     print(f"  Host: {settings.HOST}:{settings.PORT}")
     
-    # Trigger auto-indexing
-    # Note: We await this to ensure catalog is ready before accepting requests.
-    # If this takes too long, we should move it to a BackgroundTask or separate thread.
-    try:
-        await load_all_products()
-    except Exception as e:
-        print(f"[{settings.APP_NAME}] ⚠️ Auto-indexing failed: {e}")
+    # Trigger auto-indexing in background
+    # Move to background task so server starts immediately
+    import asyncio
+    asyncio.create_task(load_all_products())
+    print(f"[{settings.APP_NAME}] Auto-indexing task started in background")
 
 
 @app.on_event("shutdown")

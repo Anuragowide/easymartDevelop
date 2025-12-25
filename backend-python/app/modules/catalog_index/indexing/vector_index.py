@@ -15,6 +15,9 @@ from ..models import IndexDocument
 from ..config import index_config
 
 
+# Global cache for shared embedding models
+_model_cache = {}
+
 class VectorIndex:
     """Production vector embedding-based indexing with ChromaDB"""
     
@@ -33,8 +36,13 @@ class VectorIndex:
             metadata={"hnsw:space": "cosine"}
         )
         
-        print(f"[Vector] Loading embedding model: {embedding_model}")
-        self.model = SentenceTransformer(embedding_model)
+        # Use shared model instance to save memory and time
+        global _model_cache
+        if embedding_model not in _model_cache:
+            print(f"[Vector] Loading embedding model: {embedding_model}")
+            _model_cache[embedding_model] = SentenceTransformer(embedding_model)
+        
+        self.model = _model_cache[embedding_model]
         print(f"[Vector] Initialized index: {index_name}")
     
     def _sanitize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
