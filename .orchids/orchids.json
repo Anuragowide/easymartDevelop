@@ -1,0 +1,1 @@
+'{\"projectId\": \"easymart-v1\", \"createdAt\": 1766670046740, \"startupCommands\": [\"cd frontend && pnpm run dev\", \"cd backend-node && pnpm run dev\", \"cd backend-python && .\\venv\\Scripts\\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000\"]}' 
