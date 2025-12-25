@@ -134,10 +134,29 @@ class HuggingFaceLLMClient:
                 messages=hf_messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                seed=42 # Optional, for reproducibility
+                seed=42, # Optional, for reproducibility
+                stop=["User:", "User :", "\nUser", "[TOOL_RESULTS]", "INTERNAL INSTRUCTION:", "Assistant:", "[Assistant]"]
             )
             
             generated_text = response.choices[0].message.content
+            
+            # Truncate at common markers just in case stop sequence failed
+            # Use regex for more robust truncation at any turn marker
+            turn_markers = [
+                r'\n\s*User\s*:', 
+                r'\n\s*Assistant\s*:', 
+                r'\n\s*\[Assistant\]',
+                r'\n\s*\[TOOL_?RESULTS\]',
+                r'\n\s*INTERNAL INSTRUCTION:',
+                r'User\s*:', 
+                r'Assistant\s*:',
+                r'\[Assistant\]'
+            ]
+            
+            for marker_pattern in turn_markers:
+                parts = re.split(marker_pattern, generated_text, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    generated_text = parts[0].strip()
             
             # Parse function calls if tools provided
             return self._parse_response(generated_text, tools)

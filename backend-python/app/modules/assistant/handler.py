@@ -581,6 +581,7 @@ class EasymartAssistantHandler:
                 
                 # Add tool results to conversation with human-readable formatting
                 # Note: HuggingFace doesn't support role="tool", so we use role="user"
+                tool_results_content = []
                 for tool_name, result in tool_results.items():
                     # Format result based on tool type for better LLM comprehension
                     if tool_name == 'get_product_specs':
@@ -664,112 +665,46 @@ class EasymartAssistantHandler:
                         # Other tools - use JSON
                         result_str = json.dumps(result)
                     
-                    messages.append(Message(
-                        role="user",  # Changed from "tool" to "user" for HF compatibility
-                        content=f"[Tool result from {tool_name}]:\n{result_str}"
-                    ))
+                    tool_results_content.append(f"[Tool result from {tool_name}]:\n{result_str}")
                 
-                # Add context-aware instruction based on which tool was called
-                # (HuggingFace doesn't support multiple system messages, so use user message)
+                # Combine all tool results into one message
+                combined_tool_results = "\n\n".join(tool_results_content)
+                
+                # Determine post-tool instruction based on which tool was called
                 tool_names = list(tool_results.keys())
                 
                 if 'search_products' in tool_names:
-                    # Product search - don't list, UI shows cards
                     post_tool_instruction = (
                         "Now respond to the user with ONLY a brief, professional 1-2 sentence intro. "
                         "DO NOT list products - they will be displayed below your message as cards. "
                         "DO NOT mention 'UI', 'screen', 'list', or 'display'. "
-                        "Examples:\n"
-                        "- 'I found 5 office chairs for you, displayed above.'\n"
-                        "- 'Here are some excellent locker options matching your search.'\n"
-                        "- 'I've found several red desks that might work perfectly.'"
+                        "Examples: 'I found 5 office chairs for you, displayed above.', 'I\\'ve found several red desks that might work perfectly.'"
                     )
                 elif 'get_product_specs' in tool_names:
-                    # Product specs - check if tool had error
                     spec_result = tool_results.get('get_product_specs', {})
                     has_error = 'error' in spec_result or 'Information not available' in str(spec_result)
                     
                     if has_error:
-                        # Error-specific instruction - prevent hallucinations
                         post_tool_instruction = (
-                            "CRITICAL: The tool could not retrieve this product's information.\n\n"
-                            "DO NOT make up prices, dimensions, descriptions, or specifications.\n"
-                            "DO NOT guess or infer information.\n\n"
-                            "Say EXACTLY:\n"
-                            "'I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance.'\n\n"
-                            "DO NOT add anything else."
+                            "CRITICAL: Tool error. Say exactly: 'I'm unable to retrieve detailed information for this product at the moment. Please try another option, or contact support.'"
                         )
                     else:
-                        # Check if user asked for specific attribute
-                        user_query_lower = original_message.lower()
-                        asked_color = any(w in user_query_lower for w in ['color', 'colour', 'finish'])
-                        asked_material = 'material' in user_query_lower
-                        asked_size = any(w in user_query_lower for w in ['size', 'measure', 'dimension', 'width', 'height', 'depth'])
-                        
-                        # specific instruction based on what was asked
-                        specific_focus = ""
-                        if asked_color:
-                            specific_focus = "CRITICAL FOR COLOR: Look for 'Color', 'Colour', or 'Finish' in the specs. If found, list ONLY those exact colors. If NOT found, say 'I don't have the specific color options listed.' DO NOT GUESS."
-                        elif asked_material:
-                            specific_focus = "CRITICAL FOR MATERIAL: Look for 'Material' in specs. List ONLY what is shown."
-                        
-                        # Normal instruction for successful retrieval
                         post_tool_instruction = (
-                            "CRITICAL INSTRUCTIONS:\n"
-                            "1. Read the tool result above carefully - it shows REAL product data\n"
-                            "2. Use ONLY information from the tool result - DO NOT make up ANY details\n"
-                            "3. Use the EXACT 'Product Name' shown in the tool result\n"
-                            "4. " + specific_focus + "\n"
-                            "5. If dimensions contain 'nan' or are missing, DO NOT mention dimensions\n"
-                            "6. NEVER invent specs that aren't explicitly in the tool result\n\n"
-                            "Response format (2-4 sentences, natural tone):\n"
-                            "- Start with: 'The [exact product name from tool result]...'"
-                            "- Mention price: 'priced at $[exact price from tool]'"
-                            "- Answer the specific question (color/material/etc) if asked, using ONLY shown data\n"
-                            "- Summarize other key specs briefly\n"
-                            "Be helpful, factual, and strictly stick to the provided data."
+                            "Respond naturally using ONLY the provided product data. Start with the product name. Be concise (2-3 sentences)."
                         )
-                elif 'compare_products' in tool_names:
-                    # Comparison - highlight key differences using ACTUAL product names
+                elif 'calculate_shipping' in tool_names:
                     post_tool_instruction = (
-                        "Now respond by highlighting the main differences between the products. "
-                        "CRITICAL: Use the EXACT product names from the tool result, not generic labels like 'Option 1/2'. "
-                        "Focus on price, size, material, or features that stand out. "
-                        "Be concise (2-3 sentences). "
-                        "Example: 'The Executive Office Chair is more affordable at $199 but smaller, while the Premium Ergonomic Chair is larger with premium materials at $349.'"
-                    )
-                elif 'check_availability' in tool_names:
-                    # Stock check - clear yes/no
-                    post_tool_instruction = (
-                        "Now respond with the stock status clearly. "
-                        "If in stock, confirm availability. If out of stock, say so directly. "
-                        "Example: 'This item is currently in stock and ready to ship.'"
-                    )
-                elif 'update_cart' in tool_names:
-                    # Cart operation - confirm action
-                    post_tool_instruction = (
-                        "Now respond by confirming the cart action. "
-                        "Be brief and clear. "
-                        "Example: 'I've added the Executive Chair to your cart.'"
-                    )
-                elif 'get_policy_info' in tool_names or 'get_contact_info' in tool_names or 'calculate_shipping' in tool_names:
-                    # Policy/contact/shipping - relay info naturally
-                    post_tool_instruction = (
-                        "Now respond by relaying the information naturally and conversationally. "
-                        "Be helpful and concise. "
-                        "Example: 'We offer a 30-day return period for unused items in original packaging.'"
+                        "Relay the shipping information naturally. Note: 'express_available' is a data field, not a tool. Just say if express is available and the cost."
                     )
                 else:
-                    # Fallback - generic instruction
-                    post_tool_instruction = (
-                        "Now respond to the user naturally based on the tool results. "
-                        "Be brief, professional, and helpful."
-                    )
-                
+                    post_tool_instruction = "Respond briefly and professionally based on the tool results."
+
+                # Add combined message with results AND instruction to help LLM stay on track
                 messages.append(Message(
                     role="user",
-                    content=post_tool_instruction
+                    content=f"[TOOL_RESULTS]\n{combined_tool_results}\n[/TOOL_RESULTS]\n\nINTERNAL INSTRUCTION: {post_tool_instruction}"
                 ))
+
                 
                 # Determine temperature based on tool type
                 # Lower temp for factual responses (specs, availability, comparison)
@@ -792,19 +727,19 @@ class EasymartAssistantHandler:
                 # Products are already stored in session from tool execution
                 assistant_message = final_response.content
                 
-                # SAFETY: Strip any leaked tool call syntax from message
-                # Remove [TOOL_CALLS], [TOOLCALLS], and their content
-                assistant_message = re.sub(r'\[TOOL_?CALLS\].*?\[/TOOL_?CALLS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
-                assistant_message = assistant_message.strip()
+                # Strip any leaked markers or internal prefixes
+                assistant_message = re.sub(r'\[TOOL_?RESULTS\].*?\[/TOOL_?RESULTS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+                assistant_message = re.sub(r'INTERNAL INSTRUCTION:.*', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 
-                # VALIDATION: Block hallucinated product lists and check if results match query
-                assistant_message = self._validate_response(
-                    assistant_message, 
-                    had_tool_calls=True,
-                    tool_results=tool_results,
-                    original_query=original_message,  # Use saved original message
-                    search_query=refined_message  # Adjusted to use the full refined query for better validation
-                )
+                # Strip common LLM prefixes
+                assistant_message = re.sub(r'^(Assistant|User|System|Bot):\s*', '', assistant_message, flags=re.IGNORECASE)
+                assistant_message = re.sub(r'\n(Assistant|User|System|Bot):\s*', '\n', assistant_message, flags=re.IGNORECASE)
+                
+                # Strip any repeated prompts
+                assistant_message = re.sub(r'Now respond to the user.*', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+                
+                assistant_message = assistant_message.strip()
+
                 
                 # ADDITIONAL VALIDATION: Block hallucinations after tool errors
                 if 'get_product_specs' in tool_results:
@@ -866,11 +801,14 @@ class EasymartAssistantHandler:
                         query_nouns = set(query_lower.split()) & important_nouns
                         
                         if query_nouns:
-                            # Check if ANY product name contains the query nouns
+                            # Normalize nouns to singular for more robust matching
+                            normalized_query_nouns = {n.rstrip('s') for n in query_nouns}
+                            
+                            # Check if ANY product name contains the query nouns (singular or plural)
                             matching_products = []
                             for product in products:
                                 product_name = product.get('name', '').lower()
-                                if any(noun in product_name for noun in query_nouns):
+                                if any(noun in product_name for noun in normalized_query_nouns):
                                     matching_products.append(product)
                             
                             # If NO products match the key nouns, update message

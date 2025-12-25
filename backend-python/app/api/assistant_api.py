@@ -83,14 +83,15 @@ async def handle_message(
             intent=intent,
             products=[
                 {
-                    "id": p.get("id"),
-                    "name": p.get("name"),
-                    "price": p.get("price"),
-                    "description": p.get("description", ""),
-                    "image_url": p.get("image_url"),
-                    "url": p.get("product_url") or f"/products/{p.get('id')}"
+                    "id": p.get("id") if isinstance(p, dict) else None,
+                    "name": p.get("name") if isinstance(p, dict) else "Product",
+                    "price": p.get("price") if isinstance(p, dict) else 0.0,
+                    "description": p.get("description", "") if isinstance(p, dict) else "",
+                    "image_url": p.get("image_url") if isinstance(p, dict) else None,
+                    "url": (p.get("product_url") or f"/products/{p.get('id')}") if isinstance(p, dict) else "#"
                 }
                 for p in assistant_response.products
+                if p is not None # Filter out None products
             ] if assistant_response.products else None,
             suggested_actions=suggested_actions,
             metadata={
@@ -113,12 +114,15 @@ async def handle_message(
             ).model_dump()
         )
     except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Error handling message: {str(e)}\n{error_detail}")
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(
                 error="InternalServerError",
                 message="An unexpected error occurred processing your message",
-                details={"error": str(e)},
+                details={"error": str(e), "traceback": error_detail if not False else "Hidden"},
                 timestamp=datetime.utcnow().isoformat()
             ).model_dump()
         )

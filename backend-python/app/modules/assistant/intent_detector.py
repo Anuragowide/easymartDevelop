@@ -149,6 +149,8 @@ class IntentDetector:
         broad_product_patterns = [
             r'\b(show|find|search|looking for|want|need|get me)\b',  # Action verbs
             r'\b(something|anything|items|products|furniture)\b',     # Generic nouns
+            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?)\s+(available|in stock|options|list)\b', # Furniture availability
+            r'^(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?)\??$', # Single word furniture?
             r'\bfor\s+(kids|children|baby|toddler|adult|teen|gaming|office|home|bedroom|living room|kitchen|dining|study|outdoor)\b',  # Context - expanded!
             r'\bin\s+(black|white|red|blue|green|brown|grey|gray|wood|metal|leather|fabric)\b',  # Colors/materials with "in"
             r'\bwith\s+(storage|drawers|wheels|cushion|armrest)\b',  # Features with "with"
