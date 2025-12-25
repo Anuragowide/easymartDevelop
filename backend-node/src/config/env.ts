@@ -5,7 +5,7 @@ dotenv.config();
 
 export const config = {
   // Server
-  PORT: Number(process.env.PORT || 3001),
+    PORT: Number(process.env.PORT || 3002),
   NODE_ENV: process.env.NODE_ENV || "development",
 
   // Python Assistant API

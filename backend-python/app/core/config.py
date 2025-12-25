@@ -32,7 +32,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
     
     # Backend Node.js URL (for Shopify adapter calls)
-    NODE_BACKEND_URL: str = Field(default="http://localhost:3000", description="Node.js backend URL")
+    NODE_BACKEND_URL: str = Field(default="http://localhost:3002", description="Node.js backend URL")
     
     # Hugging Face Configuration (for Mistral-7B)
     HUGGINGFACE_API_KEY: Optional[str] = Field(default=None, description="Hugging Face API key")
