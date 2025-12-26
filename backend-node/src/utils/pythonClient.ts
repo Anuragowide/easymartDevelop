@@ -125,6 +125,11 @@ class PythonAssistantClient {
         return null;
       }).filter(Boolean);  // Remove null actions
 
+      // Check for cart action in metadata and add to transformedActions
+      if (response.data.metadata?.cart_action) {
+        transformedActions.push(response.data.metadata.cart_action);
+      }
+
       const transformedResponse: AssistantResponse = {
         replyText: response.data.message,
         actions: transformedActions,  // Use transformed actions
@@ -132,6 +137,7 @@ class PythonAssistantClient {
           sessionId: response.data.session_id,
           intent: response.data.intent,
           products: transformedProducts,  // keep for context
+          metadata: response.data.metadata, // Pass metadata too
         },
       };
 

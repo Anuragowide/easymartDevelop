@@ -140,7 +140,7 @@ function getSessionId(): string {
   if (typeof window !== 'undefined') {
     // Try to get from chatStore first (same session as chat)
     try {
-      const chatSessionId = localStorage.getItem('chat-storage');
+      const chatSessionId = localStorage.getItem('easymart-chat-storage');
       if (chatSessionId) {
         const parsed = JSON.parse(chatSessionId);
         if (parsed?.state?.sessionId) {
@@ -148,7 +148,7 @@ function getSessionId(): string {
         }
       }
     } catch (e) {
-      console.error('Error getting session from chat-storage:', e);
+      console.error('Error getting session from easymart-chat-storage:', e);
     }
     
     // Fallback to old method

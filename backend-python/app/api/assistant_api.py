@@ -71,15 +71,12 @@ async def handle_message(
             "function_calls": assistant_response.metadata.get("function_calls_made", 0),
         }
         
+        # Map cart action to actions field for frontend
+        actions = []
         if cart_action:
-            response_metadata["cart_action"] = cart_action
+            actions.append(cart_action)
             # Clear the cart action after including it
             session.metadata.pop("last_cart_action", None)
-        
-        elapsed_ms = (time.time() - start_time) * 1000
-        response_metadata["processing_time_ms"] = round(elapsed_ms, 2)
-        response_metadata["cart_items"] = assistant_response.cart_summary.get("item_count") if assistant_response.cart_summary else 0
-        response_metadata["reset_session"] = assistant_response.metadata.get("reset_session", False)
         
         return MessageResponse(
             session_id=assistant_response.session_id,
@@ -97,6 +94,7 @@ async def handle_message(
                 for p in assistant_response.products
                 if p is not None # Filter out None products
             ] if assistant_response.products else None,
+            actions=actions if actions else None,
             suggested_actions=suggested_actions,
             metadata=response_metadata
         )

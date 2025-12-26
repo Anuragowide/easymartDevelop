@@ -556,6 +556,22 @@ class EasymartAssistantTools:
         session_store = get_session_store()
         session = session_store.get_or_create_session(session_id)
         
+        # Resolve product_id if it looks like a reference (e.g., "1", "Option 1", or "this one")
+        if product_id:
+            # Check if it's a numeric string
+            if product_id.isdigit():
+                resolved_id = session.resolve_product_reference(product_id, "index")
+                if resolved_id:
+                    import logging
+                    logging.getLogger(__name__).info(f"[TOOL] Resolved numeric ID '{product_id}' to '{resolved_id}'")
+                    product_id = resolved_id
+            elif product_id.lower() in ["this one", "it", "the product", "that one"]:
+                # If only one product shown, use it
+                if session.last_shown_products and len(session.last_shown_products) == 1:
+                    product_id = session.last_shown_products[0].get("id")
+                    import logging
+                    logging.getLogger(__name__).info(f"[TOOL] Resolved reference '{product_id}' to first product")
+        
         # Helper to get full cart state with product details
         async def _get_cart_state():
             cart_details = []

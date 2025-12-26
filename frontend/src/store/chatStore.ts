@@ -86,28 +86,28 @@ export const useChatStore = create<ChatState>()(
             isLoading: false,
           }));
           
-          // Always refresh cart after chat messages (in case items were added via chat)
-          const { useCartStore } = await import('./cartStore');
-          const cartStore = useCartStore.getState();
-          
-          // Small delay to allow backend to update, then refresh cart
-          setTimeout(() => {
-            cartStore.getCart();
-          }, 100);
-          
-          // Process actions (e.g., add_to_cart)
-          if (response.actions && Array.isArray(response.actions)) {
-            for (const action of response.actions) {
-              if (action.type === 'add_to_cart' && action.product_id) {
-                try {
+            // Always refresh cart after chat messages (in case items were added via chat)
+            const { useCartStore } = await import('./cartStore');
+            const cartStore = useCartStore.getState();
+            
+            // Process actions (e.g., search_results, add_to_cart, remove_from_cart)
+            if (response.actions && Array.isArray(response.actions)) {
+              for (const action of response.actions) {
+                if (action.type === 'add_to_cart') {
+                  console.log(`[CHAT] Executing add_to_cart: ${action.product_id}`);
                   await cartStore.addToCart(action.product_id, action.quantity || 1);
-                  console.log(`Added ${action.product_id} to cart (qty: ${action.quantity || 1})`);
-                } catch (error) {
-                  console.error('Failed to add to cart:', error);
+                } else if (action.type === 'remove_from_cart') {
+                  console.log(`[CHAT] Executing remove_from_cart: ${action.product_id}`);
+                  await cartStore.removeFromCart(action.product_id);
                 }
               }
             }
-          }
+
+            // Small delay to allow backend to update, then refresh cart state
+            setTimeout(() => {
+              cartStore.getCart();
+            }, 300);
+
         } catch (error: any) {
           const errorMessage = error.response?.data?.message || error.message || 'Failed to send message';
 

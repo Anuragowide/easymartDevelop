@@ -368,13 +368,61 @@ class EasymartAssistantHandler:
                     }
                 )
             
+            # Overrides for furniture queries
             if any(keyword in request.message.lower() for keyword in furniture_keywords):
-                if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA]:
+                if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA, IntentType.CART_ADD, IntentType.CHECK_AVAILABILITY]:
                     logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
                     intent = IntentType.PRODUCT_SEARCH
             
+            # AMBIGUITY CHECK: Handle references like "option 1", "product 2"
+            original_message = request.message
+            message_lower = original_message.lower()
+            
+            # Extract potential product number reference
+            product_num = None
+            product_ref_match = re.search(r'\b(?:option|product|number|item|choice)\s+(\d+)', message_lower)
+            if not product_ref_match:
+                product_ref_match = re.search(r'(\d+)\s+(?:option|product|number|item|choice)', message_lower)
+            
+            if product_ref_match:
+                product_num = int(product_ref_match.group(1))
+            else:
+                ordinal_map = {
+                    'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                    'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                    '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5
+                }
+                for ordinal, num in ordinal_map.items():
+                    if f"{ordinal} " in message_lower or message_lower.endswith(ordinal):
+                        product_num = num
+                        break
+            
+            # If user referred to a product by number but we don't have enough products shown
+            if product_num:
+                if not session.last_shown_products:
+                    logger.warning(f"[HANDLER] Ambiguous reference: option {product_num} but no products in session")
+                    assistant_message = f"I'm not sure which product you're referring to as 'option {product_num}'. I haven't shown you any products in this session yet. What are you looking for?"
+                    session.add_message("assistant", assistant_message)
+                    return AssistantResponse(
+                        message=assistant_message,
+                        session_id=session.session_id,
+                        products=[],
+                        cart_summary=self._build_cart_summary(session),
+                        metadata={"intent": "clarification_needed", "reason": "no_products_in_session"}
+                    )
+                elif product_num > len(session.last_shown_products):
+                    logger.warning(f"[HANDLER] Ambiguous reference: option {product_num} but only {len(session.last_shown_products)} products shown")
+                    assistant_message = f"I've only shown you {len(session.last_shown_products)} options so far. Which one of those (1-{len(session.last_shown_products)}) were you referring to, or would you like to see more?"
+                    session.add_message("assistant", assistant_message)
+                    return AssistantResponse(
+                        message=assistant_message,
+                        session_id=session.session_id,
+                        products=session.last_shown_products,
+                        cart_summary=self._build_cart_summary(session),
+                        metadata={"intent": "clarification_needed", "reason": "index_out_of_range", "max_index": len(session.last_shown_products)}
+                    )
+
             # Detect if this is a refinement query and inject context
-            original_message = request.message  # Save original before modification
             refined_message = self._apply_context_refinement(request.message, session)
             if refined_message != request.message:
                 logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
@@ -505,6 +553,63 @@ class EasymartAssistantHandler:
                 else:
                     logger.warning(f"[HANDLER] Could not extract product number from: {request.message}")
             
+            # SAFETY CHECK: If cart add intent but NO tool calls → force update_cart!
+            if intent == IntentType.CART_ADD and not llm_response.function_calls:
+                # Try to extract number or ordinal
+                product_num = None
+                product_ref_match = re.search(r'\b(option|product|number|item|choice)\s+(\d+)', original_message.lower())
+                if product_ref_match:
+                    product_num = int(product_ref_match.group(2))
+                else:
+                    ordinal_map = {
+                        'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                        'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                        '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5
+                    }
+                    for ordinal, num in ordinal_map.items():
+                        if ordinal in original_message.lower():
+                            product_num = num
+                            break
+                
+                # AMBIGUITY CHECK: If user refers to a number but we don't have products or it's out of range
+                if product_num:
+                    if not session.last_shown_products:
+                        logger.warning(f"[HANDLER] User referred to option {product_num} but no products in session")
+                        assistant_message = "I'm not sure which product you're referring to as 'option " + str(product_num) + "'. Could you please search for the product again or tell me its name?"
+                        session.add_message("assistant", assistant_message)
+                        return AssistantResponse(
+                            message=assistant_message,
+                            session_id=session.session_id,
+                            products=[],
+                            cart_summary=self._build_cart_summary(session),
+                            metadata={"intent": "clarification_needed", "reason": "no_products_in_session"}
+                        )
+                    elif product_num > len(session.last_shown_products):
+                        logger.warning(f"[HANDLER] User referred to option {product_num} but only {len(session.last_shown_products)} products shown")
+                        assistant_message = f"I only showed {len(session.last_shown_products)} options previously. Which one would you like to add to your cart?"
+                        session.add_message("assistant", assistant_message)
+                        return AssistantResponse(
+                            message=assistant_message,
+                            session_id=session.session_id,
+                            products=session.last_shown_products,
+                            cart_summary=self._build_cart_summary(session),
+                            metadata={"intent": "clarification_needed", "reason": "index_out_of_range"}
+                        )
+
+                if product_num and session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                    product = session.last_shown_products[product_num - 1]
+                    product_id = product.get('id')
+                    if product_id:
+                        logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart add intent but LLM didn't call tool! Forcing tool call for product {product_num}")
+                        from .hf_llm_client import FunctionCall
+                        llm_response.function_calls = [
+                            FunctionCall(
+                                name="update_cart",
+                                arguments={"action": "add", "product_id": product_id, "quantity": 1}
+                            )
+                        ]
+                        llm_response.content = ""
+
             # Process function calls if any
             if llm_response.function_calls:
                 logger.info(f"[HANDLER] Processing {len(llm_response.function_calls)} function calls")
@@ -525,7 +630,7 @@ class EasymartAssistantHandler:
                         
                         # Try to extract number from user's message - support multiple formats
                         # Format 1: "option 4", "product 3"
-                        product_ref_match = re.search(r'(?:option|product|number|item|choice)\s+(\d+)', original_message.lower())
+                        product_ref_match = re.search(r'\b(?:option|product|number|item|choice)\s+(\d+)', original_message.lower())
                         # Format 2: "4 option", "3 product" (number first)
                         if not product_ref_match:
                             product_ref_match = re.search(r'(\d+)\s+(?:option|product|number|item|choice)', original_message.lower())
@@ -533,28 +638,42 @@ class EasymartAssistantHandler:
                         product_num = None # Initialize product_num here
                         
                         # Format 3: Ordinal numbers - "first option", "second product", "third item"
+                        ordinal_map = {
+                            'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                            'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                            '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+                            '6th': 6, '7th': 7, '8th': 8, '9th': 9, '10th': 10
+                        }
+                        
                         if not product_ref_match:
-                            ordinal_map = {
-                                'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
-                                'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
-                                '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
-                                '6th': 6, '7th': 7, '8th': 8, '9th': 9, '10th': 10
-                            }
                             for ordinal, num in ordinal_map.items():
-                                if ordinal in original_message.lower():
+                                if f"{ordinal} " in original_message.lower() or original_message.lower().endswith(ordinal):
                                     product_num = num
                                     logger.info(f"[DEBUG] Extracted ordinal '{ordinal}' as product number: {product_num}")
                                     break
+                        
                         # Format 4: Just a number at start ("4" when context is clear)
                         if not product_ref_match and product_num is None:
                             product_ref_match = re.search(r'^(\d+)\s*$', original_message.strip())
+                        
+                        # Format 5: "this one", "it", "the product"
+                        if not product_ref_match and product_num is None:
+                            context_refs = ['this one', 'add it', 'add this', 'the product', 'that one']
+                            if any(ref in original_message.lower() for ref in context_refs):
+                                if session.last_shown_products and len(session.last_shown_products) == 1:
+                                    product_num = 1
+                                    logger.info(f"[DEBUG] Resolved '{original_message}' to first product since only 1 shown")
+                                elif session.last_shown_products:
+                                    # If multiple shown, we could default to 1 or stay ambiguous
+                                    # For now, let's try to be smart - if they just asked about one, use that
+                                    # But wait, the LLM usually calls the tool. If it called it with a hallucinated ID, 
+                                    # we should try to match it by name if possible.
+                                    pass
                         
                         # If a regex match was found, extract the number
                         if product_ref_match:
                             product_num = int(product_ref_match.group(1))
                             logger.info(f"[DEBUG] Extracted product number: {product_num}")
-                        else:
-                            logger.warning(f"[DEBUG] Could not extract product number from: '{original_message}'")
                         
                         # ALWAYS correct if we have session products and extracted number
                         if session.last_shown_products and product_num:
@@ -1391,22 +1510,23 @@ class EasymartAssistantHandler:
                 # Store in session for reference
                 session.update_shown_products(result["products"])
             
-            # Track cart actions
-            if tool_name == "update_cart" and result.get("success"):
-                # Store cart action in session for later retrieval
-                action_type = result.get("action")
-                if action_type in ["add", "set"]:
-                    session.metadata["last_cart_action"] = {
-                        "type": "add_to_cart",
-                        "product_id": result.get("product_id"),
-                        "product_name": result.get("product_name"),
-                        "quantity": result.get("quantity", 1)
-                    }
-                elif action_type == "remove":
-                    session.metadata["last_cart_action"] = {
-                        "type": "remove_from_cart",
-                        "product_id": result.get("product_id")
-                    }
+                # Track cart actions
+                if tool_name == "update_cart" and result.get("success"):
+                    # Store cart action in session for later retrieval
+                    action_type = result.get("action")
+                    if action_type in ["add", "set"]:
+                        session.metadata["last_cart_action"] = {
+                            "type": "add_to_cart",
+                            "product_id": result.get("product_id"),
+                            "product_name": result.get("product_name"),
+                            "quantity": result.get("quantity", 1)
+                        }
+                    elif action_type == "remove":
+                        session.metadata["last_cart_action"] = {
+                            "type": "remove_from_cart",
+                            "product_id": result.get("product_id")
+                        }
+
             
             results[tool_name] = result
         

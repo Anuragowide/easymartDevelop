@@ -34,6 +34,7 @@ class MessageResponse(BaseModel):
     message: str = Field(..., description="Assistant response text")
     intent: Optional[str] = Field(default=None, description="Detected user intent")
     products: Optional[List[Dict[str, Any]]] = Field(default=None, description="Product results if applicable")
+    actions: Optional[List[Dict[str, Any]]] = Field(default=None, description="System actions to execute (e.g., add_to_cart)")
     suggested_actions: Optional[List[str]] = Field(default=None, description="Suggested follow-up actions")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional response metadata")
     
