@@ -2,8 +2,8 @@
   "projectId": "easymart-v1-setup",
   "createdAt": 1766680498550,
   "startupCommands": [
-    "cd backend-node && pnpm run dev",
-    "cd backend-python && venv\\Scripts\\uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
-    "cd frontend && pnpm run dev"
+    "cd backend-node; pnpm run dev",
+    "cd backend-python; venv\\Scripts\\uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "cd frontend; pnpm run dev"
   ]
 }
