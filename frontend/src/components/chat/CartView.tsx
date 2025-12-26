@@ -69,7 +69,10 @@ export function CartView() {
                   >
                     -
                   </button>
-                  <span className="px-2 text-xs font-medium w-8 text-center">{item.quantity}</span>
+                    <span className="px-2 text-xs font-medium w-8 text-center">
+                      {typeof item.quantity === 'number' ? item.quantity : (item as any).qty || 1}
+                    </span>
+
                   <button
                     onClick={() => increaseQuantity(item.id || item.product_id!)}
                     disabled={isLoading}

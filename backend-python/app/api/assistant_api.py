@@ -259,12 +259,14 @@ async def update_cart_endpoint(request: Request):
         from app.modules.assistant.tools import get_assistant_tools
         tools = get_assistant_tools()
         
-        # Call update_cart method
+        # Call update_cart method with skip_sync=True to prevent recursion
+        # since this endpoint is called BY the Node.js backend
         result = await tools.update_cart(
             action=action,
             product_id=product_id,
             quantity=quantity,
-            session_id=session_id
+            session_id=session_id,
+            skip_sync=True
         )
         
         logger.info(f"Cart update result success: {result.get('success')}")

@@ -727,9 +727,19 @@ class EasymartAssistantHandler:
                             result_str += message if message else "No detailed specifications available in database."
                     
                     elif tool_name == 'search_products':
-                        # Just include count, not full product list (too verbose)
+                        # Include product details in result summary so LLM remembers them
                         products = result.get('products', [])
-                        result_str = f"Found {len(products)} products matching the search."
+                        if products:
+                            product_list = []
+                            for idx, p in enumerate(products):
+                                p_name = p.get('name') or p.get('title') or "Unknown Product"
+                                p_price = p.get('price', 0)
+                                p_id = p.get('id')
+                                product_list.append(f"{idx+1}. {p_name} (${p_price}) [ID: {p_id}]")
+                            
+                            result_str = f"Found {len(products)} products:\n" + "\n".join(product_list)
+                        else:
+                            result_str = "Found 0 products matching the search."
                     
                     elif tool_name == 'compare_products':
                         # Format comparison with position labels to preserve context

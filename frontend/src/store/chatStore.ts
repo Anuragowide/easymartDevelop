@@ -95,25 +95,25 @@ export const useChatStore = create<ChatState>()(
               for (const action of response.actions) {
                 if (action.type === 'add_to_cart' || action.type === 'remove_from_cart') {
                   // DON'T call cartStore.addToCart here because it was already added in the backend session
-                    // Just refresh the local cart state to stay in sync
-                    console.log(`[CHAT] Cart action detected: ${action.type}. Syncing cart...`);
-                    await cartStore.getCart();
-                  } else if (action.type === 'clear_cart') {
-                    console.log('[CHAT] Executing clear_cart');
-                    await cartStore.clearCart();
-                  } else if (action.type === 'view_cart') {
+                  // Just refresh the local cart state to stay in sync
+                  console.log(`[CHAT] Cart action detected: ${action.type}. Syncing cart...`);
+                  await cartStore.getCart();
+                } else if (action.type === 'clear_cart') {
+                  console.log('[CHAT] Executing clear_cart');
+                  await cartStore.clearCart();
+                } else if (action.type === 'view_cart') {
                   console.log('[CHAT] Executing view_cart');
                   set({ isCartOpen: true });
                 }
               }
             }
 
-            // Always refresh cart after chat messages to ensure UI is in sync
-            if (!response.actions?.some(a => ['add_to_cart', 'remove_from_cart'].includes(a.type))) {
-              setTimeout(() => {
-                cartStore.getCart();
-              }, 300);
-            }
+            // Always refresh cart after any assistant message to ensure UI is in sync
+            // Even if no explicit action was returned, the assistant might have performed one
+            setTimeout(() => {
+              cartStore.getCart();
+            }, 500);
+
 
 
         } catch (error: any) {

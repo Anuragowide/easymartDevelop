@@ -91,11 +91,28 @@ class SessionContext:
         if reference_type == "index":
             # Convert index to 0-based
             try:
-                # Handle numeric strings
-                idx_str = "".join(filter(str.isdigit, reference))
-                if not idx_str:
-                    return None
-                idx = int(idx_str) - 1
+                # Handle common ordinals
+                ordinals = {
+                    'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+                    'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+                    '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+                    'last': -1, 'previous': -1
+                }
+                
+                ref_lower = reference.lower().strip()
+                if ref_lower in ordinals:
+                    idx_val = ordinals[ref_lower]
+                    if idx_val == -1:
+                        idx = len(target_list) - 1
+                    else:
+                        idx = idx_val - 1
+                else:
+                    # Handle numeric strings (e.g., "1", "option 2")
+                    idx_str = "".join(filter(str.isdigit, reference))
+                    if not idx_str:
+                        return None
+                    idx = int(idx_str) - 1
+                
                 if 0 <= idx < len(target_list):
                     item = target_list[idx]
                     return item.get("product_id") or item.get("id")

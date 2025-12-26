@@ -5,6 +5,8 @@ Implements 8 tools for furniture search, specs, cart, policies, and contact.
 """
 
 import asyncio
+import httpx
+import logging
 from typing import Dict, Any, Callable, List, Optional
 from pydantic import BaseModel
 
@@ -18,6 +20,11 @@ from ..retrieval.spec_search import SpecSearcher
 
 # Import prompts for policy info
 from .prompts import POLICIES, STORE_INFO, get_policy_text, get_contact_text
+
+logger = logging.getLogger(__name__)
+
+# Node.js backend URL for cart synchronization
+NODE_BACKEND_URL = "http://localhost:3002"
 
 
 # Tool definitions in OpenAI format (compatible with Mistral)
@@ -537,19 +544,12 @@ class EasymartAssistantTools:
         action: str,
         product_id: Optional[str] = None,
         quantity: Optional[int] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        skip_sync: bool = False  # Add skip_sync to prevent infinite loops
     ) -> Dict[str, Any]:
         """
         Update shopping cart.
-        Actually stores items in session store.
-        
-        Returns:
-            {
-                "action": "add",
-                "success": true,
-                "message": "Added to cart",
-                "cart": { ... }
-            }
+        Actually stores items in session store and syncs with Node.js backend.
         """
         from app.modules.assistant.session_store import get_session_store
         
@@ -563,21 +563,20 @@ class EasymartAssistantTools:
             # Add should prefer shown items
             source = "cart" if action in ["remove", "set"] else "shown"
             
-            # Check if it's a numeric string or reference
-            if product_id.isdigit():
+            # Check if it's a numeric string, ordinal, or reference
+            is_ref = (
+                product_id.isdigit() or 
+                any(ord_name in product_id.lower() for ord_name in ["first", "second", "third", "fourth", "fifth", "last", "previous", "1st", "2nd", "3rd"]) or
+                (isinstance(product_id, str) and product_id.lower().startswith("option"))
+            )
+            
+            if is_ref:
                 resolved_id = session.resolve_product_reference(product_id, "index", source=source)
                 if resolved_id:
-                    import logging
-                    logging.getLogger(__name__).info(f"[TOOL] Resolved numeric ID '{product_id}' from {source} to '{resolved_id}'")
+                    logger.info(f"[TOOL] Resolved reference '{product_id}' from {source} to '{resolved_id}'")
                     product_id = resolved_id
-                else:
-                    # If it's a digit but couldn't be resolved, it's likely a failed reference
-                    # Don't try to add "1" as a SKU
-                    import logging
-                    logging.getLogger(__name__).warning(f"[TOOL] Could not resolve numeric ID '{product_id}' from {source}. Aborting.")
-                    return {"error": f"I couldn't identify which product you mean by '{product_id}'. Could you please specify the name?", "success": False}
             
-            elif product_id.lower() in ["this one", "it", "the product", "that one", "this", "it to cart", "this to cart"]:
+            elif product_id.lower() in ["this one", "it", "the product", "that one", "this", "it to cart", "this to cart", "this chair"]:
                 # Use general resolution (will fallback between lists)
                 resolved_id = session.resolve_product_reference(product_id, "name", source=source)
                 
@@ -586,13 +585,8 @@ class EasymartAssistantTools:
                     resolved_id = session.last_shown_products[0].get("id") or session.last_shown_products[0].get("product_id")
                 
                 if resolved_id:
+                    logger.info(f"[TOOL] Resolved reference '{product_id}' to {resolved_id}")
                     product_id = resolved_id
-                    import logging
-                    logging.getLogger(__name__).info(f"[TOOL] Resolved reference '{product_id}' to {resolved_id}")
-                else:
-                    import logging
-                    logging.getLogger(__name__).warning(f"[TOOL] Could not resolve context reference '{product_id}'.")
-                    return {"error": "I'm not sure which product you're referring to. Could you please mention it by name?", "success": False}
         
         # Helper to get full cart state with product details
         async def _get_cart_state():
@@ -604,23 +598,39 @@ class EasymartAssistantTools:
                 
             # Batch fetch all products in cart
             pids = [item["product_id"] for item in session.cart_items]
+            logger.info(f"[CART_STATE] Fetching product details for SKUs: {pids}")
+            
             products_list = await self.product_searcher.get_products_batch(pids)
-            products_map = {p.get("sku") or p.get("id"): p for p in products_list}
+            logger.info(f"[CART_STATE] Found {len(products_list)} products in DB")
+            
+            # Create map using both SKU and ID for robustness
+            products_map = {}
+            for p in products_list:
+                sku = p.get("sku")
+                if sku:
+                    products_map[sku] = p
+                pid_val = p.get("id")
+                if pid_val:
+                    products_map[pid_val] = p
             
             for item in session.cart_items:
                 pid = item["product_id"]
                 product = products_map.get(pid)
+                
                 if product:
-                    price = product.get("price", 0.0)
+                    # Found product, use its price and details
+                    price = float(product.get("price", 0.0))
                     qty = item["quantity"]
                     item_total = price * qty
                     total_price += item_total
                     
+                    name = product.get("title") or product.get("name") or pid
+                    
                     cart_details.append({
                         "product_id": pid,
                         "id": pid,
-                        "title": product.get("title") or product.get("name", "Unknown Product"),
-                        "name": product.get("title") or product.get("name", "Unknown Product"),
+                        "title": name,
+                        "name": name,
                         "price": price,
                         "image": product.get("image_url", ""),
                         "image_url": product.get("image_url", ""),
@@ -629,12 +639,16 @@ class EasymartAssistantTools:
                         "added_at": item.get("added_at")
                     })
                 else:
-                    # Fallback for products not in DB
+                    # Log failure to find product
+                    logger.warning(f"[CART_STATE] Could not find details for product ID: {pid}")
+                    # Fallback for products not in DB (maintain previous behavior but with better price handling)
                     cart_details.append({
                         "product_id": pid,
                         "id": pid,
-                        "title": "Unknown Product",
-                        "quantity": item.get("quantity", 1)
+                        "title": pid if pid else "Unknown Product",
+                        "quantity": item.get("quantity", 1),
+                        "price": 0.0,
+                        "item_total": 0.0
                     })
             
             return {
@@ -642,6 +656,39 @@ class EasymartAssistantTools:
                 "item_count": len(cart_details),
                 "total": total_price
             }
+
+        # SYNCHRONIZATION WITH NODE.JS BACKEND
+        async def _sync_with_node(action_val, pid=None, qty=None):
+            if skip_sync:
+                logger.info(f"[CART_SYNC] Skipping sync because skip_sync=True")
+                return None
+                
+            try:
+                async with httpx.AsyncClient() as client:
+                    payload = {
+                        "action": action_val,
+                        "session_id": session_id
+                    }
+                    if pid:
+                        payload["product_id"] = pid
+                    if qty is not None:
+                        payload["quantity"] = qty
+                    
+                    logger.info(f"[CART_SYNC] Calling Node.js API: {NODE_BACKEND_URL}/api/cart/add with {payload}")
+                    response = await client.post(
+                        f"{NODE_BACKEND_URL}/api/cart/add",
+                        json=payload,
+                        timeout=5.0
+                    )
+                    
+                    if response.status_code == 200:
+                        logger.info(f"[CART_SYNC] Successfully synced with Node.js backend")
+                        return response.json()
+                    else:
+                        logger.error(f"[CART_SYNC] Node.js API returned error: {response.status_code} - {response.text}")
+            except Exception as sync_e:
+                logger.error(f"[CART_SYNC] Failed to connect to Node.js backend: {str(sync_e)}")
+            return None
 
         if action == "view":
             cart_state = await _get_cart_state()
@@ -654,6 +701,7 @@ class EasymartAssistantTools:
         
         if action == "clear":
             session.clear_cart()
+            await _sync_with_node("clear")
             return {
                 "action": "clear",
                 "success": True,
@@ -665,13 +713,14 @@ class EasymartAssistantTools:
             return {"error": "product_id required for this action", "success": False}
         
         # Get product info for feedback
-        product = await self.product_searcher.get_product(product_id)
-        product_name = product.get("title", product_id) if product else product_id
+        product_info = await self.product_searcher.get_product(product_id)
+        product_name = product_info.get("title", product_id) if product_info else product_id
         
         if action == "add":
             if not quantity or quantity < 1:
                 quantity = 1
             session.add_to_cart(product_id, quantity)
+            await _sync_with_node("add", product_id, quantity)
             cart_state = await _get_cart_state()
             return {
                 "action": "add",
@@ -685,6 +734,7 @@ class EasymartAssistantTools:
         
         elif action == "remove":
             session.remove_from_cart(product_id)
+            await _sync_with_node("remove", product_id)
             cart_state = await _get_cart_state()
             return {
                 "action": "remove",
@@ -695,17 +745,18 @@ class EasymartAssistantTools:
                 "cart": cart_state
             }
         
-        elif action == "set":
+        elif action == "set" or action == "update_quantity":
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             
-            # Remove item first
+            # Remove item first in local session
             session.remove_from_cart(product_id)
             
             # Add back with new quantity if > 0
             if quantity > 0:
                 session.add_to_cart(product_id, quantity)
             
+            await _sync_with_node("set", product_id, quantity)
             cart_state = await _get_cart_state()
             return {
                 "action": "set",
