@@ -66,7 +66,8 @@ class SessionContext:
     def resolve_product_reference(
         self,
         reference: str,
-        reference_type: str = "index"
+        reference_type: str = "index",
+        source: str = "shown"  # "shown" or "cart"
     ) -> Optional[str]:
         """
         Resolve product reference to product ID.
@@ -74,41 +75,47 @@ class SessionContext:
         Args:
             reference: Product reference ("1", "first", SKU, or name fragment)
             reference_type: "index", "sku", or "name"
+            source: "shown" (last search results) or "cart" (items currently in cart)
         
         Returns:
             Product ID (SKU) or None if not found
-        
-        Example:
-            >>> ctx.update_shown_products([{"id": "CHR-001", "name": "Office Chair"}])
-            >>> product_id = ctx.resolve_product_reference("1", "index")
-            >>> print(product_id)
-            "CHR-001"
         """
-        if not self.last_shown_products:
-            return None
+        target_list = self.last_shown_products if source == "shown" else self.cart_items
+        
+        if not target_list:
+            # Fallback to other list if preferred is empty
+            target_list = self.cart_items if source == "shown" else self.last_shown_products
+            if not target_list:
+                return None
         
         if reference_type == "index":
             # Convert index to 0-based
             try:
-                idx = int(reference) - 1
-                if 0 <= idx < len(self.last_shown_products):
-                    return self.last_shown_products[idx].get("id")
-            except ValueError:
+                # Handle numeric strings
+                idx_str = "".join(filter(str.isdigit, reference))
+                if not idx_str:
+                    return None
+                idx = int(idx_str) - 1
+                if 0 <= idx < len(target_list):
+                    item = target_list[idx]
+                    return item.get("product_id") or item.get("id")
+            except (ValueError, IndexError):
                 pass
         
         elif reference_type == "sku":
             # Find by SKU
-            for product in self.last_shown_products:
-                if product.get("id") == reference:
-                    return reference
+            for item in target_list:
+                pid = item.get("product_id") or item.get("id")
+                if pid == reference:
+                    return pid
         
         elif reference_type == "name":
             # Find by name fragment (case-insensitive)
             reference_lower = reference.lower()
-            for product in self.last_shown_products:
-                name = product.get("name", "").lower()
+            for item in target_list:
+                name = (item.get("name") or item.get("title") or "").lower()
                 if reference_lower in name:
-                    return product.get("id")
+                    return item.get("product_id") or item.get("id")
         
         return None
     

@@ -221,6 +221,16 @@ export const cartApi = {
     return response.data;
   },
 
+  clearCart: async (): Promise<CartResponse> => {
+    const sessionId = getSessionId();
+
+    const response = await apiClient.post<CartResponse>('/api/cart/add', {
+      action: 'clear',
+      session_id: sessionId,
+    });
+    return response.data;
+  },
+
   getCart: async (): Promise<CartResponse> => {
     const sessionId = getSessionId();
 

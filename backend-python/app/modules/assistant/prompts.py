@@ -174,6 +174,7 @@ AFTER TOOL RETURNS RESULTS:
 ❌ DON'T: Mention tools, database, or system
 
 Product references: Users may say "option 1", "product 2", etc. to refer to displayed items.
+ALWAYS look at the most recent [TOOL_RESULTS] in the conversation history to resolve these references to actual product IDs.
 In responses: ALWAYS use actual product names from tool results, NOT generic labels.
 Language: Australian English, professional, concise.
 """.strip()

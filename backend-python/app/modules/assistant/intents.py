@@ -20,6 +20,7 @@ class IntentType(str, Enum):
     # Cart-related intents
     CART_ADD = "cart_add"
     CART_REMOVE = "cart_remove"
+    CART_CLEAR = "cart_clear"
     CART_SHOW = "cart_show"
     CART_UPDATE_QUANTITY = "cart_update_quantity"
     

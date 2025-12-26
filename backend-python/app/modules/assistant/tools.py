@@ -145,7 +145,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["add", "remove", "update_quantity", "view"],
+                        "enum": ["add", "remove", "update_quantity", "view", "clear"],
                         "description": "Cart action to perform"
                     },
                     "product_id": {
@@ -558,19 +558,41 @@ class EasymartAssistantTools:
         
         # Resolve product_id if it looks like a reference (e.g., "1", "Option 1", or "this one")
         if product_id:
-            # Check if it's a numeric string
+            # Determine resolution source based on action
+            # Remove/Set quantity should prefer cart items
+            # Add should prefer shown items
+            source = "cart" if action in ["remove", "set"] else "shown"
+            
+            # Check if it's a numeric string or reference
             if product_id.isdigit():
-                resolved_id = session.resolve_product_reference(product_id, "index")
+                resolved_id = session.resolve_product_reference(product_id, "index", source=source)
                 if resolved_id:
                     import logging
-                    logging.getLogger(__name__).info(f"[TOOL] Resolved numeric ID '{product_id}' to '{resolved_id}'")
+                    logging.getLogger(__name__).info(f"[TOOL] Resolved numeric ID '{product_id}' from {source} to '{resolved_id}'")
                     product_id = resolved_id
-            elif product_id.lower() in ["this one", "it", "the product", "that one"]:
-                # If only one product shown, use it
-                if session.last_shown_products and len(session.last_shown_products) == 1:
-                    product_id = session.last_shown_products[0].get("id")
+                else:
+                    # If it's a digit but couldn't be resolved, it's likely a failed reference
+                    # Don't try to add "1" as a SKU
                     import logging
-                    logging.getLogger(__name__).info(f"[TOOL] Resolved reference '{product_id}' to first product")
+                    logging.getLogger(__name__).warning(f"[TOOL] Could not resolve numeric ID '{product_id}' from {source}. Aborting.")
+                    return {"error": f"I couldn't identify which product you mean by '{product_id}'. Could you please specify the name?", "success": False}
+            
+            elif product_id.lower() in ["this one", "it", "the product", "that one", "this", "it to cart", "this to cart"]:
+                # Use general resolution (will fallback between lists)
+                resolved_id = session.resolve_product_reference(product_id, "name", source=source)
+                
+                # Special fallback for "this": if only one product was shown, use it
+                if not resolved_id and session.last_shown_products:
+                    resolved_id = session.last_shown_products[0].get("id") or session.last_shown_products[0].get("product_id")
+                
+                if resolved_id:
+                    product_id = resolved_id
+                    import logging
+                    logging.getLogger(__name__).info(f"[TOOL] Resolved reference '{product_id}' to {resolved_id}")
+                else:
+                    import logging
+                    logging.getLogger(__name__).warning(f"[TOOL] Could not resolve context reference '{product_id}'.")
+                    return {"error": "I'm not sure which product you're referring to. Could you please mention it by name?", "success": False}
         
         # Helper to get full cart state with product details
         async def _get_cart_state():
@@ -628,6 +650,15 @@ class EasymartAssistantTools:
                 "success": True,
                 "cart": cart_state,
                 "message": f"Your cart has {cart_state['item_count']} items totaling ${cart_state['total']:.2f}" if cart_state['items'] else "Your cart is currently empty."
+            }
+        
+        if action == "clear":
+            session.clear_cart()
+            return {
+                "action": "clear",
+                "success": True,
+                "message": "Your cart has been emptied.",
+                "cart": {"items": [], "item_count": 0, "total": 0.0}
             }
         
         if not product_id:

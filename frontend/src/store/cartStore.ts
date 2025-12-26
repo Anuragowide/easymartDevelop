@@ -14,6 +14,7 @@ interface CartStore {
     increaseQuantity: (productId: string) => Promise<void>;
     decreaseQuantity: (productId: string) => Promise<void>;
     removeFromCart: (productId: string) => Promise<void>;
+    clearCart: () => Promise<void>;
     getCart: () => Promise<void>;
     clearError: () => void;
 
@@ -102,26 +103,47 @@ export const useCartStore = create<CartStore>()(
             }
           },
 
-          removeFromCart: async (productId: string) => {
-            set({ isLoading: true, error: null });
-            try {
-              const response: CartResponse = await cartApi.removeFromCart(productId);
-              
-              if (response.success) {
-                set({
-                  items: response.cart.items,
-                  itemCount: response.cart.item_count,
-                  total: response.cart.total,
-                  isLoading: false,
-                });
-              } else {
-                throw new Error(response.error || 'Failed to remove from cart');
+            removeFromCart: async (productId: string) => {
+              set({ isLoading: true, error: null });
+              try {
+                const response: CartResponse = await cartApi.removeFromCart(productId);
+                
+                if (response.success) {
+                  set({
+                    items: response.cart.items,
+                    itemCount: response.cart.item_count,
+                    total: response.cart.total,
+                    isLoading: false,
+                  });
+                } else {
+                  throw new Error(response.error || 'Failed to remove from cart');
+                }
+              } catch (error: any) {
+                set({ error: error.message, isLoading: false });
+                throw error;
               }
-            } catch (error: any) {
-              set({ error: error.message, isLoading: false });
-              throw error;
-            }
-          },
+            },
+
+            clearCart: async () => {
+              set({ isLoading: true, error: null });
+              try {
+                const response: CartResponse = await cartApi.clearCart();
+                
+                if (response.success) {
+                  set({
+                    items: [],
+                    itemCount: 0,
+                    total: 0,
+                    isLoading: false,
+                  });
+                } else {
+                  throw new Error(response.error || 'Failed to clear cart');
+                }
+              } catch (error: any) {
+                set({ error: error.message, isLoading: false });
+                throw error;
+              }
+            },
 
 
 

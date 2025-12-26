@@ -3,9 +3,9 @@ import { logger } from '../../../modules/observability/logger';
 import { pythonAssistantClient } from '../../../utils/pythonClient';
 
 interface CartRequestBody {
-  product_id: string;
+  product_id?: string;
   quantity?: number;
-  action?: 'add' | 'remove' | 'set';
+  action?: 'add' | 'remove' | 'set' | 'clear';
   session_id: string;
 }
 
@@ -16,16 +16,23 @@ interface CartQuerystring {
 export default async function cartRoutes(fastify: FastifyInstance) {
   /**
    * POST /api/cart/add
-   * Add item to cart
+   * Add/update/remove/clear items in cart
    */
   fastify.post('/api/cart/add', async (request: FastifyRequest<{ Body: CartRequestBody }>, reply: FastifyReply) => {
     try {
       const { product_id, quantity = 1, session_id, action } = request.body;
 
-      if (!product_id || !session_id) {
+      if (!session_id) {
         return reply.code(400).send({
           success: false,
-          error: 'product_id and session_id are required'
+          error: 'session_id is required'
+        });
+      }
+
+      if (action !== 'clear' && !product_id) {
+        return reply.code(400).send({
+          success: false,
+          error: 'product_id is required for this action'
         });
       }
 

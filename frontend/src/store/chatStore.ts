@@ -90,23 +90,31 @@ export const useChatStore = create<ChatState>()(
             const { useCartStore } = await import('./cartStore');
             const cartStore = useCartStore.getState();
             
-            // Process actions (e.g., search_results, add_to_cart, remove_from_cart)
+            // Process actions (e.g., search_results, add_to_cart, remove_from_cart, view_cart)
             if (response.actions && Array.isArray(response.actions)) {
               for (const action of response.actions) {
-                if (action.type === 'add_to_cart') {
-                  console.log(`[CHAT] Executing add_to_cart: ${action.product_id}`);
-                  await cartStore.addToCart(action.product_id, action.quantity || 1);
-                } else if (action.type === 'remove_from_cart') {
-                  console.log(`[CHAT] Executing remove_from_cart: ${action.product_id}`);
-                  await cartStore.removeFromCart(action.product_id);
+                if (action.type === 'add_to_cart' || action.type === 'remove_from_cart') {
+                  // DON'T call cartStore.addToCart here because it was already added in the backend session
+                    // Just refresh the local cart state to stay in sync
+                    console.log(`[CHAT] Cart action detected: ${action.type}. Syncing cart...`);
+                    await cartStore.getCart();
+                  } else if (action.type === 'clear_cart') {
+                    console.log('[CHAT] Executing clear_cart');
+                    await cartStore.clearCart();
+                  } else if (action.type === 'view_cart') {
+                  console.log('[CHAT] Executing view_cart');
+                  set({ isCartOpen: true });
                 }
               }
             }
 
-            // Small delay to allow backend to update, then refresh cart state
-            setTimeout(() => {
-              cartStore.getCart();
-            }, 300);
+            // Always refresh cart after chat messages to ensure UI is in sync
+            if (!response.actions?.some(a => ['add_to_cart', 'remove_from_cart'].includes(a.type))) {
+              setTimeout(() => {
+                cartStore.getCart();
+              }, 300);
+            }
+
 
         } catch (error: any) {
           const errorMessage = error.response?.data?.message || error.message || 'Failed to send message';
