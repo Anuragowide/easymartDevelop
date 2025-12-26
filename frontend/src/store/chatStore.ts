@@ -86,11 +86,17 @@ export const useChatStore = create<ChatState>()(
             isLoading: false,
           }));
           
+          // Always refresh cart after chat messages (in case items were added via chat)
+          const { useCartStore } = await import('./cartStore');
+          const cartStore = useCartStore.getState();
+          
+          // Small delay to allow backend to update, then refresh cart
+          setTimeout(() => {
+            cartStore.getCart();
+          }, 100);
+          
           // Process actions (e.g., add_to_cart)
           if (response.actions && Array.isArray(response.actions)) {
-            const { useCartStore } = await import('./cartStore');
-            const cartStore = useCartStore.getState();
-            
             for (const action of response.actions) {
               if (action.type === 'add_to_cart' && action.product_id) {
                 try {

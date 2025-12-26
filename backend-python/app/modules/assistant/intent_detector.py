@@ -45,6 +45,8 @@ class IntentDetector:
             r'\b(add|put)\b.*\b(to|in|into)\b.*\b(cart|basket)\b',
             r'\b(buy|purchase|get|order)\b.*\b(this|that|the|it)\b',
             r'\b(i\'ll take)\b.*\b(this|that|the|it|one)\b',
+            r'\b(also|too)\s+(add|get)\b.*\b(option|product|item|number)\b',
+            r'\badd.*\b(option|product|item|number)\b.*\b(also|too|as well)\b',
         ],
         IntentType.CART_REMOVE: [
             r'\b(remove|delete|take out)\b.*\b(from|out of)\b.*\b(cart|basket)\b',
@@ -135,6 +137,41 @@ class IntentDetector:
             IntentType.PRODUCT_SEARCH
         """
         message_lower = message.lower().strip()
+        
+        # PRIORITY 0: Check for out-of-scope queries FIRST
+        # These are clearly not furniture-related and should not be forced into product search
+        out_of_scope_keywords = [
+            # Programming & Tech
+            r'\b(python|java|javascript|code|programming|coding|function|script|algorithm)\b',
+            r'\b(html|css|react|vue|angular|node|npm|git|github)\b',
+            r'\b(sql|database|query|api|server|backend|frontend)\b',
+            # Vehicles & Transportation
+            r'\b(car|cars|vehicle|automobile|motorcycle|bike|truck|van)\b',
+            # Electronics (non-furniture)
+            r'\b(laptop|computer|pc|mac|tablet|ipad|iphone|smartphone|phone|mobile)\b',
+            r'\b(tv|television|camera|watch|headphone|speaker|gaming console)\b',
+            # Clothing & Fashion
+            r'\b(clothing|clothes|shirt|pants|dress|shoes|jacket|coat|hat)\b',
+            # Food & Drinks
+            r'\b(food|drink|recipe|cooking|restaurant|meal|dinner|lunch)\b',
+            # Health & Medical
+            r'\b(doctor|hospital|medicine|health|disease|symptom|treatment)\b',
+            # General Knowledge / Educational
+            r'\b(math|mathematics|physics|chemistry|biology|history|geography)\b',
+            r'\b(definition of|what is the capital|who invented|when did)\b',
+            # Entertainment
+            r'\b(movie|film|music|song|video game|tv show|netflix)\b',
+            # Sports
+            r'\b(football|soccer|basketball|tennis|cricket|sports)\b',
+            # Weather
+            r'\b(weather|temperature|forecast|rain|snow)\b',
+            # Travel
+            r'\b(flight|hotel|vacation|travel|tourist|trip)\b',
+        ]
+        
+        # If message matches any out-of-scope pattern, return OUT_OF_SCOPE immediately
+        if any(re.search(pattern, message_lower) for pattern in out_of_scope_keywords):
+            return IntentType.OUT_OF_SCOPE
         
         # PRIORITY 1: Check greetings FIRST (exact matches before pattern matching)
         # This prevents "hi" from being caught by other patterns

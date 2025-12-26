@@ -5,3 +5,11 @@
 {"event_type": "assistant_error", "timestamp": "2025-12-25T14:55:33.550042", "user_id": null, "session_id": null, "properties": {"error": "HUGGINGFACE_API_KEY not found in environment or parameters"}}
 {"event_type": "assistant_request", "timestamp": "2025-12-25T14:55:42.263322", "user_id": null, "session_id": "af364041-bb42-415d-bb8b-964b29a433c4", "properties": {"message_length": 20, "has_session": true}}
 {"event_type": "assistant_error", "timestamp": "2025-12-25T14:55:42.266237", "user_id": null, "session_id": null, "properties": {"error": "HUGGINGFACE_API_KEY not found in environment or parameters"}}
+{"event_type": "assistant_request", "timestamp": "2025-12-26T04:17:09.459073", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"message_length": 3, "has_session": true}}
+{"event_type": "assistant_out_of_scope", "timestamp": "2025-12-26T04:17:15.310165", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"query": "gjg", "query_length": 3}}
+{"event_type": "assistant_request", "timestamp": "2025-12-26T04:17:46.402278", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"message_length": 30, "has_session": true}}
+{"event_type": "assistant_out_of_scope", "timestamp": "2025-12-26T04:17:49.031752", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"query": "show me the best selling chair", "query_length": 30}}
+{"event_type": "assistant_request", "timestamp": "2025-12-26T04:18:06.215924", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"message_length": 18, "has_session": true}}
+{"event_type": "assistant_out_of_scope", "timestamp": "2025-12-26T04:18:08.948603", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"query": "show me the chairs", "query_length": 18}}
+{"event_type": "assistant_request", "timestamp": "2025-12-26T04:18:32.353037", "user_id": null, "session_id": "a69ebbf5-ddee-4980-a565-a35b4b4674ea", "properties": {"message_length": 21, "has_session": true}}
+{"event_type": "assistant_error", "timestamp": "2025-12-26T04:18:34.984623", "user_id": null, "session_id": null, "properties": {"error": "HUGGINGFACE_API_KEY not found in environment or parameters"}}

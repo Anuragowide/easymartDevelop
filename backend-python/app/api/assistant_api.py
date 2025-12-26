@@ -64,18 +64,22 @@ async def handle_message(
         session = session_store.get_or_create_session(assistant_response.session_id)
         cart_action = session.metadata.get("last_cart_action")
         
-        # Add cart action to suggested_actions if present
+        # Store cart action in metadata instead of suggested_actions
+        response_metadata = {
+            "processing_time_ms": 0,  # Will be updated below
+            "timestamp": datetime.utcnow().isoformat(),
+            "function_calls": assistant_response.metadata.get("function_calls_made", 0),
+        }
+        
         if cart_action:
-            if cart_action.get("type") == "add_to_cart":
-                suggested_actions.append({
-                    "type": "add_to_cart",
-                    "product_id": cart_action.get("product_id"),
-                    "quantity": cart_action.get("quantity", 1)
-                })
+            response_metadata["cart_action"] = cart_action
             # Clear the cart action after including it
             session.metadata.pop("last_cart_action", None)
         
         elapsed_ms = (time.time() - start_time) * 1000
+        response_metadata["processing_time_ms"] = round(elapsed_ms, 2)
+        response_metadata["cart_items"] = assistant_response.cart_summary.get("item_count") if assistant_response.cart_summary else 0
+        response_metadata["reset_session"] = assistant_response.metadata.get("reset_session", False)
         
         return MessageResponse(
             session_id=assistant_response.session_id,
@@ -94,13 +98,7 @@ async def handle_message(
                 if p is not None # Filter out None products
             ] if assistant_response.products else None,
             suggested_actions=suggested_actions,
-            metadata={
-                "processing_time_ms": round(elapsed_ms, 2),
-                "timestamp": datetime.utcnow().isoformat(),
-                "function_calls": assistant_response.metadata.get("function_calls_made", 0),
-                "cart_items": assistant_response.cart_summary.get("item_count") if assistant_response.cart_summary else 0,
-                "reset_session": assistant_response.metadata.get("reset_session", False)
-            }
+            metadata=response_metadata
         )
         
     except EasymartException as e:

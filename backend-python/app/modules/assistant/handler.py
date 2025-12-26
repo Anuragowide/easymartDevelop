@@ -246,6 +246,41 @@ class EasymartAssistantHandler:
             
             logger.info(f"Detected intent: {intent_str}, entities: {entities}")
             
+            # SHORTCUT: Handle OUT_OF_SCOPE queries
+            if intent_str == "out_of_scope":
+                logger.info("[HANDLER] Out-of-scope intent detected, returning polite redirect")
+                assistant_message = (
+                    "I'm EasyMart's furniture shopping assistant, and I specialize in helping you find the perfect furniture! "
+                    "I can help you search for chairs, tables, sofas, beds, storage solutions, and more. "
+                    "I can also answer questions about shipping, returns, and our policies. "
+                    "How can I assist you with your furniture needs today?"
+                )
+                
+                # Add assistant response to history
+                session.add_message("assistant", assistant_message)
+                
+                # Track out-of-scope query
+                await self.event_tracker.track(
+                    "assistant_out_of_scope",
+                    session_id=request.session_id,
+                    properties={
+                        "query": request.message,
+                        "query_length": len(request.message)
+                    }
+                )
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": intent_str,
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
+            
             # SHORTCUT: If intent is greeting, return static greeting
             if intent_str == "greeting":
                 logger.info("[HANDLER] Greeting intent detected, returning static greeting")
@@ -727,8 +762,10 @@ class EasymartAssistantHandler:
                 # Products are already stored in session from tool execution
                 assistant_message = final_response.content
                 
-                # Strip any leaked markers or internal prefixes
-                assistant_message = re.sub(r'\[TOOL_?RESULTS\].*?\[/TOOL_?RESULTS\]', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+                # Strip any leaked markers or internal prefixes (MORE AGGRESSIVE)
+                assistant_message = re.sub(r'\[/?TOOL[_\s]?RESULTS?\]', '', assistant_message, flags=re.IGNORECASE)
+                assistant_message = re.sub(r'\[Tool result from .*?\]', '', assistant_message, flags=re.IGNORECASE)
+                assistant_message = re.sub(r'Found \d+ products? matching the search\.', '', assistant_message, flags=re.IGNORECASE)
                 assistant_message = re.sub(r'INTERNAL INSTRUCTION:.*', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
                 
                 # Strip common LLM prefixes
@@ -737,6 +774,9 @@ class EasymartAssistantHandler:
                 
                 # Strip any repeated prompts
                 assistant_message = re.sub(r'Now respond to the user.*', '', assistant_message, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Strip tool result debugging text
+                assistant_message = re.sub(r'\{"name".*?"price".*?\}', '', assistant_message)
                 
                 assistant_message = assistant_message.strip()
 
@@ -1333,7 +1373,11 @@ class EasymartAssistantHandler:
             tool_name = func_call.name
             arguments = func_call.arguments
             
-            logger.info(f"Executing tool: {tool_name}")
+            # Inject session_id for tools that need it
+            if tool_name == "update_cart":
+                arguments["session_id"] = session.session_id
+            
+            logger.info(f"Executing tool: {tool_name} with args: {arguments}")
             
             result = await execute_tool(tool_name, arguments, self.tools)
             

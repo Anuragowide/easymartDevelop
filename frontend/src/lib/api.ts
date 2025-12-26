@@ -136,19 +136,34 @@ export const analyticsApi = {
 // Cart API
 // ============================================================================
 
-function generateSessionId(): string {
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('chatSessionId', sessionId);
-  }
-  return sessionId;
-}
-
 function getSessionId(): string {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('chatSessionId') || generateSessionId();
+    // Try to get from chatStore first (same session as chat)
+    try {
+      const chatSessionId = localStorage.getItem('chat-storage');
+      if (chatSessionId) {
+        const parsed = JSON.parse(chatSessionId);
+        if (parsed?.state?.sessionId) {
+          return parsed.state.sessionId;
+        }
+      }
+    } catch (e) {
+      console.error('Error getting session from chat-storage:', e);
+    }
+    
+    // Fallback to old method
+    const oldSessionId = localStorage.getItem('chatSessionId');
+    if (oldSessionId) {
+      return oldSessionId;
+    }
   }
-  return generateSessionId();
+  
+  // Generate new session ID in chat format
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 export interface CartItem {
