@@ -62,24 +62,24 @@ export function CartView() {
               
               <div className="flex items-center gap-3 mt-2">
                 <div className="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden h-7">
-                  <button
-                    onClick={() => decreaseQuantity(item.id || item.product_id!)}
-                    disabled={isLoading}
-                    className="px-2 hover:bg-gray-100 text-gray-600 disabled:opacity-50"
-                  >
-                    -
-                  </button>
-                    <span className="px-2 text-xs font-medium w-8 text-center">
-                      {typeof item.quantity === 'number' ? item.quantity : (item as any).qty || 1}
+                    <button
+                      onClick={() => decreaseQuantity(item.id || item.product_id!)}
+                      disabled={isLoading}
+                      className="px-2 hover:bg-gray-100 text-gray-600 disabled:opacity-50 h-full flex items-center justify-center"
+                    >
+                      -
+                    </button>
+                    <span className="px-2 text-xs font-bold w-8 text-center flex items-center justify-center text-gray-900">
+                      {item.quantity || (item as any).qty || 1}
                     </span>
 
-                  <button
-                    onClick={() => increaseQuantity(item.id || item.product_id!)}
-                    disabled={isLoading}
-                    className="px-2 hover:bg-gray-100 text-gray-600 disabled:opacity-50"
-                  >
-                    +
-                  </button>
+                    <button
+                      onClick={() => increaseQuantity(item.id || item.product_id!)}
+                      disabled={isLoading}
+                      className="px-2 hover:bg-gray-100 text-gray-600 disabled:opacity-50 h-full flex items-center justify-center"
+                    >
+                      +
+                    </button>
                 </div>
                 
                     <button

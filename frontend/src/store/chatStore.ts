@@ -108,11 +108,12 @@ export const useChatStore = create<ChatState>()(
               }
             }
 
-            // Always refresh cart after any assistant message to ensure UI is in sync
-            // Even if no explicit action was returned, the assistant might have performed one
-            setTimeout(() => {
-              cartStore.getCart();
-            }, 500);
+              // Always refresh cart after any assistant message to ensure UI is in sync
+              // Even if no explicit action was returned, the assistant might have performed one
+              // Increased timeout and added multiple syncs for robustness
+              setTimeout(() => cartStore.getCart(), 300);
+              setTimeout(() => cartStore.getCart(), 1500);
+              setTimeout(() => cartStore.getCart(), 3000);
 
 
 
