@@ -69,7 +69,7 @@ export function CartView() {
                     >
                       -
                     </button>
-                    <span className="px-2 text-xs font-bold w-8 text-center flex items-center justify-center text-gray-900">
+                    <span className="px-2 text-xs font-bold w-8 text-center flex items-center justify-center text-black">
                       {item.quantity || (item as any).qty || 1}
                     </span>
 
