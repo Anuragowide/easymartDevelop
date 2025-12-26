@@ -552,59 +552,8 @@ class EasymartAssistantHandler:
                             ]
                             llm_response.content = ""
             
-            # SAFETY CHECK: If cart add intent but NO tool calls → force update_cart!
-            if intent == IntentType.CART_ADD and not llm_response.function_calls:
-                # Try to extract number or ordinal
-                product_num = None
-                for pattern in self.PRODUCT_REF_PATTERNS:
-                    match = pattern.search(original_message)
-                    if match:
-                        product_num = int(match.group(1))
-                        break
-                
-                if not product_num:
-                    for ordinal, num in self.ORDINAL_MAP.items():
-                        if ordinal in original_message.lower():
-                            product_num = num
-                            break
-                
-                if product_num and session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
-                    product = session.last_shown_products[product_num - 1]
-                    product_id = product.get('id')
-                    if product_id:
-                        logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart add intent but LLM didn't call tool! Forcing tool call for product {product_num}")
-                        from .hf_llm_client import FunctionCall
-                        llm_response.function_calls = [
-                            FunctionCall(
-                                name="update_cart",
-                                arguments={"action": "add", "product_id": product_id, "quantity": 1}
-                            )
-                        ]
-                        llm_response.content = ""
-            
-            # SAFETY CHECK: If cart show intent but NO tool calls → force update_cart(view)!
-            if intent == IntentType.CART_SHOW and not llm_response.function_calls:
-                logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart show intent but LLM didn't call tool!")
-                from .hf_llm_client import FunctionCall
-                llm_response.function_calls = [
-                    FunctionCall(
-                        name="update_cart",
-                        arguments={"action": "view"}
-                    )
-                ]
-                llm_response.content = ""
-            
-            # SAFETY CHECK: If cart clear intent but NO tool calls → force update_cart(clear)!
-            if intent == IntentType.CART_CLEAR and not llm_response.function_calls:
-                logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart clear intent but LLM didn't call tool!")
-                from .hf_llm_client import FunctionCall
-                llm_response.function_calls = [
-                    FunctionCall(
-                        name="update_cart",
-                        arguments={"action": "clear"}
-                    )
-                ]
-                llm_response.content = ""
+            # SAFETY CHECK: Removed aggressive forced cart operations to prevent "self-adding" issues.
+            # The LLM should be trusted to call tools when explicitly requested by the user.
 
             # Process function calls if any
             if llm_response.function_calls:
@@ -1470,6 +1419,22 @@ class EasymartAssistantHandler:
                 
                 # Store in session for reference
                 session.update_shown_products(result["products"])
+            
+            # NEW: Also update shown products when getting specs for a single product
+            # This allows "add it to cart" to work after asking about a specific product
+            if tool_name == "get_product_specs" and "product_id" in result:
+                # Create a mini product object for the session context
+                product_id = result.get("product_id")
+                product_name = result.get("product_name")
+                
+                if product_id:
+                    session.update_shown_products([{
+                        "id": product_id,
+                        "product_id": product_id,
+                        "name": product_name,
+                        "title": product_name,
+                        "price": result.get("price", 0)
+                    }])
             
             # Track cart actions (FIX: Moved OUTSIDE search_products block)
             if tool_name == "update_cart" and result.get("success"):

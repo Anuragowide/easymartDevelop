@@ -249,8 +249,8 @@ async def update_cart_endpoint(request: Request):
         
         logger.info(f"Cart request: product_id={product_id}, quantity={quantity}, action={action}, session_id={session_id}")
         
-        if not product_id:
-            raise ValueError("product_id is required")
+        if not product_id and action not in ["view", "clear"]:
+            raise ValueError(f"product_id is required for action: {action}")
         
         if not session_id:
             raise ValueError("session_id is required")

@@ -60,7 +60,17 @@ class SessionContext:
         Update last shown products.
         Keep up to 10 most recent products for reference resolution.
         """
-        self.last_shown_products = products[:10]
+        # If we already have products and we're adding a single one (e.g. from specs),
+        # prepend it to the list instead of replacing the whole list
+        if len(products) == 1 and self.last_shown_products:
+            new_product = products[0]
+            # Check if it's already there
+            exists = any(p.get("id") == new_product.get("id") for p in self.last_shown_products)
+            if not exists:
+                self.last_shown_products = (products + self.last_shown_products)[:10]
+        else:
+            self.last_shown_products = products[:10]
+        
         self.last_activity = datetime.now()
     
     def resolve_product_reference(
