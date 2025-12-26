@@ -370,7 +370,7 @@ class EasymartAssistantHandler:
             
             # Overrides for furniture queries
             if any(keyword in request.message.lower() for keyword in furniture_keywords):
-                if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA, IntentType.CART_ADD, IntentType.CHECK_AVAILABILITY]:
+                if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA, IntentType.CART_ADD, IntentType.PRODUCT_AVAILABILITY]:
                     logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
                     intent = IntentType.PRODUCT_SEARCH
             
