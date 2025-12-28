@@ -191,7 +191,7 @@ class ProductSearcher:
                 )
                 if not found_color:
                     continue
-
+            
             # Material filter
             if "material" in filters:
                 target_mat = filters["material"].lower()
