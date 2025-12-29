@@ -171,7 +171,7 @@ class IntentDetector:
             r'\b(math|mathematics|physics|chemistry|biology|history|geography)\b',
             r'\b(definition of|what is the capital|who invented|when did)\b',
             # Entertainment
-            r'\b(movie|film|music|song|video game|tv show|netflix)\b',
+            r'\b(movie|film|music|song|video game|tv show|netflix|joke)\b',
             # Sports
             r'\b(football|soccer|basketball|tennis|cricket|sports)\b',
             # Weather
