@@ -11,7 +11,7 @@ export interface Message {
 }
 
 export interface MessageAction {
-  type: 'search_results' | 'product_card' | 'add_to_cart' | 'spec_answer';
+  type: 'search_results' | 'product_card' | 'add_to_cart' | 'remove_from_cart' | 'clear_cart' | 'view_cart' | 'spec_answer';
   data: any;
 }
 
