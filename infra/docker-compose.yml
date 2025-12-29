@@ -1,4 +1,5 @@
 # Docker Compose - EasyMart v1 Multi-Service Architecture
+# Production deployment for DigitalOcean at 167.71.228.100
 version: '3.8'
 
 services:
@@ -7,6 +8,7 @@ services:
     build:
       context: ../backend-node
       dockerfile: Dockerfile
+    image: easymart/backend-node:latest
     container_name: easymart-node
     ports:
       - "3001:3001"
@@ -23,18 +25,32 @@ services:
     networks:
       - easymart-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
   # Python Backend - Assistant + Retrieval + Catalog
   backend-python:
     build:
       context: ../backend-python
       dockerfile: Dockerfile
+    image: easymart/backend-python:latest
     container_name: easymart-python
     ports:
       - "8000:8000"
@@ -45,7 +61,7 @@ services:
       - ENVIRONMENT=production
       - HOST=0.0.0.0
       - PORT=8000
-      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://frontend:3000,http://backend-node:3001
+      - ALLOWED_ORIGINS=http://167.71.228.100:3000,http://167.71.228.100:3001,http://localhost:3000,http://localhost:3001,http://frontend:3000,http://backend-node:3001
       - NODE_BACKEND_URL=http://backend-node:3001
       - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
       - HUGGINGFACE_MODEL=${HUGGINGFACE_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
@@ -58,15 +74,29 @@ services:
       - MAX_SEARCH_RESULTS=10
     volumes:
       - python-data:/app/data
+      - python-logs:/app/logs
     networks:
       - easymart-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
   # Elasticsearch - Search Index Store (Optional - not currently used by Python backend)
   # search-index:
@@ -91,31 +121,58 @@ services:
   #     retries: 5
   #     start_period: 60s
 
-  # Next.js Frontend (Optional)
+  # Next.js Frontend
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
+    image: easymart/frontend:latest
     container_name: easymart-frontend
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
       - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
     depends_on:
-      - backend-node
+      backend-node:
+        condition: service_healthy
     networks:
       - easymart-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   easymart-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 volumes:
   python-data:
+    driver: local
+  python-logs:
     driver: local
   # search-data:
   #   driver: local

@@ -1,6 +1,0 @@
-S. No,Query Type,User Query,Bot Response,Expected Response,Intent,Duration,Status
-1,Greeting,Hi,Welcome to Easymart. How can I help you find the right furniture today?,Friendly greeting,greeting,0.32s,Success
-2,Greeting,Hello,Welcome to Easymart. How can I help you find the right furniture today?,Greet user politely,greeting,0.01s,Success
-3,Greeting,Hey,Welcome to Easymart. How can I help you find the right furniture today?,Casual greeting,greeting,0.00s,Success
-4,Greeting,Good morning,Welcome to Easymart. How can I help you find the right furniture today?,Time-appropriate greeting,greeting,0.01s,Success
-5,Greeting,Is anyone there?,"Yes, I'm here to help you with your Easymart furniture shopping experience. Let me know how I can assist you further.",Ask how to help,out_of_scope,3.51s,Success
