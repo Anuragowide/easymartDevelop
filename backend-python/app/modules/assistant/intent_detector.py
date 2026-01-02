@@ -442,28 +442,33 @@ class IntentDetector:
                 return {"vague_type": "ultra_vague", "partial_entities": {}}
         
         # Category 2: Attribute-only (color/material only)
-        attribute_only_patterns = [
-            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(blue|white|red|black|green|brown|grey|gray|yellow|pink|purple|orange|beige)\s*$', 'color'),
-            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(wooden|wood|metal|leather|fabric|glass|plastic|rattan)\s*$', 'material'),
-            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(modern|contemporary|minimalist|minimal|aesthetic|classic|industrial|rustic|scandinavian)\s*$', 'style'),
-            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(dark|light\s+colored|bright)\s*$', 'appearance'),
-        ]
+        # BUT: Skip if query contains furniture category (e.g., "blue chairs" is NOT vague)
+        furniture_categories = ['chair', 'table', 'desk', 'sofa', 'bed', 'shelf', 'locker', 'stool', 'cabinet', 'furniture']
+        has_category = any(cat in message_lower for cat in furniture_categories)
         
-        for pattern, attr_type in attribute_only_patterns:
-            match = re.search(pattern, message_lower)
-            if match:
-                # Extract the attribute value
-                attr_value = match.group(2) if match.lastindex >= 2 else None
-                if attr_value:
-                    if attr_type == 'color':
-                        partial_entities['color'] = attr_value
-                    elif attr_type == 'material':
-                        partial_entities['material'] = attr_value
-                    elif attr_type == 'style':
-                        partial_entities['style'] = attr_value
-                    elif attr_type == 'appearance':
-                        partial_entities['appearance'] = attr_value
-                return {"vague_type": "attribute_only", "partial_entities": partial_entities}
+        if not has_category:
+            attribute_only_patterns = [
+                (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(blue|white|red|black|green|brown|grey|gray|yellow|pink|purple|orange|beige)\s*$', 'color'),
+                (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(wooden|wood|metal|leather|fabric|glass|plastic|rattan)\s*$', 'material'),
+                (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(modern|contemporary|minimalist|minimal|aesthetic|classic|industrial|rustic|scandinavian)\s*$', 'style'),
+                (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(dark|light\s+colored|bright)\s*$', 'appearance'),
+            ]
+            
+            for pattern, attr_type in attribute_only_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    # Extract the attribute value
+                    attr_value = match.group(2) if match.lastindex >= 2 else None
+                    if attr_value:
+                        if attr_type == 'color':
+                            partial_entities['color'] = attr_value
+                        elif attr_type == 'material':
+                            partial_entities['material'] = attr_value
+                        elif attr_type == 'style':
+                            partial_entities['style'] = attr_value
+                        elif attr_type == 'appearance':
+                            partial_entities['appearance'] = attr_value
+                    return {"vague_type": "attribute_only", "partial_entities": partial_entities}
         
         # Category 3: Room setup queries
         room_setup_patterns = [
