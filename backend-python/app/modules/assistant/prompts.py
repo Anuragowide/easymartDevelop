@@ -8,7 +8,7 @@ All enforcement, validation, and formatting logic should be handled
 outside the LLM (middleware / backend).
 """
 
-from typing import Dict
+from typing import Dict, Any
 
 
 # -------------------------------------------------------------------
@@ -318,3 +318,157 @@ AFTER receiving tool results:
 - DO NOT list products - UI will show cards
 - NEVER include [TOOLCALLS] syntax in final response
 """
+
+
+def generate_clarification_prompt(
+    vague_type: str,
+    partial_entities: Dict[str, Any],
+    clarification_count: int = 0
+) -> str:
+    """
+    Generate context-aware clarification prompts based on vague query type.
+    
+    Args:
+        vague_type: Type of vague query detected
+        partial_entities: Partial information already extracted
+        clarification_count: Number of clarifications already asked (0, 1, 2+)
+    
+    Returns:
+        Clarification prompt string
+    """
+    bypass_hint = ""
+    if clarification_count >= 1:
+        bypass_hint = " Or I can show you some popular options if you'd prefer."
+    
+    if vague_type == "ultra_vague":
+        return (
+            "I'd be happy to help you find furniture! "
+            "What type of furniture are you looking for? "
+            "(For example: chairs, tables, sofas, beds, shelves, storage, etc.)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "attribute_only":
+        # User specified color/material but not category
+        attr_str = ""
+        if "color" in partial_entities:
+            attr_str = partial_entities["color"]
+        elif "material" in partial_entities:
+            attr_str = partial_entities["material"]
+        elif "style" in partial_entities:
+            attr_str = partial_entities["style"]
+        
+        return (
+            f"What type of {attr_str} furniture are you looking for? "
+            f"(For example: chairs, tables, sofas, beds, shelves)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "room_setup":
+        # User is redoing/setting up a room
+        room = partial_entities.get("room_type", "room")
+        return (
+            f"Great! I can help you furnish your {room}. "
+            f"What type of furniture do you need? "
+            f"(For example: a bed, desk, chair, storage solutions, or multiple items)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "category_only":
+        # User specified category but nothing else
+        category = partial_entities.get("category", "furniture")
+        
+        if clarification_count == 0:
+            return (
+                f"I can help you find {category}s! "
+                f"To narrow down the options, which room or purpose is this for? "
+                f"(For example: office, bedroom, living room, kids, work, etc.)"
+                f"{bypass_hint}"
+            )
+        else:
+            return (
+                f"What's your budget range for the {category}? "
+                f"(For example: under $100, under $500, or just say 'any budget')"
+                f"{bypass_hint}"
+            )
+    
+    elif vague_type == "quality_only":
+        # User asked for "best" or "premium" without category
+        quality = partial_entities.get("quality", "quality")
+        category = partial_entities.get("category")
+        
+        if category:
+            return (
+                f"What room or purpose is this {quality} {category} for? "
+                f"(For example: office, bedroom, home, gaming, etc.)"
+                f"{bypass_hint}"
+            )
+        else:
+            return (
+                f"What type of {quality} furniture are you looking for? "
+                f"(For example: chairs, tables, desks, sofas, beds)"
+                f"{bypass_hint}"
+            )
+    
+    elif vague_type == "room_purpose_only":
+        # User said "furniture for bedroom" but no category
+        room = partial_entities.get("room_type", "room")
+        return (
+            f"What specific furniture do you need for your {room}? "
+            f"(For example: chair, table, bed, storage, or multiple items)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "use_case_only":
+        # User specified use case but limited info
+        category = partial_entities.get("category", "furniture")
+        use_case = partial_entities.get("use_case", "use")
+        
+        if clarification_count == 0:
+            return (
+                f"Great choice! What's your preferred style or budget for this {category}? "
+                f"(For example: modern, minimalist, under $200, etc.)"
+                f"{bypass_hint}"
+            )
+        else:
+            return (
+                f"Any color or material preference? "
+                f"(For example: black, white, wood, metal, or 'no preference')"
+                f"{bypass_hint}"
+            )
+    
+    elif vague_type == "size_only":
+        # User mentioned size but no category
+        size = partial_entities.get("size", "compact")
+        return (
+            f"What type of {size} furniture are you looking for? "
+            f"(For example: chairs, tables, desks, storage solutions)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "aesthetic_only":
+        # User mentioned aesthetic but no category
+        aesthetic = partial_entities.get("aesthetic", "stylish")
+        return (
+            f"What type of {aesthetic} furniture would you like? "
+            f"(For example: chairs, sofas, tables, beds)"
+            f"{bypass_hint}"
+        )
+    
+    elif vague_type == "comparison_no_context":
+        # User asked for recommendation without showing products
+        return (
+            "I'd be happy to recommend the best options! "
+            "First, what type of furniture are you interested in? "
+            "(For example: office chairs, dining tables, sofas, etc.)"
+            f"{bypass_hint}"
+        )
+    
+    else:
+        # Fallback generic clarification
+        return (
+            "I'd like to help you find the perfect furniture! "
+            "Could you tell me more about what you're looking for? "
+            "(Type of furniture, room, style, or budget)"
+            f"{bypass_hint}"
+        )

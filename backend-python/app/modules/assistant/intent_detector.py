@@ -416,3 +416,278 @@ class IntentDetector:
                 entities["postcode"] = postcode_match.group(1)
         
         return entities
+    
+    def detect_vague_patterns(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect vague query patterns that require clarification.
+        
+        Returns:
+            Dict with 'vague_type' and 'partial_entities' if vague, None otherwise
+        """
+        message_lower = message.lower().strip()
+        partial_entities = {}
+        
+        # Category 1: Ultra-vague queries
+        ultra_vague_patterns = [
+            r'^(i\s+)?(want|need|looking for|show me|find me|get me)\s+(something|anything)\s*$',
+            r'^(something|anything)\s+(good|nice|cool|great|best)\s*$',
+            r'^(help me\s+)?(choose|decide|select|pick)\s*$',
+            r'^what\s+(should i|do you)\s+(buy|recommend|suggest)\s*\??$',
+            r'^(suggest|recommend)\s+something\s*$',
+            r'^what\s+do\s+you\s+have\s*\??$',
+        ]
+        
+        for pattern in ultra_vague_patterns:
+            if re.search(pattern, message_lower):
+                return {"vague_type": "ultra_vague", "partial_entities": {}}
+        
+        # Category 2: Attribute-only (color/material only)
+        attribute_only_patterns = [
+            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(blue|white|red|black|green|brown|grey|gray|yellow|pink|purple|orange|beige)\s*$', 'color'),
+            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(wooden|wood|metal|leather|fabric|glass|plastic|rattan)\s*$', 'material'),
+            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(modern|contemporary|minimalist|minimal|aesthetic|classic|industrial|rustic|scandinavian)\s*$', 'style'),
+            (r'^(something|anything|i\s+want\s+something|show me\s+something)\s+(dark|light\s+colored|bright)\s*$', 'appearance'),
+        ]
+        
+        for pattern, attr_type in attribute_only_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                # Extract the attribute value
+                attr_value = match.group(2) if match.lastindex >= 2 else None
+                if attr_value:
+                    if attr_type == 'color':
+                        partial_entities['color'] = attr_value
+                    elif attr_type == 'material':
+                        partial_entities['material'] = attr_value
+                    elif attr_type == 'style':
+                        partial_entities['style'] = attr_value
+                    elif attr_type == 'appearance':
+                        partial_entities['appearance'] = attr_value
+                return {"vague_type": "attribute_only", "partial_entities": partial_entities}
+        
+        # Category 3: Room setup queries
+        room_setup_patterns = [
+            r'(i\s+am\s+|i\'m\s+)?(redoing|setting up|renovating|upgrading|furnishing)\s+(my\s+)?(room|bedroom|office|living room|apartment|place|home)\s*$',
+            r'^(my\s+)?(room|bedroom|office|living room)\s+(looks\s+empty|needs\s+furniture)\s*$',
+            r'^(moving\s+into|just\s+moved\s+to)\s+(a\s+)?(new\s+)?(place|apartment|house|home)\s*$',
+        ]
+        
+        for pattern in room_setup_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                # Try to extract room type
+                room_match = re.search(r'(bedroom|living room|office|kitchen|dining room)', message_lower)
+                if room_match:
+                    partial_entities['room_type'] = room_match.group(1)
+                return {"vague_type": "room_setup", "partial_entities": partial_entities}
+        
+        # Category 4: Category-only without specifics
+        category_only_patterns = [
+            r'^(i\s+)?(want|need|looking for|show me|find me)\s+(a\s+)?(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s*$',
+        ]
+        
+        for pattern in category_only_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                # Extract category
+                cat_match = re.search(r'(chair|table|desk|sofa|bed|shelf|locker|stool)s?', message_lower)
+                if cat_match:
+                    category = cat_match.group(1)
+                    partial_entities['category'] = category
+                return {"vague_type": "category_only", "partial_entities": partial_entities}
+        
+        # Category 5: Quality-only queries
+        quality_only_patterns = [
+            r'^(best|top|good|premium|quality|affordable|cheap|budget)\s+(furniture|chair|table|desk|sofa|bed)s?\s*$',
+            r'^(furniture|chair|table|desk|sofa|bed)s?\s+(that\s+is\s+)?(best|good|quality|premium|affordable)\s*$',
+        ]
+        
+        for pattern in quality_only_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                # Extract quality and category if present
+                quality_match = re.search(r'(best|top|good|premium|quality|affordable|cheap|budget)', message_lower)
+                cat_match = re.search(r'(furniture|chair|table|desk|sofa|bed)', message_lower)
+                if quality_match:
+                    partial_entities['quality'] = quality_match.group(1)
+                if cat_match:
+                    partial_entities['category'] = cat_match.group(1).rstrip('s')
+                return {"vague_type": "quality_only", "partial_entities": partial_entities}
+        
+        # Category 6: Room-purpose-only
+        room_purpose_patterns = [
+            r'^(furniture|items|something)\s+for\s+(my\s+)?(room|home|bedroom|living room|office|kitchen|dining room)\s*$',
+        ]
+        
+        for pattern in room_purpose_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                room_match = re.search(r'(bedroom|living room|office|kitchen|dining room|home|room)', message_lower)
+                if room_match:
+                    partial_entities['room_type'] = room_match.group(1)
+                return {"vague_type": "room_purpose_only", "partial_entities": partial_entities}
+        
+        # Category 7: Use-case-only
+        use_case_patterns = [
+            r'^(chair|table|desk|furniture)s?\s+for\s+(work|home|office|kids|guests|gaming|study)\s*$',
+        ]
+        
+        for pattern in use_case_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                cat_match = re.search(r'(chair|table|desk|furniture)', message_lower)
+                use_match = re.search(r'for\s+(work|home|office|kids|guests|gaming|study)', message_lower)
+                if cat_match:
+                    partial_entities['category'] = cat_match.group(1).rstrip('s')
+                if use_match:
+                    partial_entities['use_case'] = use_match.group(1)
+                return {"vague_type": "use_case_only", "partial_entities": partial_entities}
+        
+        # Category 8: Size-only
+        size_only_patterns = [
+            r'^(something|anything|furniture)\s+(compact|small|big|large|space\s+saving)\s*$',
+            r'^(not\s+too\s+big|compact|space\s+saving)\s+(furniture)\s*$',
+            r'^furniture\s+for\s+(small\s+)?(room|space|apartment)\s*$',
+        ]
+        
+        for pattern in size_only_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                size_match = re.search(r'(compact|small|big|large|space\s+saving|not\s+too\s+big)', message_lower)
+                if size_match:
+                    partial_entities['size'] = size_match.group(1)
+                return {"vague_type": "size_only", "partial_entities": partial_entities}
+        
+        # Category 9: Aesthetic-only
+        aesthetic_only_patterns = [
+            r'^(something|anything)\s+(cozy|comfortable|classy|luxurious|trendy|elegant|stylish)\s*$',
+        ]
+        
+        for pattern in aesthetic_only_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                aesthetic_match = re.search(r'(cozy|comfortable|classy|luxurious|trendy|elegant|stylish)', message_lower)
+                if aesthetic_match:
+                    partial_entities['aesthetic'] = aesthetic_match.group(1)
+                return {"vague_type": "aesthetic_only", "partial_entities": partial_entities}
+        
+        # Category 10: Comparison without context
+        comparison_patterns = [
+            r'^(which\s+one\s+is\s+best|what\s+do\s+you\s+recommend|top\s+options|best\s+option\s+for\s+me)\s*\??$',
+        ]
+        
+        for pattern in comparison_patterns:
+            if re.search(pattern, message_lower):
+                return {"vague_type": "comparison_no_context", "partial_entities": {}}
+        
+        # Not vague
+        return None
+    
+    def merge_clarification_response(
+        self,
+        original_entities: Dict[str, Any],
+        clarification_message: str,
+        vague_type: str
+    ) -> Dict[str, Any]:
+        """
+        Merge clarification response with original partial entities.
+        
+        Args:
+            original_entities: Partial entities from vague query
+            clarification_message: User's clarification response
+            vague_type: Type of vague query detected
+        
+        Returns:
+            Merged entities dict
+        """
+        merged = original_entities.copy()
+        clarification_lower = clarification_message.lower().strip()
+        
+        # Extract category from clarification
+        categories = {
+            "chair": ["chair", "chairs", "seating"],
+            "table": ["table", "tables", "desk", "desks"],
+            "sofa": ["sofa", "sofas", "couch", "couches"],
+            "bed": ["bed", "beds", "mattress"],
+            "shelf": ["shelf", "shelves", "shelving", "bookcase"],
+            "stool": ["stool", "stools", "bar stool"],
+            "locker": ["locker", "lockers", "cabinet", "cabinets"],
+            "storage": ["storage", "wardrobe", "dresser"]
+        }
+        
+        for cat, keywords in categories.items():
+            if any(kw in clarification_lower for kw in keywords):
+                merged["category"] = cat
+                break
+        
+        # Extract room type
+        rooms = {
+            "office": ["office", "workspace", "study"],
+            "bedroom": ["bedroom", "bed room"],
+            "living_room": ["living room", "lounge"],
+            "dining_room": ["dining room", "dining"],
+            "outdoor": ["outdoor", "patio", "garden"]
+        }
+        
+        for room, keywords in rooms.items():
+            if any(kw in clarification_lower for kw in keywords):
+                merged["room_type"] = room
+                break
+        
+        # Extract color from clarification
+        colors = ["red", "blue", "green", "yellow", "black", "white", "brown", "gray", "grey",
+                  "orange", "purple", "pink", "beige", "cream", "navy", "silver", "gold"]
+        for color in colors:
+            if color in clarification_lower:
+                merged["color"] = color
+                break
+        
+        # Extract material
+        materials = ["wood", "metal", "leather", "fabric", "glass", "rattan", "plastic"]
+        for material in materials:
+            if material in clarification_lower:
+                merged["material"] = material
+                break
+        
+        # Extract price range
+        price_under = re.search(r'under\s*\$?(\d+)', clarification_lower)
+        price_below = re.search(r'below\s*\$?(\d+)', clarification_lower)
+        price_max = re.search(r'max(?:imum)?\s*\$?(\d+)', clarification_lower)
+        
+        if price_under:
+            merged["price_max"] = float(price_under.group(1))
+        elif price_below:
+            merged["price_max"] = float(price_below.group(1))
+        elif price_max:
+            merged["price_max"] = float(price_max.group(1))
+        
+        # Build combined query
+        query_parts = []
+        
+        # Add category
+        if "category" in merged:
+            query_parts.append(merged["category"])
+        
+        # Add color
+        if "color" in merged:
+            query_parts.append(merged["color"])
+        
+        # Add material
+        if "material" in merged:
+            query_parts.append(merged["material"])
+        
+        # Add room type
+        if "room_type" in merged:
+            query_parts.append(f"for {merged['room_type']}")
+        
+        # Add use case
+        if "use_case" in merged:
+            query_parts.append(f"for {merged['use_case']}")
+        
+        # Build query string
+        if query_parts:
+            merged["query"] = " ".join(query_parts)
+        else:
+            merged["query"] = clarification_message
+        
+        return merged

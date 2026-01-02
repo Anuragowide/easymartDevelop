@@ -43,6 +43,9 @@ class SessionContext:
     # Metadata (for storing temporary data like cart actions)
     metadata: Dict[str, Any] = field(default_factory=dict)
     
+    # Pending clarification state
+    pending_clarification: Optional[Dict[str, Any]] = None
+    
     # Metadata
     user_id: Optional[str] = None
     
@@ -207,6 +210,44 @@ class SessionContext:
         """
         threshold = datetime.now() - timedelta(minutes=timeout_minutes)
         return self.last_activity < threshold
+    
+    def set_pending_clarification(
+        self,
+        vague_type: str,
+        partial_entities: Dict[str, Any],
+        original_query: str
+    ):
+        """
+        Set pending clarification state.
+        
+        Args:
+            vague_type: Type of vague query
+            partial_entities: Partial information extracted
+            original_query: Original vague query
+        """
+        self.pending_clarification = {
+            "vague_type": vague_type,
+            "partial_entities": partial_entities,
+            "original_query": original_query,
+            "clarification_count": 0,
+            "timestamp": datetime.now()
+        }
+        self.last_activity = datetime.now()
+    
+    def get_pending_clarification(self) -> Optional[Dict[str, Any]]:
+        """Get pending clarification state."""
+        return self.pending_clarification
+    
+    def increment_clarification_count(self):
+        """Increment clarification count."""
+        if self.pending_clarification:
+            self.pending_clarification["clarification_count"] += 1
+            self.last_activity = datetime.now()
+    
+    def clear_pending_clarification(self):
+        """Clear pending clarification state."""
+        self.pending_clarification = None
+        self.last_activity = datetime.now()
 
 
 class SessionStore:

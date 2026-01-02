@@ -344,42 +344,153 @@ class EasymartAssistantHandler:
                     metadata={"intent": "promotions", "entities": entities}
                 )
             
+            # VAGUE QUERY CLARIFICATION FLOW
+            # Step 1: Check if we have pending clarification from previous turn
+            pending = session.get_pending_clarification()
+            
+            if pending:
+                logger.info(f"[HANDLER] Found pending clarification: {pending['vague_type']}")
+                
+                # Check if clarification expired (>3 minutes)
+                from datetime import timedelta
+                clarification_age = datetime.now() - pending["timestamp"]
+                if clarification_age > timedelta(minutes=3):
+                    logger.info("[HANDLER] Clarification expired (>3 min), clearing pending state")
+                    session.clear_pending_clarification()
+                    pending = None
+                # Check if user changed topic (different intent)
+                elif intent_str not in ["product_search", "general_help"]:
+                    logger.info(f"[HANDLER] User changed topic to {intent_str}, clearing pending clarification")
+                    session.clear_pending_clarification()
+                    pending = None
+                else:
+                    # Check for bypass phrases
+                    bypass_phrases = [
+                        "just show me anything", "show me anything", "surprise me",
+                        "whatever you recommend", "any is fine", "anything is fine",
+                        "you choose", "no preference", "doesn't matter"
+                    ]
+                    is_bypass = any(phrase in request.message.lower() for phrase in bypass_phrases)
+                    
+                    if is_bypass:
+                        logger.info("[HANDLER] Bypass phrase detected, showing popular items")
+                        # Clear pending clarification
+                        session.clear_pending_clarification()
+                        # Build broad query from partial entities
+                        partial = pending["partial_entities"]
+                        if partial.get("category"):
+                            request.message = f"popular {partial['category']}s"
+                        elif partial.get("room_type"):
+                            request.message = f"popular furniture for {partial['room_type']}"
+                        else:
+                            request.message = "popular furniture"
+                    else:
+                        # Merge clarification response with original entities
+                        logger.info(f"[HANDLER] Merging clarification: '{request.message}'")
+                        merged_entities = self.intent_detector.merge_clarification_response(
+                            pending["partial_entities"],
+                            request.message,
+                            pending["vague_type"]
+                        )
+                        logger.info(f"[HANDLER] Merged entities: {merged_entities}")
+                        
+                        # Check if we have enough information now
+                        has_category = "category" in merged_entities
+                        clarification_count = pending["clarification_count"]
+                        
+                        # If we have category OR reached max 2 clarifications, proceed with search
+                        if has_category or clarification_count >= 1:
+                            logger.info("[HANDLER] Sufficient info collected, proceeding with search")
+                            # Clear pending clarification
+                            session.clear_pending_clarification()
+                            # Use merged query
+                            if merged_entities.get("query"):
+                                request.message = merged_entities["query"]
+                            # Force product search intent
+                            intent = IntentType.PRODUCT_SEARCH
+                            entities = merged_entities
+                        else:
+                            # Ask second clarification
+                            logger.info("[HANDLER] Need second clarification")
+                            session.increment_clarification_count()
+                            
+                            from .prompts import generate_clarification_prompt
+                            assistant_message = generate_clarification_prompt(
+                                pending["vague_type"],
+                                merged_entities,
+                                clarification_count=1
+                            )
+                            
+                            # Update pending with new partial entities
+                            pending["partial_entities"] = merged_entities
+                            
+                            session.add_message("assistant", assistant_message)
+                            
+                            return AssistantResponse(
+                                message=assistant_message,
+                                session_id=session.session_id,
+                                products=[],
+                                cart_summary=self._build_cart_summary(session),
+                                metadata={
+                                    "intent": "clarification_needed",
+                                    "clarification_count": clarification_count + 1,
+                                    "vague_type": pending["vague_type"]
+                                }
+                            )
+            
+            # Step 2: If no pending clarification, check if current query is vague
+            if not pending:
+                vague_result = self.intent_detector.detect_vague_patterns(request.message)
+                
+                if vague_result:
+                    logger.info(f"[HANDLER] Vague query detected: {vague_result['vague_type']}")
+                    
+                    # Check for bypass in initial query
+                    bypass_phrases = [
+                        "just show me anything", "show me anything", "surprise me",
+                        "whatever you recommend", "anything is fine"
+                    ]
+                    is_bypass = any(phrase in request.message.lower() for phrase in bypass_phrases)
+                    
+                    if is_bypass:
+                        logger.info("[HANDLER] Bypass in initial query, showing popular items")
+                        request.message = "popular furniture"
+                    else:
+                        # Set pending clarification
+                        session.set_pending_clarification(
+                            vague_result["vague_type"],
+                            vague_result["partial_entities"],
+                            request.message
+                        )
+                        
+                        # Generate clarification prompt
+                        from .prompts import generate_clarification_prompt
+                        assistant_message = generate_clarification_prompt(
+                            vague_result["vague_type"],
+                            vague_result["partial_entities"],
+                            clarification_count=0
+                        )
+                        
+                        session.add_message("assistant", assistant_message)
+                        
+                        return AssistantResponse(
+                            message=assistant_message,
+                            session_id=session.session_id,
+                            products=[],
+                            cart_summary=self._build_cart_summary(session),
+                            metadata={
+                                "intent": "clarification_needed",
+                                "vague_type": vague_result["vague_type"],
+                                "partial_entities": vague_result["partial_entities"]
+                            }
+                        )
+            
             # FORCE product_search intent for furniture-related queries
-            # BUT: Reject vague single-word queries that need clarification
             furniture_keywords = [
                 "chair", "table", "desk", "sofa", "bed", "shelf", "locker", "stool",
                 "cabinet", "storage", "furniture", "office", "bedroom", "living",
                 "dining", "wardrobe", "drawer", "bench", "ottoman"
             ]
-            
-            # Check if query is too vague (single word without context)
-            vague_queries = ["show", "find", "search", "get", "display", "list"]
-            is_vague = (
-                request.message.lower().strip() in vague_queries or
-                len(request.message.strip().split()) == 1 and request.message.lower().strip() in vague_queries
-            )
-            
-            if is_vague:
-                logger.info(f"[HANDLER] Vague query detected: '{request.message}', asking for clarification")
-                assistant_message = (
-                    "To help you better, please provide a specific furniture query such as "
-                    "\"show me office chairs\" or \"search for dining tables\". "
-                    "This will enable me to provide accurate results."
-                )
-                
-                session.add_message("assistant", assistant_message)
-                
-                return AssistantResponse(
-                    message=assistant_message,
-                    session_id=session.session_id,
-                    products=[],
-                    cart_summary=self._build_cart_summary(session),
-                    metadata={
-                        "intent": "clarification_needed",
-                        "entities": {},
-                        "function_calls_made": 0
-                    }
-                )
             
             # Overrides for furniture queries
             if any(keyword in request.message.lower() for keyword in furniture_keywords):
