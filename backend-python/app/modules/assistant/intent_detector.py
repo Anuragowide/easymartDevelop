@@ -211,6 +211,30 @@ class IntentDetector:
         if any(re.search(pattern, message_lower) for pattern in broad_product_patterns):
             return IntentType.PRODUCT_SEARCH
         
+        # PRIORITY 2.5: Check for potential context refinement words
+        # These are single words/short phrases that could refine a previous search
+        # Examples: "bedroom", "office", "blue", "metal", "modern"
+        refinement_keywords = [
+            # Rooms and contexts
+            r'^(bedroom|office|living room|dining room|kitchen|bathroom|hallway|garage|outdoor|patio|balcony)s?$',
+            # Colors
+            r'^(black|white|red|blue|green|yellow|brown|grey|gray|pink|purple|orange|beige|navy|teal|cream|ivory|silver|gold)$',
+            # Materials
+            r'^(wood|wooden|metal|leather|fabric|glass|plastic|rattan|wicker|bamboo|steel|iron|oak|pine|walnut|marble)$',
+            # Styles
+            r'^(modern|contemporary|classic|vintage|rustic|industrial|scandinavian|minimalist|traditional|bohemian|mid[\s-]?century)$',
+            # Sizes
+            r'^(small|large|big|compact|mini|tiny|huge|oversized|extra[\s-]?large|xl|medium)$',
+            # Age groups / target users
+            r'^(kids|children|adult|baby|toddler|teen|elderly|senior)s?$',
+            # Use cases
+            r'^(gaming|study|work|storage|dining|sleeping)$',
+        ]
+        
+        # Check if message is a single refinement word
+        if any(re.search(pattern, message_lower) for pattern in refinement_keywords):
+            return IntentType.PRODUCT_SEARCH  # Treat as product search (will be refined via context)
+        
         # PRIORITY 3: Check for context-dependent questions (referring to previously shown products)
         # These should be PRODUCT_SPEC_QA, not PRODUCT_SEARCH
         context_references = [

@@ -243,6 +243,8 @@ class EasymartAssistantHandler:
             
             if pending:
                 logger.info(f"[HANDLER] Found pending clarification: {pending['vague_type']}")
+                logger.info(f"[HANDLER] Pending entities: {pending.get('partial_entities', {})}")
+                logger.info(f"[HANDLER] Current message: '{request.message}'")
                 
                 # Check if clarification expired (>3 minutes)
                 clarification_age = datetime.now() - pending["timestamp"]
@@ -251,72 +253,77 @@ class EasymartAssistantHandler:
                     session.clear_pending_clarification()
                     pending = None
                 # Check if user changed topic (different intent)
-                elif self.intent_detector.detect(request.message).value not in ["product_search", "general_help"]:
-                    logger.info(f"[HANDLER] User changed topic, clearing pending clarification")
-                    session.clear_pending_clarification()
-                    pending = None
                 else:
-                    # Check for bypass phrases
-                    bypass_phrases = [
-                        "just show me anything", "show me anything", "surprise me",
-                        "whatever you recommend", "any is fine", "anything is fine",
-                        "you choose", "no preference", "doesn't matter"
-                    ]
-                    is_bypass = any(phrase in request.message.lower() for phrase in bypass_phrases)
-                    
-                    if is_bypass:
-                        logger.info("[HANDLER] Bypass phrase detected, showing popular items")
+                    current_intent = self.intent_detector.detect(request.message).value
+                    logger.info(f"[HANDLER] Current message intent: {current_intent}")
+                    if current_intent not in ["product_search", "general_help"]:
+                        logger.info(f"[HANDLER] User changed topic to {current_intent}, clearing pending clarification")
                         session.clear_pending_clarification()
-                        partial = pending["partial_entities"]
-                        if partial.get("category"):
-                            request.message = f"popular {partial['category']}s"
-                        elif partial.get("room_type"):
-                            request.message = f"popular furniture for {partial['room_type']}"
-                        else:
-                            request.message = "popular furniture"
+                        pending = None
                     else:
-                        # Merge clarification response with original entities
-                        logger.info(f"[HANDLER] Merging clarification: '{request.message}'")
-                        merged_entities = self.intent_detector.merge_clarification_response(
-                            pending["partial_entities"],
-                            request.message,
-                            pending["vague_type"]
-                        )
-                        logger.info(f"[HANDLER] Merged entities: {merged_entities}")
+                        logger.info(f"[HANDLER] Intent is {current_intent}, continuing with clarification merge")
+                        # Check for bypass phrases
+                        bypass_phrases = [
+                            "just show me anything", "show me anything", "surprise me",
+                            "whatever you recommend", "any is fine", "anything is fine",
+                            "you choose", "no preference", "doesn't matter"
+                        ]
+                        is_bypass = any(phrase in request.message.lower() for phrase in bypass_phrases)
                         
-                        has_category = "category" in merged_entities
-                        clarification_count = pending["clarification_count"]
-                        
-                        if has_category or clarification_count >= 1:
-                            logger.info("[HANDLER] Sufficient info collected, proceeding with search")
+                        if is_bypass:
+                            logger.info("[HANDLER] Bypass phrase detected, showing popular items")
                             session.clear_pending_clarification()
-                            if merged_entities.get("query"):
-                                request.message = merged_entities["query"]
+                            partial = pending["partial_entities"]
+                            if partial.get("category"):
+                                request.message = f"popular {partial['category']}s"
+                            elif partial.get("room_type"):
+                                request.message = f"popular furniture for {partial['room_type']}"
+                            else:
+                                request.message = "popular furniture"
                         else:
-                            logger.info("[HANDLER] Need second clarification")
-                            session.increment_clarification_count()
-                            
-                            from .prompts import generate_clarification_prompt
-                            assistant_message = generate_clarification_prompt(
-                                pending["vague_type"],
-                                merged_entities,
-                                clarification_count=1
+                            # Merge clarification response with original entities
+                            logger.info(f"[HANDLER] Merging clarification response: '{request.message}'")
+                            logger.info(f"[HANDLER] Original entities: {pending['partial_entities']}")
+                            merged_entities = self.intent_detector.merge_clarification_response(
+                                pending["partial_entities"],
+                                request.message,
+                                pending["vague_type"]
                             )
+                            logger.info(f"[HANDLER] ✅ Successfully merged entities: {merged_entities}")
                             
-                            pending["partial_entities"] = merged_entities
-                            session.add_message("assistant", assistant_message)
+                            has_category = "category" in merged_entities
+                            clarification_count = pending["clarification_count"]
                             
-                            return AssistantResponse(
-                                message=assistant_message,
-                                session_id=session.session_id,
-                                products=[],
-                                cart_summary=self._build_cart_summary(session),
-                                metadata={
-                                    "intent": "clarification_needed",
-                                    "clarification_count": clarification_count + 1,
-                                    "vague_type": pending["vague_type"]
-                                }
-                            )
+                            if has_category or clarification_count >= 1:
+                                logger.info("[HANDLER] Sufficient info collected, proceeding with search")
+                                session.clear_pending_clarification()
+                                if merged_entities.get("query"):
+                                    request.message = merged_entities["query"]
+                            else:
+                                logger.info("[HANDLER] Need second clarification")
+                                session.increment_clarification_count()
+                                
+                                from .prompts import generate_clarification_prompt
+                                assistant_message = generate_clarification_prompt(
+                                    pending["vague_type"],
+                                    merged_entities,
+                                    clarification_count=1
+                                )
+                                
+                                pending["partial_entities"] = merged_entities
+                                session.add_message("assistant", assistant_message)
+                                
+                                return AssistantResponse(
+                                    message=assistant_message,
+                                    session_id=session.session_id,
+                                    products=[],
+                                    cart_summary=self._build_cart_summary(session),
+                                    metadata={
+                                        "intent": "clarification_needed",
+                                        "clarification_count": clarification_count + 1,
+                                        "vague_type": pending["vague_type"]
+                                    }
+                                )
             
             # Step 2: If no pending clarification, check if current query is vague
             if not pending:
