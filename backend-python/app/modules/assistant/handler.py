@@ -705,11 +705,14 @@ class EasymartAssistantHandler:
                         logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart add intent but LLM didn't call tool!")
                         from .hf_llm_client import FunctionCall
                         
-                        # Extract quantity if mentioned
+                        # Extract quantity if mentioned (e.g., "add 2 of this", "add 3 units")
+                        # CRITICAL: Don't match product references like "option 1" or "product 2"
                         qty = 1
-                        qty_match = re.search(r'\b(\d+)\s+(?:of|units|items)?', query_lower)
+                        # Match patterns like: "2 of", "3 units", "5 items", "4x", but NOT "option 1" or "product 2"
+                        qty_match = re.search(r'\b(\d+)\s*(?:x|units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))', query_lower)
                         if qty_match:
                             qty = int(qty_match.group(1))
+                            logger.info(f"[HANDLER] Extracted quantity: {qty} from query: {query_lower}")
                         
                         llm_response.function_calls = [
                             FunctionCall(
