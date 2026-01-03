@@ -615,39 +615,63 @@ class EasymartAssistantHandler:
                     # Clear the hallucinated content
                     llm_response.content = ""
             
-            # SAFETY CHECK: If product spec Q&A intent but NO tool calls → force get_product_specs!
-            if intent == IntentType.PRODUCT_SPEC_QA and not llm_response.function_calls:
-                # Extract product reference from query using patterns
-                product_num = None
-                for pattern in self.PRODUCT_REF_PATTERNS:
-                    match = pattern.search(request.message)
-                    if match:
-                        product_num = int(match.group(1))
-                        break
+            # SAFETY CHECK: If product spec Q&A intent but WRONG tool or NO tool → force get_product_specs!
+            if intent == IntentType.PRODUCT_SPEC_QA:
+                # Check if LLM called search_products instead of get_product_specs
+                wrong_tool_called = llm_response.function_calls and any(fc.name == 'search_products' for fc in llm_response.function_calls)
+                no_tool_called = not llm_response.function_calls
                 
-                if not product_num:
-                    # Try ordinal numbers
-                    for ordinal, num in self.ORDINAL_MAP.items():
-                        if ordinal in request.message.lower():
-                            product_num = num
+                if wrong_tool_called or no_tool_called:
+                    # Extract product reference from query using patterns
+                    product_num = None
+                    query_lower = request.message.lower()
+                    
+                    # Check for contextual references like "this chair", "that one", "these chairs"
+                    contextual_refs = ['this', 'that', 'it', 'these', 'those', 'them', 'the chair', 'the product']
+                    has_contextual_ref = any(ref in query_lower for ref in contextual_refs)
+                    
+                    # Try to extract explicit number
+                    for pattern in self.PRODUCT_REF_PATTERNS:
+                        match = pattern.search(request.message)
+                        if match:
+                            product_num = int(match.group(1))
                             break
-                
-                if product_num:
-                    # Get product from session (1-indexed in user query, 0-indexed in list)
-                    if session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
-                        product = session.last_shown_products[product_num - 1]
-                        product_id = product.get('id')
-                        
-                        if product_id:
-                            logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product Q&A but LLM didn't call tool!")
-                            from .hf_llm_client import FunctionCall
-                            llm_response.function_calls = [
-                                FunctionCall(
-                                    name="get_product_specs",
-                                    arguments={"product_id": product_id}
-                                )
-                            ]
-                            llm_response.content = ""
+                    
+                    if not product_num:
+                        # Try ordinal numbers
+                        for ordinal, num in self.ORDINAL_MAP.items():
+                            if ordinal in query_lower:
+                                product_num = num
+                                break
+                    
+                    # If no explicit number but has contextual reference, use last shown product
+                    if not product_num and has_contextual_ref and session.last_shown_products:
+                        product_num = 1  # Default to first/last shown
+                        logger.info(f"[HANDLER] Contextual reference detected: '{request.message}', using first shown product")
+                    
+                    if product_num:
+                        # Get product from session (1-indexed in user query, 0-indexed in list)
+                        if session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                            product = session.last_shown_products[product_num - 1]
+                            product_id = product.get('id')
+                            
+                            if product_id:
+                                if wrong_tool_called:
+                                    logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product Q&A intent but LLM called search_products instead of get_product_specs!")
+                                    logger.warning(f"[HANDLER] Correcting to get_product_specs for product: {product.get('name', 'Unknown')}")
+                                else:
+                                    logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Product Q&A but LLM didn't call tool!")
+                                
+                                from .hf_llm_client import FunctionCall
+                                llm_response.function_calls = [
+                                    FunctionCall(
+                                        name="get_product_specs",
+                                        arguments={"product_id": product_id, "question": request.message}
+                                    )
+                                ]
+                                llm_response.content = ""
+                        else:
+                            logger.warning(f"[HANDLER] Product spec Q&A but product #{product_num} not in session (only {len(session.last_shown_products)} products)")
             
             # SAFETY CHECK: If cart add intent but NO tool calls → force update_cart!
             if intent == IntentType.CART_ADD and not llm_response.function_calls:
@@ -770,6 +794,11 @@ class EasymartAssistantHandler:
                 )
                 
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
+                logger.info(f"[HANDLER] Products in session AFTER tool execution: {len(session.last_shown_products)}")
+                if session.last_shown_products:
+                    logger.info(f"[HANDLER] First product: {session.last_shown_products[0].get('name', 'NO NAME')} (id: {session.last_shown_products[0].get('id', 'NO ID')})")
+                else:
+                    logger.warning(f"[HANDLER] ⚠️ No products in session after tool execution!")
                 
                 # Add tool results to conversation with human-readable formatting
                 # Note: HuggingFace doesn't support role="tool", so we use role="user"
@@ -922,15 +951,33 @@ class EasymartAssistantHandler:
                     max_response_tokens = 250  # Increased for fuller responses
                 
                 # Call LLM again to generate final response with tool results
-                final_response = await self.llm_client.chat(
-                    messages=messages,
-                    temperature=response_temperature,
-                    max_tokens=max_response_tokens
-                )
+                try:
+                    final_response = await self.llm_client.chat(
+                        messages=messages,
+                        temperature=response_temperature,
+                        max_tokens=max_response_tokens
+                    )
+                    
+                    # Let LLM generate natural, conversational response
+                    # Products are already stored in session from tool execution
+                    assistant_message = final_response.content if final_response and final_response.content else ""
+                    
+                except Exception as e:
+                    logger.error(f"[HANDLER] Final LLM call failed: {e}", exc_info=True)
+                    # Generate fallback message based on tool results
+                    if 'search_products' in tool_results and tool_results['search_products'].get('products'):
+                        product_count = len(tool_results['search_products']['products'])
+                        assistant_message = f"I found {product_count} {'option' if product_count == 1 else 'options'} for you!"
+                    else:
+                        assistant_message = "I've processed your request."
                 
-                # Let LLM generate natural, conversational response
-                # Products are already stored in session from tool execution
-                assistant_message = final_response.content
+                if not assistant_message:
+                    logger.error(f"[HANDLER] Empty message after final LLM call, generating fallback")
+                    if 'search_products' in tool_results and tool_results['search_products'].get('products'):
+                        product_count = len(tool_results['search_products']['products'])
+                        assistant_message = f"I found {product_count} options matching your search."
+                    else:
+                        assistant_message = "Here's what I found for you."
                 
                 # Strip any leaked markers or internal prefixes (MORE AGGRESSIVE)
                 assistant_message = re.sub(r'\[/?TOOL[_\s]?CALLS?\]', '', assistant_message, flags=re.IGNORECASE)
@@ -1010,44 +1057,8 @@ class EasymartAssistantHandler:
                                 logger.info(f"[VALIDATION] No results for price constraint ${price_value}, suggesting ${suggested_price}")
                                 break
                     
-                    elif products:
-                        # Extract important nouns from query
-                        query_lower = request.message.lower()
-                        important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
-                                          'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
-                                          'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes'}
-                        
-                        query_nouns = set(query_lower.split()) & important_nouns
-                        
-                        if query_nouns:
-                            # Normalize nouns to singular for more robust matching
-                            normalized_query_nouns = {n.rstrip('s') for n in query_nouns}
-                            
-                            # Check if ANY product name contains the query nouns (singular or plural)
-                            matching_products = []
-                            for product in products:
-                                product_name = product.get('name', '').lower()
-                                if any(noun in product_name for noun in normalized_query_nouns):
-                                    matching_products.append(product)
-                            
-                            # If NO products match the key nouns, update message
-                            if len(matching_products) == 0:
-                                # Extract attributes (colors, materials) from query
-                                attributes = []
-                                color_keywords = ['black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'yellow']
-                                for color in color_keywords:
-                                    if color in query_lower:
-                                        attributes.append(color)
-                                
-                                noun_str = ' '.join(query_nouns)
-                                if attributes:
-                                    attr_str = ' '.join(attributes)
-                                    assistant_message = f"I couldn't find any {noun_str} in {attr_str}. Would you like to try a different color or see all available {noun_str}?"
-                                else:
-                                    assistant_message = f"I couldn't find any {noun_str} matching your search. Here are some related products that might interest you."
-                                
-                                logger.warning(f"[VALIDATION] ⚠️ No products matched query nouns: {query_nouns}")
-                                logger.warning(f"[VALIDATION] Returned products were: {[p.get('name') for p in products[:3]]}")
+                    # Don't validate noun matching here - trust the search results
+                    # The hybrid search already handles relevance scoring
                 
                 logger.info(f"[HANDLER] LLM generated response (length: {len(assistant_message)})")
                 logger.info(f"[HANDLER] Tool results: {list(tool_results.keys())}")
@@ -1067,8 +1078,19 @@ class EasymartAssistantHandler:
             # Add assistant response to history
             session.add_message("assistant", assistant_message)
             
+            # CRITICAL: Ensure message is never empty
+            if not assistant_message or assistant_message.strip() == "":
+                logger.error(f"[HANDLER] ❌ EMPTY MESSAGE DETECTED! Generating fallback")
+                if session.last_shown_products:
+                    assistant_message = f"I found {len(session.last_shown_products)} options for you. Let me know if you'd like more details on any of them!"
+                else:
+                    assistant_message = "I'm sorry, I couldn't find any products matching that search. Could you try a different search term?"
+                session.add_message("assistant", assistant_message)
+            
             # Build response
             logger.info(f"[HANDLER] Building response with {len(session.last_shown_products)} products from session")
+            if session.last_shown_products:
+                logger.info(f"[HANDLER] Products to include in response: {[p.get('name', 'UNNAMED') for p in session.last_shown_products]}")
             response = AssistantResponse(
                 message=assistant_message,
                 session_id=session.session_id,
@@ -1081,6 +1103,8 @@ class EasymartAssistantHandler:
                 }
             )
             logger.info(f"[HANDLER] ✅ Response created with {len(response.products) if response.products else 0} products")
+            if response.products:
+                logger.info(f"[HANDLER] Product IDs in response: {[p.get('id', 'NO ID') for p in response.products[:3]]}")
             
             # Track success
             await self.event_tracker.track(
@@ -1357,8 +1381,7 @@ class EasymartAssistantHandler:
         """
         import re
         
-        # Check if response mentions wrong product type
-        # Extract important nouns from search query
+        # Check if response mentions wrong product type (just warn, don't block)
         if search_query and had_tool_calls:
             important_nouns = {'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
                               'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
@@ -1368,26 +1391,17 @@ class EasymartAssistantHandler:
             response_lower = response.lower()
             
             if search_nouns:
-                # Check if response mentions WRONG product type
-                # E.g., search for "lockers" but response says "desks"
                 for search_noun in search_nouns:
-                    # Normalize to singular
                     base_noun = search_noun.rstrip('s')
-                    
-                    # Check if response mentions this noun or its plural
                     has_correct_noun = base_noun in response_lower or (base_noun + 's') in response_lower
                     
                     if not has_correct_noun:
-                        # Response doesn't mention the searched product type at all!
-                        # Check if it mentions a DIFFERENT product type
                         wrong_nouns = important_nouns - {base_noun, base_noun + 's'}
                         mentioned_wrong = [noun for noun in wrong_nouns if noun in response_lower]
                         
                         if mentioned_wrong:
-                            logger.warning(f"[VALIDATION] ⚠️ Response mentions wrong product type!")
-                            logger.warning(f"[VALIDATION] Searched for: {search_noun}, Response mentions: {mentioned_wrong}")
-                            # Replace with generic response
-                            return f"I found several options that match your search."
+                            logger.warning(f"[VALIDATION] ⚠️ Response mentions: {mentioned_wrong}, searched for: {search_noun}")
+                            # Just log, don't replace - trust search results
         
         # Check if response contains product listings
         # Note: Removed 'Artiss' pattern - it's OK to mention product names in specs responses
@@ -1401,26 +1415,11 @@ class EasymartAssistantHandler:
         has_product_listing = any(re.search(p, response) for p in listing_patterns)
         
         if has_product_listing:
-            if had_tool_calls and 'search_products' in tool_results:
-                # LLM listed products after search_products tool call - replace with short intro
-                product_count = len(tool_results['search_products'].get('products', []))
-                if product_count > 0:
-                    logger.warning(f"[VALIDATION] Blocked product listing, replacing with short intro")
-                    return f"I found {product_count} great options for you!"
-                else:
-                    return "I couldn't find any products matching that search."
-            elif had_tool_calls and 'get_product_specs' in tool_results:
-                # For get_product_specs, mentioning the product name is EXPECTED and correct
-                # Only block if it's listing MULTIPLE products with numbers (1. Product $99, 2. Product $99)
-                numbered_list = re.search(r'\d+\.\s+[A-Z].*\$\d+', response)
-                if numbered_list:
-                    logger.error(f"[VALIDATION] Blocked hallucinated product listing in specs response!")
-                    return "Let me provide you with the details from our database."
-                # Single product mention is fine - don't block
-            elif not had_tool_calls:
-                # LLM tried to hallucinate products without any tool call
+            if not had_tool_calls:
+                # LLM tried to hallucinate products without any tool call - BLOCK THIS
                 logger.error(f"[VALIDATION] Blocked hallucinated product listing!")
                 return "Let me search our catalog for you."
+            # If we HAD tool calls, trust the response - products are real
         
         # Block hallucinated attributes in response that weren't in user's query
         # Common attributes: colors, materials, sizes, age groups
@@ -1560,18 +1559,42 @@ class EasymartAssistantHandler:
             
             logger.info(f"Executing tool: {tool_name} with args: {arguments}")
             
-            result = await execute_tool(tool_name, arguments, self.tools)
+            try:
+                result = await execute_tool(tool_name, arguments, self.tools)
+                logger.info(f"[EXECUTE_TOOLS] Tool {tool_name} completed successfully")
+            except Exception as e:
+                logger.error(f"[EXECUTE_TOOLS] Tool {tool_name} failed: {e}", exc_info=True)
+                result = {"error": str(e), "products": [] if tool_name == "search_products" else None}
             
             # FIX: Format products with actual names before sending to LLM
-            if tool_name == "search_products" and "products" in result:
-                for product in result["products"]:
-                    # Ensure name is set from title, not product_X
-                    if not product.get("name") or product.get("name").startswith("product_"):
-                        product["name"] = product.get("title", product.get("description", "Product"))
+            if tool_name == "search_products":
+                if "error" in result:
+                    logger.error(f"[EXECUTE_TOOLS] search_products error: {result['error']}")
+                    result["products"] = []
+                elif "products" not in result:
+                    logger.error(f"[EXECUTE_TOOLS] search_products returned no 'products' key! Result keys: {result.keys()}")
+                    result["products"] = []
+                elif not result["products"]:
+                    logger.warning(f"[EXECUTE_TOOLS] search_products returned empty products list")
+                else:
+                    logger.info(f"[EXECUTE_TOOLS] search_products returned {len(result['products'])} products")
                 
-                # Store in session for reference
-                session.update_shown_products(result["products"])
-                logger.info(f"[HANDLER] ✅ Updated session with {len(result['products'])} products from search_products")
+                # Process products if we have any
+                if result.get("products"):
+                    for product in result["products"]:
+                        # Ensure name is set from title, not product_X
+                        if not product.get("name") or product.get("name").startswith("product_"):
+                            product["name"] = product.get("title", product.get("description", "Product"))
+                    
+                    # Store in session for reference
+                    logger.info(f"[EXECUTE_TOOLS] Storing {len(result['products'])} products in session")
+                    logger.info(f"[EXECUTE_TOOLS] Product names: {[p.get('name', 'NO NAME') for p in result['products'][:3]]}")
+                    session.update_shown_products(result["products"])
+                    logger.info(f"[EXECUTE_TOOLS] ✅ Session now has {len(session.last_shown_products)} products")
+                    if session.last_shown_products:
+                        logger.info(f"[EXECUTE_TOOLS] Session products: {[p.get('name', 'NO NAME') for p in session.last_shown_products[:3]]}")
+                else:
+                    logger.error(f"[EXECUTE_TOOLS] ❌ No products to store in session")
             
             # NEW: Also update shown products when getting specs for a single product
             # This allows "add it to cart" to work after asking about a specific product

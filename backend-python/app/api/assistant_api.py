@@ -78,22 +78,34 @@ async def handle_message(
             # Clear the cart action after including it
             session.metadata.pop("last_cart_action", None)
         
+        # Debug: Log products being returned
+        logger.info(f"[API] Assistant response has {len(assistant_response.products) if assistant_response.products else 0} products")
+        if assistant_response.products:
+            logger.info(f"[API] Product names: {[p.get('name', 'UNNAMED') for p in assistant_response.products[:3]]}")
+        
+        # Build product list for response
+        products_list = [
+            {
+                "id": p.get("id") if isinstance(p, dict) else None,
+                "name": p.get("name") if isinstance(p, dict) else "Product",
+                "price": p.get("price") if isinstance(p, dict) else 0.0,
+                "description": p.get("description", "") if isinstance(p, dict) else "",
+                "image_url": p.get("image_url") if isinstance(p, dict) else None,
+                "url": (p.get("product_url") or f"/products/{p.get('id')}") if isinstance(p, dict) else "#"
+            }
+            for p in assistant_response.products
+            if p is not None # Filter out None products
+        ] if assistant_response.products else []
+        
+        logger.info(f"[API] Returning {len(products_list)} products in response")
+        if products_list:
+            logger.info(f"[API] First product: id={products_list[0]['id']}, name={products_list[0]['name']}")
+        
         return MessageResponse(
             session_id=assistant_response.session_id,
             message=assistant_response.message,
             intent=intent,
-            products=[
-                {
-                    "id": p.get("id") if isinstance(p, dict) else None,
-                    "name": p.get("name") if isinstance(p, dict) else "Product",
-                    "price": p.get("price") if isinstance(p, dict) else 0.0,
-                    "description": p.get("description", "") if isinstance(p, dict) else "",
-                    "image_url": p.get("image_url") if isinstance(p, dict) else None,
-                    "url": (p.get("product_url") or f"/products/{p.get('id')}") if isinstance(p, dict) else "#"
-                }
-                for p in assistant_response.products
-                if p is not None # Filter out None products
-            ] if assistant_response.products else None,
+            products=products_list if products_list else None,
             actions=actions if actions else None,
             suggested_actions=suggested_actions,
             metadata=response_metadata

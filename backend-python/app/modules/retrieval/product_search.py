@@ -91,7 +91,8 @@ class ProductSearcher:
         
         if "color" not in filters:
             for color in COLOR_KEYWORDS:
-                if f" {color} " in f" {query_lower} ":
+                # More flexible color matching - check if color word appears anywhere
+                if color in query_lower:
                     filters["color"] = color
                     break
         
@@ -182,12 +183,13 @@ class ProductSearcher:
                 prod_desc = (product.get("description") or "").lower()
                 prod_title = (product.get("name") or "").lower()
                 
+                # More flexible matching - check if color appears anywhere
                 found_color = (
                     target_color in prod_tags or
                     f"color_{target_color}" in prod_tags or
                     f"colour_{target_color}" in prod_tags or
                     target_color in prod_title or  # Strong signal if in title
-                    f" {target_color} " in f" {prod_desc} "  # Whole word match in desc
+                    target_color in prod_desc  # More flexible desc matching
                 )
                 if not found_color:
                     continue

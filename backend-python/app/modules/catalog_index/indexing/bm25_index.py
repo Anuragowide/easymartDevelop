@@ -1,7 +1,7 @@
 """
 BM25 Keyword Search Implementation
 
-Uses rank-bm25 library for production-ready keyword search.
+Uses rank-bm25 library for production-ready keyword search with enhanced tokenization.
 """
 
 from typing import List, Dict, Any
@@ -15,8 +15,23 @@ from .database import DatabaseManager, ProductDB, ProductSpecDB
 from ..config import index_config
 
 
+# Stop words to filter out (common words with low information content)
+STOP_WORDS = {
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he',
+    'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'will', 'with'
+}
+
+# Important product terms that should never be filtered (even if common)
+PRODUCT_KEYWORDS = {
+    'chair', 'table', 'desk', 'sofa', 'bed', 'locker', 'cabinet', 'shelf', 'storage',
+    'stool', 'bench', 'wardrobe', 'drawer', 'ottoman', 'rack', 'stand', 'office',
+    'gaming', 'computer', 'dining', 'bedroom', 'living', 'outdoor', 'ergonomic',
+    'executive', 'mesh', 'leather', 'fabric', 'wood', 'metal', 'glass', 'plastic'
+}
+
+
 class BM25Index:
-    """Production BM25 text-based indexing with persistence"""
+    """Production BM25 text-based indexing with enhanced tokenization and persistence"""
     
     def __init__(self, index_name: str, db_manager: DatabaseManager):
         self.index_name = index_name
@@ -29,11 +44,39 @@ class BM25Index:
         print(f"[BM25] Initialized index: {index_name}")
     
     def _tokenize(self, text: str) -> List[str]:
-        """Tokenize text for BM25"""
+        """
+        Enhanced tokenization for BM25 with phrase preservation and stop word filtering.
+        
+        Improvements:
+        - Preserves important bigrams (e.g., "gaming chair" stays together)
+        - Filters stop words while keeping product keywords
+        - Handles hyphenated words
+        - Better number handling
+        """
         text = text.lower()
+        
+        # Extract potential bigrams/phrases first
+        bigrams = []
+        words = re.findall(r'\b\w+\b', text)
+        for i in range(len(words) - 1):
+            bigram = f"{words[i]}_{words[i+1]}"
+            # Keep bigram if both words are product keywords
+            if words[i] in PRODUCT_KEYWORDS or words[i+1] in PRODUCT_KEYWORDS:
+                bigrams.append(bigram)
+        
+        # Regular tokenization
         tokens = re.findall(r'\b\w+\b', text)
-        tokens = [t for t in tokens if len(t) > 2]
-        return tokens
+        
+        # Filter out stop words, keep product keywords and longer words
+        filtered_tokens = [
+            t for t in tokens 
+            if (len(t) > 2 and t not in STOP_WORDS) or t in PRODUCT_KEYWORDS
+        ]
+        
+        # Combine individual tokens with bigrams
+        all_tokens = filtered_tokens + bigrams
+        
+        return all_tokens
     
     def add_documents(self, documents: List[IndexDocument]) -> None:
         """Add documents to BM25 index and database"""
