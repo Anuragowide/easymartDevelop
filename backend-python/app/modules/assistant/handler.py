@@ -762,7 +762,8 @@ class EasymartAssistantHandler:
                 
                 # If only one product shown, assume "add it" refers to that
                 if not product_num and session.last_shown_products and len(session.last_shown_products) == 1:
-                    context_refs = ['this', 'it', 'the product', 'that', 'chair', 'table', 'desk']
+                    context_refs = ['this', 'it', 'the product', 'that', 'chair', 'table', 'desk', 
+                                   'this one', 'buy', 'purchase', 'want to buy', 'want this', 'get this']
                     if any(ref in query_lower for ref in context_refs):
                         product_num = 1
                 
@@ -815,11 +816,34 @@ class EasymartAssistantHandler:
                                     product_num = num
                                     break
                         
-                        # Fix reference to "it", "this one" if only 1 product shown
+                        # Fix reference to "it", "this one", or generic detail requests if only 1 product shown
                         if product_num is None and session.last_shown_products and len(session.last_shown_products) == 1:
-                            context_refs = ['this one', 'add it', 'add this', 'the product', 'that one']
+                            context_refs = ['this one', 'add it', 'add this', 'the product', 'that one', 
+                                           'tell me', 'more info', 'details', 'detail', 'specs', 'specifications',
+                                           'about it', 'about this', 'more about']
                             if any(ref in original_message.lower() for ref in context_refs):
                                 product_num = 1
+                                logger.info(f"[HANDLER] Inferred product_num=1 from generic request with single product in session")
+                        
+                        # If still no product_num but multiple products shown and user wants details
+                        if product_num is None and session.last_shown_products and len(session.last_shown_products) > 1:
+                            detail_refs = ['tell me', 'more info', 'details', 'detail', 'specs', 'specifications', 
+                                          'about it', 'about this', 'more about', 'describe']
+                            if any(ref in original_message.lower() for ref in detail_refs):
+                                # Need clarification - return early
+                                logger.info(f"[HANDLER] User asked for details but {len(session.last_shown_products)} products shown - asking for clarification")
+                                assistant_message = f"I'd be happy to give you more details! Which product are you interested in? Just say 'option 1', 'option 2', etc. (I have {len(session.last_shown_products)} products shown)."
+                                session.add_message("assistant", assistant_message)
+                                return AssistantResponse(
+                                    message=assistant_message,
+                                    session_id=session.session_id,
+                                    products=[],
+                                    cart_summary=self._build_cart_summary(session),
+                                    metadata={
+                                        "intent": "clarification_needed",
+                                        "reason": "ambiguous_product_reference"
+                                    }
+                                )
                         
                         # Correct product_id if we have a valid number
                         if session.last_shown_products and product_num and 0 < product_num <= len(session.last_shown_products):
@@ -827,6 +851,7 @@ class EasymartAssistantHandler:
                             correct_product_id = correct_product.get('id')
                             if correct_product_id:
                                 func_call.arguments['product_id'] = correct_product_id
+                                logger.info(f"[HANDLER] Corrected product_id to '{correct_product_id}' (option {product_num})")
                             else:
                                 logger.error(f"[ERROR] Product #{product_num} has no ID in session!")
                         elif not session.last_shown_products:

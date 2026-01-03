@@ -373,10 +373,11 @@ class EasymartAssistantTools:
             answer = None
             if question and specs_list:
                 qa_result = await self.spec_searcher.answer_question(
-                    product_id=product_id,
-                    question=question
+                    question=question,
+                    sku=product_id
                 )
-                answer = qa_result.get("answer")
+                # answer_question returns a string, not dict
+                answer = qa_result if isinstance(qa_result, str) else qa_result.get("answer")
             
             # If no specs available, provide basic product info as fallback
             if not specs_list:
