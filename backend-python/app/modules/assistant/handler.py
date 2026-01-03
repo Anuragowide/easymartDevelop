@@ -802,6 +802,33 @@ class EasymartAssistantHandler:
                     if func_call.name in ['get_product_specs', 'check_availability', 'update_cart']:
                         product_id = func_call.arguments.get('product_id', '')
                         
+                        # For update_cart: Validate quantity - default to 1 unless explicitly specified
+                        if func_call.name == 'update_cart':
+                            llm_qty = func_call.arguments.get('quantity', 1)
+                            msg_lower = original_message.lower()
+                            
+                            # Check if user explicitly mentioned a quantity number
+                            explicit_qty_patterns = [
+                                r'\b(\d+)\s*(?:units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))',
+                                r'(?:add|get|want)\s+(\d+)\b',
+                            ]
+                            explicit_qty = None
+                            for pattern in explicit_qty_patterns:
+                                match = re.search(pattern, msg_lower)
+                                if match:
+                                    explicit_qty = int(match.group(1))
+                                    break
+                            
+                            # If no explicit quantity mentioned, force to 1
+                            # This prevents "this one" being interpreted as quantity 2
+                            if explicit_qty is None:
+                                func_call.arguments['quantity'] = 1
+                                if llm_qty != 1:
+                                    logger.warning(f"[HANDLER] Corrected cart quantity from {llm_qty} to 1 (no explicit qty in message)")
+                            else:
+                                func_call.arguments['quantity'] = explicit_qty
+                                logger.info(f"[HANDLER] Using explicit quantity: {explicit_qty}")
+                        
                         # Try to extract number from user's message
                         product_num = None
                         for pattern in self.PRODUCT_REF_PATTERNS:

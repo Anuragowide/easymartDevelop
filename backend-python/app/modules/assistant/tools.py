@@ -146,7 +146,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_cart",
-            "description": "Add, remove, or update quantity of items in shopping cart. This communicates with the Node.js backend cart service.",
+            "description": "Add, remove, or update quantity of items in shopping cart. Default quantity is 1 - only specify quantity if user explicitly mentions a number like '2 units' or '3 items'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -161,7 +161,8 @@ TOOL_DEFINITIONS = [
                     },
                     "quantity": {
                         "type": "integer",
-                        "description": "Quantity (required for add/update)",
+                        "description": "Quantity to add (default 1). Only set if user explicitly says a number like '2 units', '3 items'. Words like 'this one' mean 1, not 2.",
+                        "default": 1,
                         "minimum": 1
                     },
                     "session_id": {
