@@ -109,7 +109,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check product stock status. Always returns positive 'in stock' response and provides customer service contact for customization and detailed availability.",
+            "description": "Check real-time product stock availability. Returns accurate in_stock status based on actual inventory_quantity from Shopify. If inventory_quantity is 0, the product is out of stock. Always provide accurate stock information to customers.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -417,18 +417,21 @@ class EasymartAssistantTools:
                 "product_id": product_id
             }
     
-    async def ailability(self, product_id: str) -> Dict[str, Any]:
+    async def check_availability(self, product_id: str) -> Dict[str, Any]:
         """
-        Check product availability.
+        Check product availability using real inventory data from Shopify.
         
-        NOTE: Always returns "in stock" to provide positive customer experience.
-        Directs customers to contact team for customization and detailed availability.
+        Returns accurate stock status based on inventory_quantity field.
+        - inventory_quantity > 0: In stock
+        - inventory_quantity = 999: Not tracked by Shopify (always available)
+        - inventory_quantity = 0: Out of stock
         
         Returns:
             {
                 "product_id": "CHR-001",
-                "in_stock": true,
-                "message": "Yes, this product is in stock! For customization options..."
+                "in_stock": true/false,
+                "inventory_quantity": 5,
+                "message": "..."
             }
         """
         try:
@@ -437,28 +440,55 @@ class EasymartAssistantTools:
                 return {
                     "error": f"Product '{product_id}' not found",
                     "product_id": product_id,
-                    "in_stock": True,  # Still positive - might be available
-                    "message": "For availability of specific items, please contact our customer service team."
+                    "in_stock": False,
+                    "message": "Product not found. Please contact our customer service team for assistance."
                 }
             
-            # FIX: Ensure product has 'name' field
-            if 'name' not in product or not product.get('name'):
-                product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
+            # Get product name
+            product_name = product.get('name') or product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
             
-            # ALWAYS return in stock with contact guidance
-            return {
-                "product_id": product_id,
-                "product_name": product['name'],
-                "in_stock": True,
-                "message": f"Yes, {product['name']} is in stock! For customization options, specific delivery times, or bulk orders, please contact our customer service team at 1300 327 962 or support@easymart.com.au."
-            }
+            # Get actual inventory quantity from Shopify data
+            # Note: 999 means inventory is not tracked (always available)
+            inventory_quantity = product.get('inventory_quantity', 0)
+            
+            # Determine stock status:
+            # - quantity > 0: in stock
+            # - quantity = 999: not tracked by Shopify = always available
+            # - quantity = 0: out of stock
+            is_in_stock = inventory_quantity > 0
+            
+            if is_in_stock:
+                # If inventory_quantity is 999, don't show the number (it's just a marker for "available")
+                if inventory_quantity >= 999:
+                    return {
+                        "product_id": product_id,
+                        "product_name": product_name,
+                        "in_stock": True,
+                        "message": f"Yes, the {product_name} is available! For customization options, specific delivery times, or bulk orders, please contact our customer service team at 1300 327 962 or support@easymart.com.au."
+                    }
+                else:
+                    return {
+                        "product_id": product_id,
+                        "product_name": product_name,
+                        "in_stock": True,
+                        "inventory_quantity": inventory_quantity,
+                        "message": f"Yes, the {product_name} is currently in stock. For customization options, specific delivery times, or bulk orders, please contact our customer service team at 1300 327 962 or support@easymart.com.au."
+                    }
+            else:
+                return {
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "in_stock": False,
+                    "inventory_quantity": 0,
+                    "message": f"Sorry, the {product_name} is currently out of stock. Please contact our customer service team at 1300 327 962 or support@easymart.com.au for restock dates or to explore similar alternatives."
+                }
         
         except Exception as e:
             return {
                 "error": f"Availability check failed: {str(e)}",
                 "product_id": product_id,
-                "in_stock": True,  # Positive response even on error
-                "message": "For product availability, please contact our customer service team."
+                "in_stock": False,
+                "message": "Unable to check availability. Please contact our customer service team for accurate stock information."
             }
     
     async def compare_products(self, product_ids: List[str], position_labels: Optional[List[str]] = None) -> Dict[str, Any]:

@@ -34,10 +34,13 @@ class ProductSearcher:
     """
     High-level product search interface.
     Wraps CatalogIndexer with additional features.
+    Optimized for catalogs with 2000+ products.
     """
     
     _cache = {}  # Simple in-memory cache
-    _cache_max_size = 100
+    _cache_max_size = 500  # Increased for large catalogs
+    _cache_hits = 0
+    _cache_misses = 0
     
     def __init__(self):
         from app.core.dependencies import get_catalog_indexer
@@ -58,8 +61,9 @@ class ProductSearcher:
             logger.info(f"[SEARCH] Cache hit for: {query}")
             return self._cache[cache_key]
         
-        # Get raw search results from catalog
-        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=limit * 5)
+        # Get raw search results from catalog (increased multiplier for large catalogs)
+        search_limit = min(limit * 8, 100)  # Get more candidates but cap at 100
+        results = await asyncio.to_thread(self.catalog.searchProducts, query, limit=search_limit)
         
         # Format results properly
         formatted_results = []

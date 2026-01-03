@@ -20,7 +20,7 @@ from app.modules.catalog_index.catalog import CatalogIndexer
 from app.core.config import settings
 
 # Configuration
-NODE_API_URL = os.getenv("NODE_BACKEND_URL", "http://localhost:3001")
+NODE_API_URL = os.getenv("NODE_BACKEND_URL", "http://localhost:3002")
 CATALOG_ENDPOINT = "/api/internal/catalog/export"
 
 def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

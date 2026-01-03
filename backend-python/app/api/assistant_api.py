@@ -147,13 +147,16 @@ def _get_suggested_actions(intent: str, products: list) -> list:
     Returns:
         List of suggested action strings
     """
-    # Add "search_results" action to trigger product card display
     actions = []
     
+    # CRITICAL: Always add "search_results" when products exist
+    # This triggers the product card display in the frontend via Node middleware
+    if products and len(products) > 0:
+        actions.append("search_results")
+    
+    # Add context-specific suggested actions
     if intent == "product_search":
         if products:
-            # Trigger product cards in frontend
-            actions.append("search_results")
             actions.extend(["Ask about specifications", "Add to cart", "Compare products", "Refine search"])
         else:
             actions.extend(["Try different keywords", "Browse categories", "Get help"])

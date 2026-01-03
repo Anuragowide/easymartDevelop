@@ -19,15 +19,29 @@ from ..config import index_config
 STOP_WORDS = {
     'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he',
     'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'will', 'with',
-    'too', 'also', 'just', 'very', 'me', 'show', 'find', 'get', 'give'
+    'too', 'also', 'just', 'very', 'me', 'show', 'find', 'get', 'give', 'want',
+    'need', 'looking', 'search', 'please', 'can', 'you', 'i', 'we', 'they', 'this',
+    'any', 'some', 'have', 'what', 'which', 'where', 'when', 'how', 'would', 'could'
 }
 
 # Important product terms that should never be filtered (even if common)
 PRODUCT_KEYWORDS = {
-    'chair', 'table', 'desk', 'sofa', 'bed', 'locker', 'cabinet', 'shelf', 'storage',
-    'stool', 'bench', 'wardrobe', 'drawer', 'ottoman', 'rack', 'stand', 'office',
-    'gaming', 'computer', 'dining', 'bedroom', 'living', 'outdoor', 'ergonomic',
-    'executive', 'mesh', 'leather', 'fabric', 'wood', 'metal', 'glass', 'plastic'
+    # Furniture types
+    'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas', 'bed', 'beds',
+    'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves', 'storage',
+    'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes', 'drawer', 'drawers',
+    'ottoman', 'ottomans', 'rack', 'racks', 'stand', 'stands', 'couch', 'recliner',
+    'lamp', 'lamps', 'rug', 'rugs', 'mirror', 'mirrors', 'bookcase', 'bookshelf',
+    # Room types
+    'office', 'gaming', 'computer', 'dining', 'bedroom', 'living', 'outdoor', 'patio',
+    'kitchen', 'bathroom', 'kids', 'children', 'guest',
+    # Materials and styles
+    'ergonomic', 'executive', 'mesh', 'leather', 'fabric', 'wood', 'metal', 'glass',
+    'plastic', 'velvet', 'modern', 'rustic', 'contemporary', 'vintage',
+    # Colors (common product attributes)
+    'black', 'white', 'brown', 'grey', 'gray', 'blue', 'red', 'green', 'beige',
+    # Quality/price descriptors
+    'premium', 'luxury', 'budget', 'affordable', 'cheap'
 }
 
 
@@ -153,18 +167,30 @@ class BM25Index:
             session.close()
     
     def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search using BM25 with optimized batch database retrieval"""
+        """Search using BM25 with optimized batch database retrieval.
+        
+        Optimized for large catalogs (2000+ products) with:
+        - Efficient score filtering
+        - Batch database queries
+        - Minimum score threshold
+        """
         if self.bm25 is None:
             self.load()
             if self.bm25 is None:
                 return []
         
         query_tokens = self._tokenize(query)
+        
+        if not query_tokens:
+            print(f"[BM25] Warning: No valid tokens extracted from query: '{query}'")
+            return []
+        
         scores = self.bm25.get_scores(query_tokens)
         
-        # Get top indices where score > 0
+        # Get top indices where score > 0.01 (filter out very low scores)
+        MIN_SCORE = 0.01
         top_indices = sorted(
-            [i for i in range(len(scores)) if scores[i] > 0],
+            [i for i in range(len(scores)) if scores[i] > MIN_SCORE],
             key=lambda i: scores[i], 
             reverse=True
         )[:limit]

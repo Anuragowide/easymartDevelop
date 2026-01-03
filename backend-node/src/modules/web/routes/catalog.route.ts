@@ -26,6 +26,16 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
   const firstVariant = product.variants?.[0] || {};
   const firstImage = product.images?.[0];
 
+  // Determine stock status:
+  // - If inventory_management is null, Shopify doesn't track inventory = always available
+  // - If inventory_management is set, use actual inventory_quantity
+  const inventoryManaged = firstVariant.inventory_management !== null;
+  const inventoryQuantity = firstVariant.inventory_quantity || 0;
+  const isInStock = !inventoryManaged || inventoryQuantity > 0;
+  
+  // For unmanaged inventory, report as 999 (available) instead of 0
+  const reportedQuantity = inventoryManaged ? inventoryQuantity : 999;
+
   return {
     sku: firstVariant.sku || product.handle,
     title: product.title,
@@ -38,12 +48,13 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
     vendor: product.vendor || "EasyMart",
     handle: product.handle,
     product_url: `https://${config.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`,
-    stock_status: firstVariant.inventory_quantity > 0 ? "in_stock" : "out_of_stock",
+    stock_status: isInStock ? "in_stock" : "out_of_stock",
     specs: {
       // Core dimensions
       weight: firstVariant.weight,
       weight_unit: firstVariant.weight_unit,
-      inventory_quantity: firstVariant.inventory_quantity,
+      inventory_quantity: reportedQuantity,
+      inventory_managed: inventoryManaged,
       barcode: firstVariant.barcode,
 
       // Extended fields

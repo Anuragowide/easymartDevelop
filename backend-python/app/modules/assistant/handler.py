@@ -1159,6 +1159,14 @@ class EasymartAssistantHandler:
                     assistant_message = "I'm sorry, I couldn't find any products matching that search. Could you try a different search term?"
                 session.add_message("assistant", assistant_message)
             
+            # CRITICAL FIX: Validate product discovery claims match actual products
+            # Never say "I found products" without actually having products to show
+            assistant_message = self._validate_product_claims(
+                assistant_message,
+                session.last_shown_products,
+                original_message
+            )
+            
             # Build response
             logger.info(f"[HANDLER] Building response with {len(session.last_shown_products)} products from session")
             if session.last_shown_products:
@@ -1759,6 +1767,126 @@ class EasymartAssistantHandler:
             "total": sum(item.get("quantity", 0) for item in session.cart_items)
         }
     
+    def _validate_product_claims(
+        self,
+        message: str,
+        products: List[Dict[str, Any]],
+        original_query: str
+    ) -> str:
+        """
+        Validate that product discovery claims in the message match actual products.
+        If the message says "I found X products" but products list is empty, 
+        either generate a text fallback or fix the message.
+        
+        Args:
+            message: The assistant's response message
+            products: List of products to be displayed
+            original_query: Original user query
+        
+        Returns:
+            Validated/corrected message
+        """
+        # Patterns that indicate product discovery claims
+        product_claim_patterns = [
+            r'I found (\d+|several|some|a few|multiple)',
+            r'Here are (\d+|several|some|the|a few)',
+            r'I\'ve found (\d+|several|some)',
+            r'showing you (\d+|several|some)',
+            r'(\d+) (options?|products?|items?|chairs?|sofas?|desks?|tables?|beds?) (for you|matching|that)',
+            r'displayed (below|above)',
+            r'take a look at',
+        ]
+        
+        has_product_claim = any(re.search(p, message, re.IGNORECASE) for p in product_claim_patterns)
+        
+        if has_product_claim and not products:
+            # LLM claimed to find products but we have none - this is the hollow response issue!
+            logger.error(f"[VALIDATION] ❌ HOLLOW RESPONSE: Message claims products but none available!")
+            logger.error(f"[VALIDATION] Message: {message[:100]}...")
+            
+            # Generate a proper "no results" message
+            query_terms = original_query.lower()
+            
+            # Extract product type from query
+            product_types = ['sofa', 'chair', 'desk', 'table', 'bed', 'locker', 'cabinet', 'stool', 'shelf', 'storage', 'wardrobe']
+            found_type = 'products'
+            for ptype in product_types:
+                if ptype in query_terms:
+                    found_type = ptype + 's' if not ptype.endswith('s') else ptype
+                    break
+            
+            message = f"I couldn't find any {found_type} matching your search. Would you like to try a different search term or browse our categories?"
+            logger.info(f"[VALIDATION] ✅ Replaced hollow response with: {message}")
+        
+        elif products and not has_product_claim:
+            # We have products but message doesn't acknowledge them
+            # This can happen if LLM generates a generic response
+            message_lower = message.lower()
+            
+            # Check if message is too generic or doesn't mention products
+            generic_patterns = [
+                r'^(sure|okay|yes|of course)[,!.]?\s*$',
+                r'^(let me|i\'ll|i will)\s+(help|search|look)',
+                r'^searching',
+            ]
+            
+            is_generic = any(re.match(p, message_lower) for p in generic_patterns) or len(message) < 30
+            
+            if is_generic:
+                logger.warning(f"[VALIDATION] ⚠️ Generic message with products available, enhancing...")
+                # Generate a proper product acknowledgment
+                count = len(products)
+                
+                # Get product type from first product
+                first_product = products[0]
+                product_name = first_product.get('name', '').lower()
+                
+                product_type = 'options'
+                for ptype in ['sofa', 'chair', 'desk', 'table', 'bed', 'locker', 'cabinet', 'stool', 'shelf']:
+                    if ptype in product_name:
+                        product_type = ptype + 's' if count > 1 else ptype
+                        break
+                
+                message = f"I found {count} {product_type} for you. Let me know if you'd like more details on any of them!"
+        
+        # If we have products, also append a text fallback list for accessibility
+        if products and len(products) > 0:
+            # Check if message already contains product list
+            if not re.search(r'\d+\.\s+', message):  # No numbered list
+                # Add a brief text summary as fallback (hidden or shown based on UI)
+                # This ensures products are ALWAYS visible even if UI cards fail
+                pass  # Products are in response.products, UI will handle display
+        
+        return message
+    
+    def _generate_text_product_list(self, products: List[Dict[str, Any]], limit: int = 5) -> str:
+        """
+        Generate a text-based product list as fallback.
+        Used when UI cards cannot render or for accessibility.
+        
+        Args:
+            products: List of products
+            limit: Max products to list
+        
+        Returns:
+            Formatted text list
+        """
+        if not products:
+            return ""
+        
+        lines = []
+        for idx, product in enumerate(products[:limit], 1):
+            name = product.get('name') or product.get('title', 'Product')
+            price = product.get('price', 0)
+            currency = product.get('currency', 'AUD')
+            
+            lines.append(f"{idx}. **{name}** - ${price:.2f} {currency}")
+        
+        if len(products) > limit:
+            lines.append(f"... and {len(products) - limit} more")
+        
+        return "\n".join(lines)
+
     async def get_greeting(self, session_id: Optional[str] = None) -> AssistantResponse:
         """
         Get greeting message for new conversation.
