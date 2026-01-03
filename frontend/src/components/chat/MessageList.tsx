@@ -9,6 +9,55 @@ interface MessageListProps {
   isLoading: boolean;
 }
 
+// Simple markdown parser for bold text and bullet points
+function parseMarkdown(text: string): React.ReactNode {
+  if (!text) return text;
+  
+  // Pre-process: fix malformed bold markers (*text** -> **text**)
+  let cleanedText = text
+    .replace(/(?<!\*)\*([^*\n]+)\*\*/g, '**$1**')  // *text** -> **text**
+    .replace(/\*\*([^*\n]+)\*(?!\*)/g, '**$1**')   // **text* -> **text**
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '**$1**'); // *text* -> **text**
+  
+  // Split by lines to handle bullet points
+  const lines = cleanedText.split('\n');
+  
+  return lines.map((line, lineIndex) => {
+    // Check if line is a bullet point (•, -, or * followed by space)
+    const bulletMatch = line.match(/^[\s]*[•\-]\s+(.*)$|^[\s]*\*\s+(.*)$/);
+    const isBullet = bulletMatch !== null;
+    const lineContent = isBullet ? (bulletMatch[1] || bulletMatch[2]) : line;
+    
+    // Parse bold text (**text**)
+    const parts = lineContent.split(/(\*\*[^*]+\*\*)/g);
+    
+    const parsedContent = parts.map((part, partIndex) => {
+      // Check for bold
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={partIndex} className="font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+    
+    if (isBullet) {
+      return (
+        <div key={lineIndex} className="flex items-start gap-2 ml-2">
+          <span className="text-red-500 mt-0.5">•</span>
+          <span>{parsedContent}</span>
+        </div>
+      );
+    }
+    
+    // Return line with line break (except for last line)
+    return (
+      <span key={lineIndex}>
+        {parsedContent}
+        {lineIndex < lines.length - 1 && <br />}
+      </span>
+    );
+  });
+}
+
 export function MessageList({ messages, isLoading }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { addToCart, increaseQuantity, decreaseQuantity, getProductQuantity } = useCartStore();
@@ -97,11 +146,11 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
             }`}
           >
             {/* Message Content */}
-            <p className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${
+            <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${
               message.role === 'user' ? 'font-medium' : ''
             }`}>
-              {message.content}
-            </p>
+              {parseMarkdown(message.content)}
+            </div>
 
             {/* Product Cards */}
             {message.actions && message.actions.length > 0 && (

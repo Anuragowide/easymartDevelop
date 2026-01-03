@@ -993,14 +993,47 @@ class EasymartAssistantHandler:
                         )
                     else:
                         post_tool_instruction = (
-                            "Respond naturally using ONLY the provided product data. Start with the product name. Be concise (2-3 sentences)."
+                            "Respond with well-formatted product information using this structure:\n"
+                            "1. Start with **Product Name** in bold\n"
+                            "2. Give a 1-sentence description\n"
+                            "3. Use bullet points (•) for key specs like:\n"
+                            "   • **Dimensions**: width x depth x height\n"
+                            "   • **Material**: material type\n"
+                            "   • **Weight**: if available\n"
+                            "   • **Key Features**: important features\n"
+                            "Keep it concise - 3-5 bullet points max. Only include data from the tool result."
                         )
                 elif 'calculate_shipping' in tool_names:
                     post_tool_instruction = (
-                        "Relay the shipping information naturally. Note: 'express_available' is a data field, not a tool. Just say if express is available and the cost."
+                        "Format shipping information clearly:\n"
+                        "• **Standard Shipping**: $X (Y-Z business days)\n"
+                        "• **Express Shipping**: $X if available\n"
+                        "Keep it brief and helpful."
+                    )
+                elif 'check_availability' in tool_names:
+                    avail_result = tool_results.get('check_availability', {})
+                    if avail_result.get('in_stock'):
+                        post_tool_instruction = (
+                            "Confirm the product is **in stock**. Use the exact message from the tool result. "
+                            "Mention contact info for customization if relevant."
+                        )
+                    else:
+                        post_tool_instruction = (
+                            "Inform that the product is **currently out of stock**. "
+                            "Use the exact message from the tool result. Suggest contacting support for restock dates."
+                        )
+                elif 'compare_products' in tool_names:
+                    post_tool_instruction = (
+                        "Format the comparison clearly using this structure:\n"
+                        "**Comparison Summary:**\n"
+                        "• **Price**: Product A ($X) vs Product B ($Y)\n"
+                        "• **Key Difference 1**: brief comparison\n"
+                        "• **Key Difference 2**: brief comparison\n"
+                        "• **Recommendation**: based on user's needs\n"
+                        "Use bullet points and bold for key info."
                     )
                 else:
-                    post_tool_instruction = "Respond briefly and professionally based on the tool results."
+                    post_tool_instruction = "Respond briefly and professionally based on the tool results. Use **bold** for important info."
 
                 # Add combined message with results AND instruction to help LLM stay on track
                 tool_results_msg = f"[TOOL_RESULTS] {combined_tool_results} [/TOOL_RESULTS]"
@@ -1167,14 +1200,27 @@ class EasymartAssistantHandler:
                 original_message
             )
             
+            # CRITICAL FIX: Only include product cards when it's a NEW SEARCH
+            # Don't return product cards for spec queries, availability checks, etc.
+            should_include_products = False
+            if llm_response.function_calls:
+                tool_names = [fc.name for fc in llm_response.function_calls]
+                # Only include products if search_products was called
+                if 'search_products' in tool_names:
+                    should_include_products = True
+                # For compare_products, include only the compared products
+                elif 'compare_products' in tool_names:
+                    should_include_products = True
+            
+            products_to_return = session.last_shown_products[:] if should_include_products else []
+            
             # Build response
-            logger.info(f"[HANDLER] Building response with {len(session.last_shown_products)} products from session")
-            if session.last_shown_products:
-                logger.info(f"[HANDLER] Products to include in response: {[p.get('name', 'UNNAMED') for p in session.last_shown_products]}")
+            logger.info(f"[HANDLER] Building response - should_include_products: {should_include_products}")
+            logger.info(f"[HANDLER] Products to return: {len(products_to_return)}")
             response = AssistantResponse(
                 message=assistant_message,
                 session_id=session.session_id,
-                products=session.last_shown_products[:],  # Create copy to prevent reference issues
+                products=products_to_return,
                 cart_summary=self._build_cart_summary(session),
                 metadata={
                     "intent": intent_str,
@@ -1186,8 +1232,6 @@ class EasymartAssistantHandler:
                 }
             )
             logger.info(f"[HANDLER] ✅ Response created with {len(response.products) if response.products else 0} products")
-            if response.products:
-                logger.info(f"[HANDLER] Product IDs in response: {[p.get('id', 'NO ID') for p in response.products[:3]]}")
             
             # Track success
             await self.event_tracker.track(
