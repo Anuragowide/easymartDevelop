@@ -222,7 +222,10 @@ class EasymartAssistantHandler:
                         "intent": "system_reset",
                         "reset_session": True,
                         "entities": {},
-                        "function_calls_made": 0
+                        "function_calls_made": 0,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
                     }
                 )
             
@@ -258,7 +261,10 @@ class EasymartAssistantHandler:
                     metadata={
                         "intent": "off_topic_rejected",
                         "entities": {},
-                        "function_calls_made": 0
+                        "function_calls_made": 0,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
                     }
                 )
             
@@ -346,7 +352,10 @@ class EasymartAssistantHandler:
                                     metadata={
                                         "intent": "clarification_needed",
                                         "clarification_count": clarification_count + 1,
-                                        "vague_type": pending["vague_type"]
+                                        "vague_type": pending["vague_type"],
+                                        "context": topic_context.to_dict(),
+                                        "user_preferences": session.metadata.get("user_preferences", {}),
+                                        "topic_history": session.metadata.get("topic_history", [])
                                     }
                                 )
             
@@ -390,7 +399,10 @@ class EasymartAssistantHandler:
                             metadata={
                                 "intent": "clarification_needed",
                                 "vague_type": vague_result["vague_type"],
-                                "partial_entities": vague_result["partial_entities"]
+                                "partial_entities": vague_result["partial_entities"],
+                                "context": topic_context.to_dict(),
+                                "user_preferences": session.metadata.get("user_preferences", {}),
+                                "topic_history": session.metadata.get("topic_history", [])
                             }
                         )
             
@@ -448,7 +460,10 @@ class EasymartAssistantHandler:
                     metadata={
                         "intent": intent_str,
                         "entities": {},
-                        "function_calls_made": 0
+                        "function_calls_made": 0,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
                     }
                 )
             
@@ -469,7 +484,10 @@ class EasymartAssistantHandler:
                     metadata={
                         "intent": intent_str,
                         "entities": entities,
-                        "function_calls_made": 0
+                        "function_calls_made": 0,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
                     }
                 )
                 
@@ -499,7 +517,13 @@ class EasymartAssistantHandler:
                     session_id=session.session_id,
                     products=[],
                     cart_summary=self._build_cart_summary(session),
-                    metadata={"intent": "promotions", "entities": entities}
+                    metadata={
+                        "intent": "promotions",
+                        "entities": entities,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
+                    }
                 )
             
             # FORCE product_search intent for furniture-related queries
@@ -549,7 +573,13 @@ class EasymartAssistantHandler:
                         session_id=session.session_id,
                         products=[],
                         cart_summary=self._build_cart_summary(session),
-                        metadata={"intent": "clarification_needed", "reason": "no_products_in_session"}
+                        metadata={
+                            "intent": "clarification_needed",
+                            "reason": "no_products_in_session",
+                            "context": topic_context.to_dict(),
+                            "user_preferences": session.metadata.get("user_preferences", {}),
+                            "topic_history": session.metadata.get("topic_history", [])
+                        }
                     )
                 elif product_num > len(session.last_shown_products):
                     logger.warning(f"[HANDLER] Ambiguous reference: option {product_num} but only {len(session.last_shown_products)} products shown")
@@ -560,7 +590,14 @@ class EasymartAssistantHandler:
                         session_id=session.session_id,
                         products=session.last_shown_products,
                         cart_summary=self._build_cart_summary(session),
-                        metadata={"intent": "clarification_needed", "reason": "index_out_of_range", "max_index": len(session.last_shown_products)}
+                        metadata={
+                            "intent": "clarification_needed",
+                            "reason": "index_out_of_range",
+                            "max_index": len(session.last_shown_products),
+                            "context": topic_context.to_dict(),
+                            "user_preferences": session.metadata.get("user_preferences", {}),
+                            "topic_history": session.metadata.get("topic_history", [])
+                        }
                     )
 
             # Detect if this is a refinement query and inject context
@@ -1160,11 +1197,34 @@ class EasymartAssistantHandler:
             logger.error(f"Error handling message: {str(e)}", exc_info=True)
             await self.event_tracker.track("assistant_error", properties={"error": str(e)})
             
-            # Return error response
+            # Get session for error response
+            try:
+                session = self.session_store.get_or_create_session(
+                    session_id=request.session_id,
+                    user_id=request.user_id
+                )
+            except:
+                session = None
+            
+            # Return error response with minimal context
+            error_metadata = {
+                "error": str(e),
+                "context": {
+                    "topic": "general",
+                    "intent": "statement",
+                    "confidence": 0,
+                    "preferences": {}
+                }
+            }
+            
+            if session:
+                error_metadata["user_preferences"] = session.metadata.get("user_preferences", {})
+                error_metadata["topic_history"] = session.metadata.get("topic_history", [])
+            
             return AssistantResponse(
                 message="I'm sorry, I encountered an error processing your request. Please try again or contact support.",
                 session_id=request.session_id or "error",
-                metadata={"error": str(e)}
+                metadata=error_metadata
             )
     
     def _apply_context_refinement(self, message: str, session: SessionContext) -> str:
