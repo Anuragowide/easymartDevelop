@@ -4,10 +4,11 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { CartView } from './CartView';
 import { AIWarningBanner } from './AIWarningBanner';
+import { ContextIndicator } from './ContextIndicator';
 import { useChatStore } from '@/store/chatStore';
 
 export function ChatWindow() {
-  const { messages, isLoading, sendMessage, isCartOpen } = useChatStore();
+  const { messages, isLoading, sendMessage, isCartOpen, currentContext } = useChatStore();
 
   const handleSendMessage = async (content: string) => {
     await sendMessage(content);
@@ -17,6 +18,16 @@ export function ChatWindow() {
     <div className="h-full flex flex-col bg-gradient-to-b from-gray-50 to-white relative overflow-hidden">
       {/* AI Warning Banner */}
       <AIWarningBanner />
+      
+      {/* Context Indicator */}
+      {currentContext && (
+        <ContextIndicator
+          topic={currentContext.topic}
+          confidence={currentContext.confidence}
+          intent={currentContext.intent}
+          preferences={currentContext.preferences}
+        />
+      )}
       
       {/* Messages */}
       <MessageList messages={messages} isLoading={isLoading} />

@@ -108,16 +108,18 @@ class EasymartAssistantHandler:
             session_store: Optional session store (uses global if not provided)
         """
         from .tools import get_assistant_tools
+        from .context_analyzer import get_context_analyzer
         self.llm_client = llm_client
         self.session_store = session_store or get_session_store()
         self.tools = get_assistant_tools()
         self.intent_detector = IntentDetector()
         self.event_tracker = EventTracker()
+        self.context_analyzer = get_context_analyzer()
         
         # System prompt
         self.system_prompt = get_system_prompt()
         
-        logger.info("Easymart Assistant Handler initialized")
+        logger.info("Easymart Assistant Handler initialized with context analyzer")
     
     async def handle_message(
         self,
@@ -166,6 +168,29 @@ class EasymartAssistantHandler:
                 user_id=request.user_id
             )
             logger.info(f"[HANDLER] Session retrieved: {session.session_id}")
+            
+            # Analyze context for better topic understanding
+            logger.info(f"[HANDLER] Analyzing conversation context...")
+            conversation_history = [{"role": msg["role"], "content": msg["content"]} for msg in session.messages[-5:]]
+            topic_context = self.context_analyzer.analyze(request.message, conversation_history)
+            logger.info(f"[HANDLER] Context analyzed - Topic: {topic_context.topic.value}, Intent: {topic_context.intent.value}, Confidence: {topic_context.confidence:.2f}")
+            
+            # Store topic context in session metadata for tracking
+            if "topic_history" not in session.metadata:
+                session.metadata["topic_history"] = []
+            if "user_preferences" not in session.metadata:
+                session.metadata["user_preferences"] = {}
+            
+            # Track topic changes
+            current_topic = topic_context.topic.value
+            if not session.metadata["topic_history"] or session.metadata["topic_history"][-1] != current_topic:
+                session.metadata["topic_history"].append(current_topic)
+                logger.info(f"[HANDLER] Topic changed to: {current_topic}")
+            
+            # Update user preferences
+            if topic_context.extracted_preferences:
+                session.metadata["user_preferences"].update(topic_context.extracted_preferences)
+                logger.info(f"[HANDLER] Updated preferences: {topic_context.extracted_preferences}")
             
             # Add user message to history
             logger.info(f"[HANDLER] Adding user message to history...")
@@ -1109,7 +1134,10 @@ class EasymartAssistantHandler:
                 metadata={
                     "intent": intent_str,
                     "entities": entities,
-                    "function_calls_made": len(llm_response.function_calls) if llm_response.function_calls else 0
+                    "function_calls_made": len(llm_response.function_calls) if llm_response.function_calls else 0,
+                    "context": topic_context.to_dict(),
+                    "user_preferences": session.metadata.get("user_preferences", {}),
+                    "topic_history": session.metadata.get("topic_history", [])
                 }
             )
             logger.info(f"[HANDLER] ✅ Response created with {len(response.products) if response.products else 0} products")

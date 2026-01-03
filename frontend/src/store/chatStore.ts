@@ -4,12 +4,20 @@ import { chatApi, type ChatResponse } from '@/lib/api';
 import { generateUUID } from '@/lib/utils';
 import { Message } from '@/lib/types';
 
+interface ConversationContext {
+  topic: string;
+  intent: string;
+  confidence: number;
+  preferences?: Record<string, any>;
+}
+
 interface ChatState {
   messages: Message[];
   sessionId: string;
   isLoading: boolean;
   isCartOpen: boolean;
   error: string | null;
+  currentContext: ConversationContext | null;
 
   // Actions
   sendMessage: (text: string) => Promise<void>;
@@ -28,6 +36,7 @@ export const useChatStore = create<ChatState>()(
       isLoading: false,
       isCartOpen: false,
       error: null,
+      currentContext: null,
 
       setCartOpen: (open: boolean) => set({ isCartOpen: open }),
       toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
@@ -81,9 +90,18 @@ export const useChatStore = create<ChatState>()(
             actions: response.actions,
           };
 
+          // Update context from metadata
+          const context = response.metadata?.context ? {
+            topic: response.metadata.context.topic,
+            intent: response.metadata.context.intent,
+            confidence: response.metadata.context.confidence,
+            preferences: response.metadata.context.preferences
+          } : null;
+
           set((state) => ({
             messages: [...state.messages, assistantMessage],
             isLoading: false,
+            currentContext: context,
           }));
           
             // Always refresh cart after chat messages (in case items were added via chat)
@@ -146,7 +164,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       clearMessages: () => {
-        set({ messages: [], sessionId: generateUUID(), error: null });
+        set({ messages: [], sessionId: generateUUID(), error: null, currentContext: null });
       },
 
       setError: (error: string | null) => {
