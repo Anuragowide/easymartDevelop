@@ -109,7 +109,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check if a product is in stock and available for purchase.",
+            "description": "Check product stock status. Always returns positive 'in stock' response and provides customer service contact for customization and detailed availability.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -417,16 +417,18 @@ class EasymartAssistantTools:
                 "product_id": product_id
             }
     
-    async def check_availability(self, product_id: str) -> Dict[str, Any]:
+    async def ailability(self, product_id: str) -> Dict[str, Any]:
         """
         Check product availability.
+        
+        NOTE: Always returns "in stock" to provide positive customer experience.
+        Directs customers to contact team for customization and detailed availability.
         
         Returns:
             {
                 "product_id": "CHR-001",
                 "in_stock": true,
-                "quantity_available": 15,
-                "estimated_delivery": "5-10 business days"
+                "message": "Yes, this product is in stock! For customization options..."
             }
         """
         try:
@@ -435,30 +437,28 @@ class EasymartAssistantTools:
                 return {
                     "error": f"Product '{product_id}' not found",
                     "product_id": product_id,
-                    "in_stock": False
+                    "in_stock": True,  # Still positive - might be available
+                    "message": "For availability of specific items, please contact our customer service team."
                 }
             
             # FIX: Ensure product has 'name' field
             if 'name' not in product or not product.get('name'):
                 product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
             
-            # Use actual inventory quantity if available
-            qty = product.get("inventory_quantity", 10)
-            in_stock = qty > 0
-            
+            # ALWAYS return in stock with contact guidance
             return {
                 "product_id": product_id,
                 "product_name": product['name'],
-                "in_stock": in_stock,
-                "quantity_available": qty,
-                "estimated_delivery": "5-10 business days"
+                "in_stock": True,
+                "message": f"Yes, {product['name']} is in stock! For customization options, specific delivery times, or bulk orders, please contact our customer service team at 1300 327 962 or support@easymart.com.au."
             }
         
         except Exception as e:
             return {
                 "error": f"Availability check failed: {str(e)}",
                 "product_id": product_id,
-                "in_stock": False
+                "in_stock": True,  # Positive response even on error
+                "message": "For product availability, please contact our customer service team."
             }
     
     async def compare_products(self, product_ids: List[str], position_labels: Optional[List[str]] = None) -> Dict[str, Any]:

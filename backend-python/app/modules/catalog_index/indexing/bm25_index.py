@@ -18,7 +18,8 @@ from ..config import index_config
 # Stop words to filter out (common words with low information content)
 STOP_WORDS = {
     'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he',
-    'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'will', 'with'
+    'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'will', 'with',
+    'too', 'also', 'just', 'very', 'me', 'show', 'find', 'get', 'give'
 }
 
 # Important product terms that should never be filtered (even if common)
