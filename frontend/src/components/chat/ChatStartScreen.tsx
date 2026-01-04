@@ -92,7 +92,7 @@ export function ChatStartScreen({
       <div className="mt-8 pt-6 border-t border-gray-200 w-full max-w-sm">
         <p className="text-xs text-gray-500 text-center mb-3">Quick start suggestions</p>
         <div className="flex flex-wrap gap-2 justify-center">
-          {["Show me chairs", "Browse sofas", "View desks"].map((suggestion) => (
+          {["Search for chairs", "Search for sofas", "Search for desks"].map((suggestion) => (
             <button
               key={suggestion}
               onClick={() => {

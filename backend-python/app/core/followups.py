@@ -11,83 +11,84 @@ class FollowupGenerator:
     """Generate contextual follow-up suggestions as chips"""
     
     # Follow-up templates based on intent
+    # All chips should be clear, actionable queries the LLM can understand
     FOLLOWUPS_BY_INTENT = {
         "product_search": {
             "with_results": [
                 "Tell me about option 1",
-                "Check availability",
+                "Is option 1 in stock?",
                 "Add option 1 to cart",
-                "Show similar products",
             ],
             "no_results": [
-                "Show me office chairs",
-                "Browse sofas",
-                "View desks",
+                "Search for office chairs",
+                "Search for sofas",
+                "Search for desks",
             ]
         },
         "product_spec_qa": [
-            "Add to cart",
-            "Check if in stock",
-            "Show similar products",
+            "Add this product to my cart",
+            "Check stock for this product",
+            "Find similar products",
         ],
         "check_availability": [
-            "Add to cart",
-            "Show similar products",
-            "View product details",
+            "Add this product to my cart",
+            "Find similar products",
+            "Search for office chairs",
         ],
         "cart_add": [
-            "View my cart",
-            "Continue shopping",
-            "Proceed to checkout",
+            "Show my cart",
+            "Search for more products",
+            "What's in my cart?",
         ],
         "cart_show": [
-            "Proceed to checkout",
-            "Continue shopping",
+            "Search for office chairs",
+            "Search for sofas",
+            "Clear my cart",
         ],
         "comparison": [
             "Add option 1 to cart",
             "Add option 2 to cart",
-            "Show more options",
+            "Tell me about option 1",
         ],
         "return_policy": [
-            "Shipping info",
-            "Contact support",
-            "Browse products",
+            "What is the shipping policy?",
+            "How do I contact support?",
+            "Search for office chairs",
         ],
         "shipping_info": [
-            "Return policy",
-            "Contact support",
-            "Browse products",
+            "What is the return policy?",
+            "How do I contact support?",
+            "Search for sofas",
         ],
         "contact_info": [
-            "Browse products",
-            "Return policy",
-            "Shipping info",
+            "Search for office chairs",
+            "What is the return policy?",
+            "What is the shipping policy?",
         ],
         "vague_query": [
-            "Show me office chairs",
-            "Browse sofas", 
-            "View desks",
+            "Search for office chairs",
+            "Search for sofas", 
+            "Search for desks",
         ],
         "clarification_needed": [
-            "Office chairs",
-            "Living room furniture",
-            "Bedroom furniture",
+            "Search for office chairs",
+            "Search for sofas",
+            "Search for bedroom furniture",
         ],
         "general": [
-            "Show me office chairs",
-            "Browse sofas",
-            "View desks",
+            "Search for office chairs",
+            "Search for sofas",
+            "Search for desks",
         ],
         "greeting": [
-            "Show me office chairs",
-            "Browse sofas",
-            "I need a desk",
+            "Search for office chairs",
+            "Search for sofas",
+            "Search for desks",
         ],
         "out_of_scope": [
-            "Show me office chairs",
-            "Browse sofas",
-            "View desks",
+            "Search for office chairs",
+            "Search for sofas",
+            "Search for desks",
         ],
     }
     
@@ -132,13 +133,26 @@ class FollowupGenerator:
                     specific_followups.append(f)
             followups = specific_followups
         
+        # Deduplicate followups (case-insensitive)
+        seen = set()
+        unique_followups = []
+        for f in followups:
+            f_lower = f.lower()
+            if f_lower not in seen:
+                seen.add(f_lower)
+                unique_followups.append(f)
+        followups = unique_followups
+        
         # Ensure we have exactly 3 followups with actionable suggestions
-        defaults = ["Show me office chairs", "Browse sofas", "View desks"]
+        defaults = ["Search for office chairs", "Search for sofas", "Search for desks"]
         while len(followups) < 3:
             for d in defaults:
-                if d not in followups and len(followups) < 3:
+                if d.lower() not in seen and len(followups) < 3:
                     followups.append(d)
+                    seen.add(d.lower())
                     break
+            else:
+                break  # No more defaults to add
         
         return followups[:3]  # Return max 3 followups
     
@@ -147,25 +161,25 @@ class FollowupGenerator:
         
         if is_returning and cart_count > 0:
             return [
-                f"View my cart ({cart_count})",
-                "Show me office chairs",
-                "Browse sofas",
+                "Show my cart",
+                "Search for office chairs",
+                "Search for sofas",
             ]
         else:
             return [
-                "Show me office chairs",
-                "Browse sofas",
-                "I need a desk",
+                "Search for office chairs",
+                "Search for sofas",
+                "Search for desks",
             ]
     
     def get_error_followups(self, error_type: str) -> List[str]:
         """Get follow-ups after an error"""
         
         error_followups = {
-            "search_empty": ["Show me office chairs", "Browse sofas", "View desks"],
-            "product_not_found": ["Show me office chairs", "Browse sofas", "View desks"],
-            "cart_error": ["Try again", "View cart", "Contact support"],
-            "default": ["Show me office chairs", "Browse sofas", "View desks"],
+            "search_empty": ["Search for office chairs", "Search for sofas", "Search for desks"],
+            "product_not_found": ["Search for office chairs", "Search for sofas", "Search for desks"],
+            "cart_error": ["Show my cart", "Search for office chairs", "How do I contact support?"],
+            "default": ["Search for office chairs", "Search for sofas", "Search for desks"],
         }
         
         return error_followups.get(error_type, error_followups["default"])

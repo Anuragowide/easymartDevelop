@@ -59,9 +59,12 @@ class IntentDetector:
             r'\b(show|view|see|check|open|display)\b.*\b(cart|basket|items)\b',
             r'\bwhat\'s in\b.*\b(cart|basket|my list)\b',
             r'\b(my cart|my basket|cart contents|view list)\b',
-            r'^view cart$',
-            r'^show cart$',
+            r'^view cart',  # Matches "view cart", "view cart (1)", etc.
+            r'^show cart',  # Matches "show cart", "show cart (2)", etc.
             r'^cart$',
+            r'view.*cart',  # General view cart pattern
+            r'show.*my.*cart',
+            r'what.*in.*cart',
         ],
         IntentType.CART_CLEAR: [
             r'\b(empty|clear|reset|delete|wipe)\b.*\b(cart|basket)\b',

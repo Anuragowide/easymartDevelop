@@ -526,6 +526,42 @@ class EasymartAssistantHandler:
                     }
                 )
             
+            # SHORTCUT: Handle cart view/show intent - no need for LLM
+            if intent_str == "cart_show" or (intent == IntentType.CART_SHOW):
+                logger.info("[HANDLER] Cart show intent detected, returning cart summary directly")
+                
+                cart_items = session.cart_items
+                if cart_items:
+                    total = sum(item.get('price', 0) * item.get('quantity', 1) for item in cart_items)
+                    item_lines = []
+                    for idx, item in enumerate(cart_items, 1):
+                        name = item.get('name') or item.get('title') or item.get('product_id', 'Item')
+                        qty = item.get('quantity', 1)
+                        price = item.get('price', 0)
+                        item_lines.append(f"• **{name}** × {qty} = ${price * qty:.2f}")
+                    
+                    assistant_message = f"**Your Cart ({len(cart_items)} item{'s' if len(cart_items) > 1 else ''}):**\n"
+                    assistant_message += "\n".join(item_lines)
+                    assistant_message += f"\n\n**Total: ${total:.2f}**\n\nWould you like to continue shopping or proceed to checkout?"
+                else:
+                    assistant_message = "Your cart is currently empty. Would you like to browse some products?"
+                
+                session.add_message("assistant", assistant_message)
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "cart_show",
+                        "entities": entities,
+                        "context": topic_context.to_dict(),
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
+                    }
+                )
+            
             # FORCE product_search intent for furniture-related queries
             furniture_keywords = [
                 "chair", "table", "desk", "sofa", "bed", "shelf", "locker", "stool",
@@ -808,9 +844,14 @@ class EasymartAssistantHandler:
                             msg_lower = original_message.lower()
                             
                             # Check if user explicitly mentioned a quantity number
+                            # IMPORTANT: Must NOT match "option 2", "item 3" etc. - those are product references!
                             explicit_qty_patterns = [
+                                # "2 units", "3 items", "5 pieces", "2 of these"
                                 r'\b(\d+)\s*(?:units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))',
-                                r'(?:add|get|want)\s+(\d+)\b',
+                                # "add 2 of" but NOT "add option 2" or "add 2 to cart" (where 2 is option number)
+                                r'(?:add|get|want|need|order)\s+(\d+)\s+(?:of|copies|more)',
+                                # "quantity 3", "qty: 2"
+                                r'(?:quantity|qty)[:\s]*(\d+)',
                             ]
                             explicit_qty = None
                             for pattern in explicit_qty_patterns:
@@ -819,12 +860,12 @@ class EasymartAssistantHandler:
                                     explicit_qty = int(match.group(1))
                                     break
                             
-                            # If no explicit quantity mentioned, force to 1
-                            # This prevents "this one" being interpreted as quantity 2
+                            # ALWAYS force quantity to 1 unless explicit quantity phrase found
+                            # This prevents "option 2", "this one", "add 2 to cart" confusion
                             if explicit_qty is None:
                                 func_call.arguments['quantity'] = 1
                                 if llm_qty != 1:
-                                    logger.warning(f"[HANDLER] Corrected cart quantity from {llm_qty} to 1 (no explicit qty in message)")
+                                    logger.warning(f"[HANDLER] Corrected cart quantity from {llm_qty} to 1 (no explicit qty phrase in: '{original_message}')")
                             else:
                                 func_call.arguments['quantity'] = explicit_qty
                                 logger.info(f"[HANDLER] Using explicit quantity: {explicit_qty}")
@@ -847,10 +888,24 @@ class EasymartAssistantHandler:
                         if product_num is None and session.last_shown_products and len(session.last_shown_products) == 1:
                             context_refs = ['this one', 'add it', 'add this', 'the product', 'that one', 
                                            'tell me', 'more info', 'details', 'detail', 'specs', 'specifications',
-                                           'about it', 'about this', 'more about']
+                                           'about it', 'about this', 'more about', 'is this in stock', 
+                                           'in stock', 'available', 'availability', 'this to cart']
                             if any(ref in original_message.lower() for ref in context_refs):
                                 product_num = 1
                                 logger.info(f"[HANDLER] Inferred product_num=1 from generic request with single product in session")
+                        
+                        # NEW: If user is asking about current product (from specs view)
+                        if product_num is None and session.current_product:
+                            context_refs = ['this one', 'add it', 'add this', 'the product', 'that one',
+                                           'is this in stock', 'in stock', 'available', 'availability', 
+                                           'this to cart', 'add this', 'it to cart']
+                            if any(ref in original_message.lower() for ref in context_refs):
+                                # Use current product directly
+                                current_id = session.current_product.get('id')
+                                if current_id:
+                                    func_call.arguments['product_id'] = current_id
+                                    logger.info(f"[HANDLER] Using current_product ID: '{current_id}' for {func_call.name}")
+                                    product_num = -1  # Mark as resolved via current_product
                         
                         # If still no product_num but multiple products shown and user wants details
                         if product_num is None and session.last_shown_products and len(session.last_shown_products) > 1:
@@ -872,8 +927,8 @@ class EasymartAssistantHandler:
                                     }
                                 )
                         
-                        # Correct product_id if we have a valid number
-                        if session.last_shown_products and product_num and 0 < product_num <= len(session.last_shown_products):
+                        # Correct product_id if we have a valid number (skip if already resolved via current_product)
+                        if product_num != -1 and session.last_shown_products and product_num and 0 < product_num <= len(session.last_shown_products):
                             correct_product = session.last_shown_products[product_num - 1]
                             correct_product_id = correct_product.get('id')
                             if correct_product_id:
@@ -881,9 +936,11 @@ class EasymartAssistantHandler:
                                 logger.info(f"[HANDLER] Corrected product_id to '{correct_product_id}' (option {product_num})")
                             else:
                                 logger.error(f"[ERROR] Product #{product_num} has no ID in session!")
-                        elif not session.last_shown_products:
+                        elif product_num == -1:
+                            pass  # Already resolved via current_product
+                        elif not session.last_shown_products and not session.current_product:
                             logger.error(f"[ERROR] No products in session - cannot correct ID")
-                        elif not product_num:
+                        elif not product_num and not session.current_product:
                             logger.error(f"[ERROR] Could not extract product number - cannot correct ID")
                     
                     elif func_call.name == 'compare_products':
@@ -910,6 +967,35 @@ class EasymartAssistantHandler:
                                 func_call.arguments['product_ids'] = corrected_ids
                                 # Store position labels for later formatting
                                 func_call.arguments['_position_labels'] = position_labels
+                    
+                    elif func_call.name == 'find_similar_products':
+                        # For similar products: auto-populate product_id and exclude already-shown products
+                        product_id = func_call.arguments.get('product_id', '')
+                        
+                        # If no product_id or invalid, use current_product or first from last_shown
+                        if not product_id or product_id in ['', 'unknown', 'UNKNOWN']:
+                            if session.current_product:
+                                product_id = session.current_product.get('id', '')
+                                logger.info(f"[HANDLER] Using current_product for similar search: {product_id}")
+                            elif session.last_shown_products:
+                                product_id = session.last_shown_products[0].get('id', '')
+                                logger.info(f"[HANDLER] Using first shown product for similar search: {product_id}")
+                        
+                        func_call.arguments['product_id'] = product_id
+                        
+                        # Collect all IDs to exclude (products already shown to user)
+                        exclude_ids = []
+                        if session.last_shown_products:
+                            exclude_ids = [p.get('id') for p in session.last_shown_products if p.get('id')]
+                        
+                        # Also exclude current_product if it's not in the list
+                        if session.current_product:
+                            curr_id = session.current_product.get('id')
+                            if curr_id and curr_id not in exclude_ids:
+                                exclude_ids.append(curr_id)
+                        
+                        func_call.arguments['exclude_ids'] = exclude_ids
+                        logger.info(f"[HANDLER] find_similar_products: product_id={product_id}, excluding {len(exclude_ids)} IDs")
                 
                 # Execute tools and get results
                 tool_results = await self._execute_function_calls(
@@ -1016,6 +1102,26 @@ class EasymartAssistantHandler:
                         else:
                             result_str = json.dumps(result)
                     
+                    elif tool_name == 'find_similar_products':
+                        # Format similar products like search results
+                        products = result.get('products', [])
+                        source_name = result.get('source_product_name', 'the selected product')
+                        if products:
+                            product_list = []
+                            for idx, p in enumerate(products):
+                                p_name = p.get('name') or p.get('title') or "Unknown Product"
+                                p_price = p.get('price', 0)
+                                p_id = p.get('id')
+                                product_list.append(f"{idx+1}. {p_name} (${p_price}) [ID: {p_id}]")
+                            
+                            result_str = f"Found {len(products)} products similar to {source_name}:\n" + "\n".join(product_list)
+                            
+                            # Update session with new products
+                            session.last_shown_products = products
+                            logger.info(f"[HANDLER] Updated session with {len(products)} similar products")
+                        else:
+                            result_str = f"No similar products found for {source_name}."
+                    
                     else:
                         # Other tools - use JSON
                         result_str = json.dumps(result)
@@ -1084,6 +1190,20 @@ class EasymartAssistantHandler:
                         "• **Recommendation**: based on user's needs\n"
                         "Use bullet points and bold for key info."
                     )
+                elif 'find_similar_products' in tool_names:
+                    similar_result = tool_results.get('find_similar_products', {})
+                    products = similar_result.get('products', [])
+                    if products:
+                        post_tool_instruction = (
+                            "Now respond to the user with ONLY a brief, professional 1-2 sentence intro about the similar products found. "
+                            "DO NOT list products - they will be displayed below your message as cards. "
+                            "DO NOT mention 'UI', 'screen', 'list', or 'display'. "
+                            "Example: 'Here are some similar products you might like!' or 'I found X more options in the same category.'"
+                        )
+                    else:
+                        post_tool_instruction = (
+                            "Apologize that no similar products were found. Suggest the user try a different search."
+                        )
                 else:
                     post_tool_instruction = "Respond briefly and professionally based on the tool results. Use **bold** for important info."
 
@@ -1167,6 +1287,19 @@ class EasymartAssistantHandler:
                 # ADDITIONAL VALIDATION: Block hallucinations after tool errors
                 if 'get_product_specs' in tool_results:
                     spec_result = tool_results['get_product_specs']
+                    
+                    # Set current product when user views specs (for follow-up questions)
+                    if not spec_result.get('error'):
+                        product_id = spec_result.get('product_id')
+                        product_name = spec_result.get('product_name')
+                        if product_id:
+                            session.current_product = {
+                                'id': product_id,
+                                'name': product_name,
+                                'price': spec_result.get('price'),
+                            }
+                            logger.info(f"[HANDLER] Set current_product to: {product_name} ({product_id})")
+                    
                     if 'error' in spec_result:
                         # Tool failed - check if LLM hallucinated anyway
                         has_price = re.search(r'\$\d+', assistant_message)
@@ -1262,6 +1395,9 @@ class EasymartAssistantHandler:
                     should_include_products = True
                 # For compare_products, include only the compared products
                 elif 'compare_products' in tool_names:
+                    should_include_products = True
+                # For find_similar_products, include the similar products found
+                elif 'find_similar_products' in tool_names:
                     should_include_products = True
             
             products_to_return = session.last_shown_products[:] if should_include_products else []

@@ -72,7 +72,7 @@ export const useChatStore = create<ChatState>()(
           sessionId: generateUUID(),
           hasInitialized: true,
           showStartScreen: false,
-          followupChips: ["Show me office chairs", "Browse sofas", "I need a desk"],
+          followupChips: ["Search for office chairs", "Search for sofas", "Search for desks"],
           error: null,
           currentContext: null,
         });
@@ -110,7 +110,7 @@ export const useChatStore = create<ChatState>()(
             messages: [welcomeMessage],
             hasInitialized: true,
             showStartScreen: false,
-            followupChips: ["Show me office chairs", "Browse sofas", "I need a desk"],
+            followupChips: ["Search for office chairs", "Search for sofas", "Search for desks"],
           });
         }
       },

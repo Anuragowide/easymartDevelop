@@ -232,6 +232,33 @@ TOOL_DEFINITIONS = [
                 "required": ["order_total"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_similar_products",
+            "description": "Find similar products in the same category as a given product. Use this when customer asks for alternatives, similar items, or 'show me more like this'. Returns different products than already shown.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Product SKU or ID to find similar products for"
+                    },
+                    "exclude_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of product IDs to exclude from results (already shown products)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of similar products to return (default: 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["product_id"]
+            }
+        }
     }
 ]
 
@@ -491,6 +518,124 @@ class EasymartAssistantTools:
                 "product_id": product_id,
                 "in_stock": False,
                 "message": "Unable to check availability. Please contact our customer service team for accurate stock information."
+            }
+    
+    async def find_similar_products(
+        self,
+        product_id: str,
+        exclude_ids: Optional[List[str]] = None,
+        limit: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Find similar products in the same category, excluding already shown products.
+        
+        Args:
+            product_id: Product SKU to find similar products for
+            exclude_ids: List of product IDs to exclude from results
+            limit: Maximum number of results
+            
+        Returns:
+            {
+                "products": [...],
+                "category": "office chairs",
+                "source_product": "product_name",
+                "total": 5
+            }
+        """
+        try:
+            # Get the source product to understand its category
+            source_product = await self.product_searcher.get_product(product_id)
+            if not source_product:
+                return {
+                    "error": f"Product '{product_id}' not found",
+                    "products": [],
+                    "total": 0
+                }
+            
+            source_name = source_product.get('name') or source_product.get('title') or 'Product'
+            
+            # Get tags/category from source product
+            tags = source_product.get('tags', [])
+            vendor = source_product.get('vendor', '')
+            
+            # Build a search query based on product characteristics
+            # Extract category from tags or title
+            category_keywords = []
+            
+            # Common furniture categories to look for
+            furniture_types = ['chair', 'desk', 'table', 'sofa', 'bed', 'shelf', 'cabinet', 
+                              'locker', 'stool', 'bench', 'bookcase', 'drawer', 'storage']
+            
+            title_lower = source_name.lower()
+            for ftype in furniture_types:
+                if ftype in title_lower:
+                    category_keywords.append(ftype)
+                    break
+            
+            # Also check tags
+            if tags:
+                for tag in tags:
+                    tag_lower = tag.lower()
+                    for ftype in furniture_types:
+                        if ftype in tag_lower:
+                            category_keywords.append(ftype)
+                            break
+            
+            # Build search query
+            if category_keywords:
+                search_query = category_keywords[0] + 's'  # pluralize
+            else:
+                # Fallback: use first few words of product name
+                words = source_name.split()[:3]
+                search_query = ' '.join(words)
+            
+            # Search for similar products
+            results = await self.product_searcher.search(
+                query=search_query,
+                limit=limit + 10  # Get extra to account for exclusions
+            )
+            
+            # Build exclusion set
+            exclude_set = set(exclude_ids or [])
+            exclude_set.add(product_id)  # Always exclude the source product
+            
+            # Filter out excluded products
+            similar_products = []
+            for product in results:
+                pid = product.get('sku') or product.get('id')
+                if pid and pid not in exclude_set:
+                    # Ensure product has name
+                    if not product.get("name") or product.get("name", "").startswith("product_"):
+                        product["name"] = product.get("title") or product.get("description", f"Product")
+                    
+                    product["id"] = pid
+                    similar_products.append(product)
+                    
+                    if len(similar_products) >= limit:
+                        break
+            
+            if not similar_products:
+                return {
+                    "products": [],
+                    "category": search_query,
+                    "source_product": source_name,
+                    "total": 0,
+                    "message": f"No similar products found for {source_name}. Try searching for a different category."
+                }
+            
+            return {
+                "products": similar_products,
+                "category": search_query,
+                "source_product": source_name,
+                "total": len(similar_products),
+                "message": f"Found {len(similar_products)} products similar to {source_name}"
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Failed to find similar products: {str(e)}",
+                "products": [],
+                "total": 0
             }
     
     async def compare_products(self, product_ids: List[str], position_labels: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -970,6 +1115,7 @@ async def execute_tool(
         "search_products": tools_instance.search_products,
         "get_product_specs": tools_instance.get_product_specs,
         "check_availability": tools_instance.check_availability,
+        "find_similar_products": tools_instance.find_similar_products,
         "compare_products": tools_instance.compare_products,
         "update_cart": tools_instance.update_cart,
         "get_policy_info": tools_instance.get_policy_info,

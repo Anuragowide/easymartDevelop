@@ -32,6 +32,7 @@ class SessionContext:
     
     # Product context (for references)
     last_shown_products: List[Dict[str, Any]] = field(default_factory=list)  # Up to 10
+    current_product: Optional[Dict[str, Any]] = None  # The product user is currently asking about
     
     # Cart state (if managing locally, otherwise from Node.js)
     cart_items: List[Dict[str, Any]] = field(default_factory=list)
