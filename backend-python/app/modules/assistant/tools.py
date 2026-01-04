@@ -324,6 +324,21 @@ class EasymartAssistantTools:
                 limit=min(limit, 10)
             )
             
+            # Handle "no color match" response from searcher
+            if isinstance(results, dict) and results.get("no_color_match"):
+                requested_color = results.get("requested_color", color)
+                available = results.get("available_colors", [])
+                available_str = ", ".join(available) if available else "various colors"
+                return {
+                    "products": [],
+                    "total": 0,
+                    "showing": 0,
+                    "no_color_match": True,
+                    "requested_color": requested_color,
+                    "available_colors": available,
+                    "message": f"Sorry, we don't have {query} in {requested_color}. Available colors: {available_str}. Would you like to see products in one of these colors instead?"
+                }
+            
             # SORTING: Handle price_low, price_high
             if sort_by == "price_low":
                 results.sort(key=lambda x: x.get("price", 0))

@@ -119,6 +119,28 @@ class ProductSearcher:
                     filters["price_max"] = float(match.group(1))
                     break
         
+        # Track available colors before filtering (for "no color match" feedback)
+        available_colors = set()
+        requested_color = filters.get("color") if filters else None
+        if requested_color:
+            for product in formatted_results:
+                # Extract colors from tags (may be list or JSON string)
+                tags = product.get("tags", [])
+                if isinstance(tags, str):
+                    # Parse JSON string like '["Color_Black", "Color_White"]'
+                    import json
+                    try:
+                        tags = json.loads(tags)
+                    except:
+                        tags = []
+                
+                for tag in tags:
+                    tag_lower = tag.lower()
+                    if tag_lower.startswith("color_"):
+                        available_colors.add(tag_lower.replace("color_", "").title())
+                    elif tag_lower in COLOR_KEYWORDS:
+                        available_colors.add(tag_lower.title())
+        
         if filters:
             formatted_results = self._apply_filters(formatted_results, filters)
         
@@ -132,7 +154,29 @@ class ProductSearcher:
         
         self._cache[cache_key] = final_results
         
+        # If color filter applied but no results, return available colors info
+        if requested_color and len(final_results) == 0 and available_colors:
+            return {
+                "products": [],
+                "total": 0,
+                "requested_color": requested_color,
+                "available_colors": sorted(list(available_colors)),
+                "no_color_match": True
+            }
+        
         return final_results
+    
+    def _parse_tags(self, tags) -> List[str]:
+        """Parse tags - handle both list and JSON string formats"""
+        if isinstance(tags, list):
+            return tags
+        if isinstance(tags, str):
+            import json
+            try:
+                return json.loads(tags)
+            except:
+                return []
+        return []
     
     def _apply_filters(
         self, 
@@ -162,6 +206,10 @@ class ProductSearcher:
                 if product.get("vendor", "").lower() != filters["vendor"].lower():
                     continue
             
+            # Parse tags once for all tag-based filters
+            prod_tags = self._parse_tags(product.get("tags", []))
+            prod_tags_lower = [t.lower() for t in prod_tags]
+            
             # Category filter (strict or loose)
             if "category" in filters:
                 target_cat = filters["category"].lower()
@@ -172,8 +220,8 @@ class ProductSearcher:
                 found_cat = (
                     target_cat in prod_cat or
                     target_cat in prod_type or
-                    any(target_cat in tag.lower() for tag in product.get("tags", [])) or
-                    f"Category_{target_cat}" in [t.lower() for t in product.get("tags", [])]
+                    any(target_cat in tag for tag in prod_tags_lower) or
+                    f"category_{target_cat}" in prod_tags_lower
                 )
                 if not found_cat:
                     continue
@@ -183,15 +231,14 @@ class ProductSearcher:
                 target_color = filters["color"].lower()
                 # Check tags for "Color_Red" format or simple "Red"
                 # Also check description for mentions of the color
-                prod_tags = [t.lower() for t in product.get("tags", [])]
                 prod_desc = (product.get("description") or "").lower()
                 prod_title = (product.get("name") or "").lower()
                 
                 # More flexible matching - check if color appears anywhere
                 found_color = (
-                    target_color in prod_tags or
-                    f"color_{target_color}" in prod_tags or
-                    f"colour_{target_color}" in prod_tags or
+                    target_color in prod_tags_lower or
+                    f"color_{target_color}" in prod_tags_lower or
+                    f"colour_{target_color}" in prod_tags_lower or
                     target_color in prod_title or  # Strong signal if in title
                     target_color in prod_desc  # More flexible desc matching
                 )
@@ -201,12 +248,11 @@ class ProductSearcher:
             # Material filter
             if "material" in filters:
                 target_mat = filters["material"].lower()
-                prod_tags = [t.lower() for t in product.get("tags", [])]
                 prod_desc = (product.get("description") or "").lower()
                 
                 found_mat = (
-                    target_mat in prod_tags or
-                    f"material_{target_mat}" in prod_tags or
+                    target_mat in prod_tags_lower or
+                    f"material_{target_mat}" in prod_tags_lower or
                     target_mat in prod_desc
                 )
                 if not found_mat:
@@ -215,12 +261,11 @@ class ProductSearcher:
             # Style filter
             if "style" in filters:
                 target_style = filters["style"].lower()
-                prod_tags = [t.lower() for t in product.get("tags", [])]
                 prod_desc = (product.get("description") or "").lower()
                 
                 found_style = (
-                    target_style in prod_tags or
-                    f"style_{target_style}" in prod_tags or
+                    target_style in prod_tags_lower or
+                    f"style_{target_style}" in prod_tags_lower or
                     target_style in prod_desc
                 )
                 if not found_style:
@@ -229,12 +274,11 @@ class ProductSearcher:
             # Room Type filter
             if "room_type" in filters:
                 target_room = filters["room_type"].lower().replace("_", " ") # office_chair -> office chair
-                prod_tags = [t.lower() for t in product.get("tags", [])]
                 prod_desc = (product.get("description") or "").lower()
                 
                 found_room = (
-                    target_room in prod_tags or
-                    target_room.replace(" ", "_") in prod_tags or
+                    target_room in prod_tags_lower or
+                    target_room.replace(" ", "_") in prod_tags_lower or
                     target_room in prod_desc
                 )
                 if not found_room:
@@ -242,9 +286,9 @@ class ProductSearcher:
 
             # Generic Tags filter (preserved)
             if "tags" in filters:
-                product_tags = set(tag.lower() for tag in product.get("tags", []))
+                product_tags_set = set(prod_tags_lower)
                 filter_tags = set(tag.lower() for tag in filters["tags"])
-                if not filter_tags.intersection(product_tags):
+                if not filter_tags.intersection(product_tags_set):
                     continue
             
             # In Stock filter
