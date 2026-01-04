@@ -36,6 +36,7 @@ class MessageResponse(BaseModel):
     products: Optional[List[Dict[str, Any]]] = Field(default=None, description="Product results if applicable")
     actions: Optional[List[Dict[str, Any]]] = Field(default=None, description="System actions to execute (e.g., add_to_cart)")
     suggested_actions: Optional[List[str]] = Field(default=None, description="Suggested follow-up actions")
+    followup_chips: Optional[List[str]] = Field(default=None, description="Follow-up suggestion chips to display above input")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional response metadata")
     
     model_config = {
@@ -46,6 +47,7 @@ class MessageResponse(BaseModel):
                 "intent": "product_search",
                 "products": [{"sku": "WALLET-001", "title": "Classic Leather Wallet"}],
                 "suggested_actions": ["View details", "Add to cart"],
+                "followup_chips": ["Tell me about option 1", "Compare options", "Filter by price"],
                 "metadata": {"search_time_ms": 45}
             }
         }

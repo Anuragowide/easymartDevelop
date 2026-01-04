@@ -2,14 +2,28 @@
 
 import { MessageInputProps } from '@/lib/types';
 import { useState, KeyboardEvent } from 'react';
+import { useChatStore } from '@/store/chatStore';
 
-export function MessageInput({ onSend, isLoading, disabled = false }: MessageInputProps) {
+interface ExtendedMessageInputProps extends MessageInputProps {
+  followupChips?: string[];
+}
+
+export function MessageInput({ onSend, isLoading, disabled = false }: ExtendedMessageInputProps) {
   const [input, setInput] = useState('');
+  const { followupChips, clearFollowupChips } = useChatStore();
 
   const handleSend = () => {
     if (input.trim() && !isLoading) {
+      clearFollowupChips(); // Clear chips when user sends a message
       onSend(input.trim());
       setInput('');
+    }
+  };
+
+  const handleChipClick = (chip: string) => {
+    if (!isLoading) {
+      clearFollowupChips(); // Clear chips when chip is clicked
+      onSend(chip);
     }
   };
 
@@ -24,6 +38,28 @@ export function MessageInput({ onSend, isLoading, disabled = false }: MessageInp
 
   return (
     <div className="border-t-2 border-gray-100 bg-white px-4 py-4">
+      {/* Follow-up Chips */}
+      {followupChips && followupChips.length > 0 && !isLoading && (
+        <div className="flex flex-wrap gap-2 mb-3 animate-fadeIn">
+          {followupChips.map((chip, index) => (
+            <button
+              key={index}
+              onClick={() => handleChipClick(chip)}
+              disabled={isDisabled}
+              className="px-3 py-1.5 text-sm font-medium bg-gradient-to-r from-red-50 to-pink-50 
+                         text-red-600 border border-red-200 rounded-full
+                         hover:from-red-100 hover:to-pink-100 hover:border-red-300
+                         transition-all duration-200 hover:shadow-sm
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         active:scale-95"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input Area */}
       <div className="flex items-end gap-2">
         <textarea
           value={input}
@@ -53,8 +89,6 @@ export function MessageInput({ onSend, isLoading, disabled = false }: MessageInp
           )}
         </button>
       </div>
-
-
     </div>
   );
 }

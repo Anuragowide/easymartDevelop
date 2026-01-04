@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 from app.core.schemas import MessageRequest, MessageResponse, ErrorResponse
 from app.core.dependencies import get_session_id
 from app.core.exceptions import EasymartException
+from app.core.rate_limiter import check_rate_limit
+from app.core.analytics import get_analytics
+from app.core.error_recovery import get_error_recovery
+from app.core.followups import get_followup_generator
 from app.modules.assistant import get_assistant_handler, AssistantRequest
 from app.modules.assistant.session_store import get_session_store
 from datetime import datetime
@@ -21,23 +25,29 @@ router = APIRouter(prefix="/assistant", tags=["Assistant"])
 
 @router.post("/message", response_model=MessageResponse)
 async def handle_message(
-    request: MessageRequest
+    request: MessageRequest,
+    raw_request: Request,
+    _: None = Depends(check_rate_limit)  # Rate limiting
 ):
     """
     Main assistant endpoint with Easymart AI integration.
     
     Processes user message through:
-    1. Session management
-    2. Intent detection
-    3. LLM-based conversation (Mistral-7B)
-    4. Function calling (8 tools)
-    5. Response generation
+    1. Rate limiting check
+    2. Session management
+    3. Intent detection
+    4. LLM-based conversation (Mistral-7B)
+    5. Function calling (8 tools)
+    6. Response generation with follow-up chips
     
     Returns:
-        MessageResponse with assistant message, products, cart summary
+        MessageResponse with assistant message, products, cart summary, follow-up chips
     """
     
     start_time = time.time()
+    analytics = get_analytics()
+    error_recovery = get_error_recovery()
+    followup_gen = get_followup_generator()
     
     try:
         # Get assistant handler
@@ -53,20 +63,45 @@ async def handle_message(
         # Handle message
         assistant_response = await handler.handle_message(assistant_request)
         
+        # Calculate response time
+        response_time_ms = (time.time() - start_time) * 1000
+        
         # Extract intent from metadata
         intent = assistant_response.metadata.get("intent", "general_query")
+        
+        # Get session for cart count
+        session_store = get_session_store()
+        session = session_store.get_or_create_session(assistant_response.session_id)
+        cart_count = len(session.cart_items) if session.cart_items else 0
+        
+        # Generate follow-up chips based on context
+        products_count = len(assistant_response.products) if assistant_response.products else 0
+        followup_chips = followup_gen.generate_followups(
+            intent=intent,
+            products_count=products_count,
+            cart_count=cart_count,
+            context={"query": request.message}
+        )
+        
+        # Track analytics
+        analytics.track_request(
+            session_id=request.session_id,
+            intent=intent,
+            query=request.message,
+            response_time_ms=response_time_ms,
+            products_returned=products_count,
+            success=True
+        )
         
         # Build suggested actions based on intent
         suggested_actions = _get_suggested_actions(intent, assistant_response.products)
         
         # Check if there was a cart action
-        session_store = get_session_store()
-        session = session_store.get_or_create_session(assistant_response.session_id)
         cart_action = session.metadata.get("last_cart_action")
         
-        # Store cart action in metadata instead of suggested_actions
+        # Store cart action in metadata
         response_metadata = {
-            "processing_time_ms": 0,  # Will be updated below
+            "processing_time_ms": round(response_time_ms, 2),
             "timestamp": datetime.utcnow().isoformat(),
             "function_calls": assistant_response.metadata.get("function_calls_made", 0),
         }
@@ -75,7 +110,9 @@ async def handle_message(
         actions = []
         if cart_action:
             actions.append(cart_action)
-            # Clear the cart action after including it
+            # Track cart action
+            if cart_action.get("type") == "add_to_cart":
+                analytics.track_cart_action("add", cart_action.get("data", {}).get("product_id", ""))
             session.metadata.pop("last_cart_action", None)
         
         # Debug: Log products being returned
@@ -108,10 +145,17 @@ async def handle_message(
             products=products_list if products_list else None,
             actions=actions if actions else None,
             suggested_actions=suggested_actions,
+            followup_chips=followup_chips,
             metadata=response_metadata
         )
         
     except EasymartException as e:
+        # Track error
+        analytics.track_error("easymart_exception", str(e))
+        
+        # Get recovery response
+        recovery = error_recovery.handle_error("tool_failure", {"query": request.message})
+        
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(
@@ -125,6 +169,10 @@ async def handle_message(
         import traceback
         error_detail = traceback.format_exc()
         logger.error(f"Error handling message: {str(e)}\n{error_detail}")
+        
+        # Track error
+        analytics.track_error("internal_error", str(e))
+        
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(
@@ -238,16 +286,38 @@ async def get_greeting(session_id: str = Depends(get_session_id)):
     """
     try:
         handler = get_assistant_handler()
+        followup_gen = get_followup_generator()
+        analytics = get_analytics()
+        
+        # Track session start
+        analytics.track_session_start(session_id)
+        
         response = await handler.get_greeting(session_id=session_id)
+        
+        # Get welcome followups
+        followup_chips = followup_gen.get_welcome_followups(is_returning=False, cart_count=0)
         
         return {
             "session_id": response.session_id,
             "message": response.message,
-            "suggested_actions": ["Search products", "View policies", "Contact us", "Get shipping info"]
+            "suggested_actions": ["Search products", "View policies", "Contact us", "Get shipping info"],
+            "followup_chips": followup_chips
         }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting greeting: {str(e)}")
+
+
+@router.get("/analytics")
+async def get_analytics_dashboard():
+    """
+    Get analytics dashboard metrics (for admin/monitoring).
+    """
+    try:
+        analytics = get_analytics()
+        return analytics.get_dashboard_metrics()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting analytics: {str(e)}")
 
 
 @router.post("/cart")

@@ -78,6 +78,8 @@ export interface ChatResponse {
   replyText: string;
   actions?: MessageAction[];
   sessionId: string;
+  followupChips?: string[];
+  metadata?: Record<string, any>;
 }
 
 export interface ApiError {

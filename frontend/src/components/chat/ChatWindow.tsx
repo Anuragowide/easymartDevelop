@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { CartView } from './CartView';
@@ -8,7 +9,12 @@ import { ContextIndicator } from './ContextIndicator';
 import { useChatStore } from '@/store/chatStore';
 
 export function ChatWindow() {
-  const { messages, isLoading, sendMessage, isCartOpen, currentContext } = useChatStore();
+  const { messages, isLoading, sendMessage, isCartOpen, currentContext, initializeChat } = useChatStore();
+
+  // Initialize chat with welcome message on mount
+  useEffect(() => {
+    initializeChat();
+  }, [initializeChat]);
 
   const handleSendMessage = async (content: string) => {
     await sendMessage(content);

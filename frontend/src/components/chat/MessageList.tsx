@@ -115,23 +115,6 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {/* Welcome Message - Removed "Try asking me:" section */}
-      {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full text-center px-4">
-          <div className="w-24 h-24 bg-gradient-to-br from-red-500 to-pink-500 rounded-full mb-6 flex items-center justify-center shadow-lg">
-            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-          </div>
-          <h3 className="text-3xl font-bold bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent mb-3">
-            Welcome to EasyMart! 👋
-          </h3>
-          <p className="text-gray-700 text-lg max-w-md leading-relaxed">
-            I'm your AI shopping assistant. I can help you find furniture, answer questions, and manage your cart.
-          </p>
-        </div>
-      )}
-
       {/* Messages */}
       {messages.map((message) => (
         <div

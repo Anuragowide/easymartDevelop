@@ -18,6 +18,8 @@ interface ChatState {
   isCartOpen: boolean;
   error: string | null;
   currentContext: ConversationContext | null;
+  followupChips: string[];
+  hasInitialized: boolean;
 
   // Actions
   sendMessage: (text: string) => Promise<void>;
@@ -26,6 +28,8 @@ interface ChatState {
   setError: (error: string | null) => void;
   setCartOpen: (open: boolean) => void;
   toggleCart: () => void;
+  clearFollowupChips: () => void;
+  initializeChat: () => void;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -37,9 +41,32 @@ export const useChatStore = create<ChatState>()(
       isCartOpen: false,
       error: null,
       currentContext: null,
+      followupChips: [],
+      hasInitialized: false,
 
       setCartOpen: (open: boolean) => set({ isCartOpen: open }),
       toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
+      clearFollowupChips: () => set({ followupChips: [] }),
+
+      initializeChat: () => {
+        const { messages, hasInitialized } = get();
+        
+        // Only initialize once per session and if no messages exist
+        if (hasInitialized || messages.length > 0) return;
+        
+        const welcomeMessage: Message = {
+          id: generateUUID(),
+          role: 'assistant',
+          content: "Welcome to EasyMart! 👋 I'm your AI shopping assistant. I can help you find furniture, answer questions about products, and manage your cart. What are you looking for today?",
+          timestamp: new Date().toISOString(),
+        };
+        
+        set({
+          messages: [welcomeMessage],
+          hasInitialized: true,
+          followupChips: ["Show me office chairs", "Browse sofas", "I need a desk"],
+        });
+      },
 
       sendMessage: async (text: string) => {
         const { sessionId, messages } = get();
@@ -98,10 +125,14 @@ export const useChatStore = create<ChatState>()(
             preferences: response.metadata.context.preferences
           } : null;
 
+          // Get followup chips from response
+          const followupChips = response.followupChips || [];
+
           set((state) => ({
             messages: [...state.messages, assistantMessage],
             isLoading: false,
             currentContext: context,
+            followupChips: followupChips,
           }));
           
             // Always refresh cart after chat messages (in case items were added via chat)
@@ -164,7 +195,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       clearMessages: () => {
-        set({ messages: [], sessionId: generateUUID(), error: null, currentContext: null });
+        set({ messages: [], sessionId: generateUUID(), error: null, currentContext: null, hasInitialized: false, followupChips: [] });
       },
 
       setError: (error: string | null) => {
@@ -176,6 +207,7 @@ export const useChatStore = create<ChatState>()(
       partialize: (state) => ({
         messages: state.messages,
         sessionId: state.sessionId,
+        hasInitialized: state.hasInitialized,
       }),
     }
   )

@@ -11,6 +11,8 @@ interface AssistantResponse {
   replyText: string;
   actions?: any[];
   context?: any;
+  followupChips?: string[];
+  metadata?: Record<string, any>;
 }
 
 class PythonAssistantClient {
@@ -133,12 +135,14 @@ class PythonAssistantClient {
       const transformedResponse: AssistantResponse = {
         replyText: response.data.message,
         actions: transformedActions,  // Use transformed actions
+        followupChips: response.data.followup_chips || [],  // Pass through followup chips
         context: {
           sessionId: response.data.session_id,
           intent: response.data.intent,
           products: transformedProducts,  // keep for context
           metadata: response.data.metadata, // Pass metadata too
         },
+        metadata: response.data.metadata,  // Also at top level for easy access
       };
 
       return transformedResponse;
