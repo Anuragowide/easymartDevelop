@@ -20,6 +20,7 @@ interface ChatState {
   currentContext: ConversationContext | null;
   followupChips: string[];
   hasInitialized: boolean;
+  showStartScreen: boolean;
 
   // Actions
   sendMessage: (text: string) => Promise<void>;
@@ -30,6 +31,9 @@ interface ChatState {
   toggleCart: () => void;
   clearFollowupChips: () => void;
   initializeChat: () => void;
+  startNewChat: () => void;
+  continuePreviousChat: () => void;
+  checkForPreviousSession: () => boolean;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -43,17 +47,19 @@ export const useChatStore = create<ChatState>()(
       currentContext: null,
       followupChips: [],
       hasInitialized: false,
+      showStartScreen: true,
 
       setCartOpen: (open: boolean) => set({ isCartOpen: open }),
       toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
       clearFollowupChips: () => set({ followupChips: [] }),
 
-      initializeChat: () => {
-        const { messages, hasInitialized } = get();
-        
-        // Only initialize once per session and if no messages exist
-        if (hasInitialized || messages.length > 0) return;
-        
+      checkForPreviousSession: () => {
+        const { messages } = get();
+        // Has previous session if there are user messages (not just welcome)
+        return messages.some(m => m.role === 'user');
+      },
+
+      startNewChat: () => {
         const welcomeMessage: Message = {
           id: generateUUID(),
           role: 'assistant',
@@ -63,9 +69,50 @@ export const useChatStore = create<ChatState>()(
         
         set({
           messages: [welcomeMessage],
+          sessionId: generateUUID(),
           hasInitialized: true,
+          showStartScreen: false,
           followupChips: ["Show me office chairs", "Browse sofas", "I need a desk"],
+          error: null,
+          currentContext: null,
         });
+      },
+
+      continuePreviousChat: () => {
+        set({
+          showStartScreen: false,
+          hasInitialized: true,
+        });
+      },
+
+      initializeChat: () => {
+        const { messages, hasInitialized, showStartScreen } = get();
+        
+        // If already initialized and not showing start screen, do nothing
+        if (hasInitialized && !showStartScreen) return;
+        
+        // Check if there's a previous session with user messages
+        const hasPreviousSession = messages.some(m => m.role === 'user');
+        
+        if (hasPreviousSession) {
+          // Show start screen to let user choose
+          set({ showStartScreen: true });
+        } else {
+          // No previous session, start fresh automatically
+          const welcomeMessage: Message = {
+            id: generateUUID(),
+            role: 'assistant',
+            content: "Welcome to EasyMart! 👋 I'm your AI shopping assistant. I can help you find furniture, answer questions about products, and manage your cart. What are you looking for today?",
+            timestamp: new Date().toISOString(),
+          };
+          
+          set({
+            messages: [welcomeMessage],
+            hasInitialized: true,
+            showStartScreen: false,
+            followupChips: ["Show me office chairs", "Browse sofas", "I need a desk"],
+          });
+        }
       },
 
       sendMessage: async (text: string) => {
@@ -195,7 +242,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       clearMessages: () => {
-        set({ messages: [], sessionId: generateUUID(), error: null, currentContext: null, hasInitialized: false, followupChips: [] });
+        set({ messages: [], sessionId: generateUUID(), error: null, currentContext: null, hasInitialized: false, followupChips: [], showStartScreen: false });
       },
 
       setError: (error: string | null) => {
@@ -207,7 +254,7 @@ export const useChatStore = create<ChatState>()(
       partialize: (state) => ({
         messages: state.messages,
         sessionId: state.sessionId,
-        hasInitialized: state.hasInitialized,
+        // Don't persist hasInitialized or showStartScreen - always show start screen on reload if there's history
       }),
     }
   )
