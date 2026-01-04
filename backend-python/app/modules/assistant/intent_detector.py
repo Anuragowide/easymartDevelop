@@ -70,6 +70,9 @@ class IntentDetector:
             r'\b(empty|clear|reset|delete|wipe)\b.*\b(cart|basket)\b',
             r'^empty my cart$',
             r'^clear cart$',
+            r'^clear my cart$',
+            r'clear.*my.*cart',
+            r'empty.*my.*cart',
         ],
         IntentType.RETURN_POLICY: [
             r'\b(return|refund|exchange)\b.*\b(policy|process|procedure)\b',

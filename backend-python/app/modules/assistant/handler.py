@@ -573,6 +573,43 @@ class EasymartAssistantHandler:
                     }
                 )
             
+            # SHORTCUT: Handle cart clear intent - no need for LLM
+            if intent_str == "cart_clear" or (intent == IntentType.CART_CLEAR):
+                logger.info("[HANDLER] Cart clear intent detected, clearing cart directly")
+                
+                # Use the tools to clear cart
+                from .tools import get_assistant_tools
+                tools = get_assistant_tools()
+                clear_result = await tools.update_cart(
+                    action="clear",
+                    session_id=session.session_id
+                )
+                
+                if clear_result.get("success"):
+                    assistant_message = "Your cart has been cleared. Would you like to start fresh and browse some products?"
+                else:
+                    assistant_message = "I had trouble clearing your cart. Please try again."
+                
+                session.add_message("assistant", assistant_message)
+                
+                # Track cart action for frontend
+                session.metadata["last_cart_action"] = {"type": "clear_cart"}
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "cart_clear",
+                        "entities": entities,
+                        "context": topic_context.to_dict(),
+                        "cart_action": {"type": "clear_cart"},
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
+                    }
+                )
+            
             # FORCE product_search intent for furniture-related queries
             furniture_keywords = [
                 "chair", "table", "desk", "sofa", "bed", "shelf", "locker", "stool",
