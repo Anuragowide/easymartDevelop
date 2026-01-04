@@ -530,15 +530,26 @@ class EasymartAssistantHandler:
             if intent_str == "cart_show" or (intent == IntentType.CART_SHOW):
                 logger.info("[HANDLER] Cart show intent detected, returning cart summary directly")
                 
-                cart_items = session.cart_items
+                # Use the tools to get cart state with full product details
+                from .tools import get_assistant_tools
+                tools = get_assistant_tools()
+                cart_result = await tools.update_cart(
+                    action="view",
+                    session_id=session.session_id
+                )
+                
+                cart_state = cart_result.get("cart", {})
+                cart_items = cart_state.get("items", [])
+                
                 if cart_items:
-                    total = sum(item.get('price', 0) * item.get('quantity', 1) for item in cart_items)
+                    total = cart_state.get("total", 0)
                     item_lines = []
-                    for idx, item in enumerate(cart_items, 1):
+                    for item in cart_items:
                         name = item.get('name') or item.get('title') or item.get('product_id', 'Item')
                         qty = item.get('quantity', 1)
                         price = item.get('price', 0)
-                        item_lines.append(f"• **{name}** × {qty} = ${price * qty:.2f}")
+                        item_total = item.get('item_total', price * qty)
+                        item_lines.append(f"• **{name}** × {qty} = ${item_total:.2f}")
                     
                     assistant_message = f"**Your Cart ({len(cart_items)} item{'s' if len(cart_items) > 1 else ''}):**\n"
                     assistant_message += "\n".join(item_lines)
