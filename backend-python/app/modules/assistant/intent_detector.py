@@ -638,36 +638,59 @@ class IntentDetector:
         merged = original_entities.copy()
         clarification_lower = clarification_message.lower().strip()
         
-        # Extract category from clarification
-        categories = {
-            "chair": ["chair", "chairs", "seating"],
-            "table": ["table", "tables", "desk", "desks"],
-            "sofa": ["sofa", "sofas", "couch", "couches"],
-            "bed": ["bed", "beds", "mattress"],
-            "shelf": ["shelf", "shelves", "shelving", "bookcase"],
-            "stool": ["stool", "stools", "bar stool"],
-            "locker": ["locker", "lockers", "cabinet", "cabinets"],
-            "storage": ["storage", "wardrobe", "dresser"]
-        }
+        # Extract category from clarification - BUT DON'T overwrite if already set
+        if "category" not in merged:
+            categories = {
+                "chair": ["chair", "chairs", "seating"],
+                "table": ["table", "tables"],
+                "desk": ["desk", "desks"],
+                "sofa": ["sofa", "sofas", "couch", "couches"],
+                "bed": ["bed", "beds", "mattress"],
+                "shelf": ["shelf", "shelves", "shelving", "bookcase"],
+                "stool": ["stool", "stools", "bar stool"],
+                "locker": ["locker", "lockers"],
+                "cabinet": ["cabinet", "cabinets"],
+                "storage": ["storage", "wardrobe", "dresser"]
+            }
+            
+            for cat, keywords in categories.items():
+                if any(kw in clarification_lower for kw in keywords):
+                    merged["category"] = cat
+                    break
         
-        for cat, keywords in categories.items():
-            if any(kw in clarification_lower for kw in keywords):
-                merged["category"] = cat
-                break
-        
-        # Extract room type
+        # Extract room type - use word boundaries to avoid "bedroom" matching "bed"
         rooms = {
-            "office": ["office", "workspace", "study"],
-            "bedroom": ["bedroom", "bed room"],
-            "living_room": ["living room", "lounge"],
-            "dining_room": ["dining room", "dining"],
-            "outdoor": ["outdoor", "patio", "garden"]
+            "office": [r"\boffice\b", r"\bworkspace\b", r"\bstudy\b"],
+            "bedroom": [r"\bbedroom\b", r"\bbed room\b"],
+            "living_room": [r"\bliving room\b", r"\blounge\b"],
+            "dining_room": [r"\bdining room\b", r"\bdining\b"],
+            "outdoor": [r"\boutdoor\b", r"\bpatio\b", r"\bgarden\b", r"\bbackyard\b"],
+            "gym": [r"\bgym\b", r"\bfitness\b", r"\bexercise\b", r"\bworkout\b"],
+            "kids": [r"\bkids\b", r"\bchildren\b", r"\bchild\b", r"\bnursery\b"],
+            "school": [r"\bschool\b", r"\bclassroom\b", r"\bstudent\b"],
+            "industrial": [r"\bindustrial\b", r"\bwarehouse\b", r"\bfactory\b"],
+            "home": [r"\bhome\b", r"\bhouse\b", r"\bapartment\b"],
         }
         
-        for room, keywords in rooms.items():
-            if any(kw in clarification_lower for kw in keywords):
+        for room, patterns in rooms.items():
+            if any(re.search(p, clarification_lower) for p in patterns):
                 merged["room_type"] = room
                 break
+        
+        # Extract use case / purpose - only if not already set as room_type
+        if "room_type" not in merged:
+            use_cases = {
+                "gym": [r"\bgym\b", r"\bfitness\b", r"\bexercise\b", r"\bworkout\b", r"\bsports\b"],
+                "office": [r"\boffice\b", r"\bwork\b", r"\bworkspace\b"],
+                "school": [r"\bschool\b", r"\bstudent\b", r"\bclassroom\b"],
+                "storage": [r"\bstorage\b", r"\borganizing\b"],
+                "home": [r"\bhome\b", r"\bhouse\b", r"\bapartment\b"],
+            }
+            
+            for use, patterns in use_cases.items():
+                if any(re.search(p, clarification_lower) for p in patterns):
+                    merged["use_case"] = use
+                    break
         
         # Extract color from clarification
         colors = ["red", "blue", "green", "yellow", "black", "white", "brown", "gray", "grey",
@@ -711,13 +734,22 @@ class IntentDetector:
         if "material" in merged:
             query_parts.append(merged["material"])
         
-        # Add room type
-        if "room_type" in merged:
-            query_parts.append(f"for {merged['room_type']}")
+        # Add room type OR use case (not both if they're the same)
+        room_type = merged.get("room_type")
+        use_case = merged.get("use_case")
         
-        # Add use case
-        if "use_case" in merged:
-            query_parts.append(f"for {merged['use_case']}")
+        if room_type and use_case and room_type == use_case:
+            # Same value, only add once
+            query_parts.append(f"for {room_type}")
+        else:
+            if room_type:
+                query_parts.append(f"for {room_type}")
+            if use_case:
+                query_parts.append(f"for {use_case}")
+        
+        # Add price constraint to query
+        if "price_max" in merged:
+            query_parts.append(f"under ${int(merged['price_max'])}")
         
         # Build query string
         if query_parts:

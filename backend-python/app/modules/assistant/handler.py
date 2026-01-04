@@ -287,11 +287,21 @@ class EasymartAssistantHandler:
                 else:
                     current_intent = self.intent_detector.detect(request.message).value
                     logger.info(f"[HANDLER] Current message intent: {current_intent}")
-                    if current_intent not in ["product_search", "general_help"]:
+                    
+                    # Short messages (< 4 words) are likely clarification answers, not topic changes
+                    word_count = len(request.message.split())
+                    is_short_response = word_count <= 4
+                    
+                    # Allow these intents to continue clarification flow
+                    allowed_intents = ["product_search", "general_help", "out_of_scope", "vague_query", "clarification_needed"]
+                    
+                    if not is_short_response and current_intent not in allowed_intents:
                         logger.info(f"[HANDLER] User changed topic to {current_intent}, clearing pending clarification")
                         session.clear_pending_clarification()
                         pending = None
                     else:
+                        if is_short_response:
+                            logger.info(f"[HANDLER] Short response ({word_count} words), treating as clarification answer")
                         logger.info(f"[HANDLER] Intent is {current_intent}, continuing with clarification merge")
                         # Check for bypass phrases
                         bypass_phrases = [
