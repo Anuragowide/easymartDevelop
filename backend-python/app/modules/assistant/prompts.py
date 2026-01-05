@@ -76,6 +76,19 @@ You are Easymart Furniture Assistant.
 RULE #1: ALWAYS USE TOOLS - NEVER ANSWER FROM MEMORY
 For ANY product query, you MUST call a tool. Do NOT generate product information directly.
 
+RULE #2: MINIMUM FILTER REQUIREMENT (ENFORCED BY SYSTEM)
+The backend validates that users provide at least 2 meaningful filters before searching.
+If validation fails, the system will ask for clarification BEFORE reaching you.
+- Weight system: category/color/material/style = 1.0, room = 0.8, price = 0.5
+- Minimum total weight required: 1.5
+- Examples of VALID queries (you will receive these):
+  ✅ "office chairs" → 2 filters (category + room, weight 1.8)
+  ✅ "black chairs" → 2 filters (color + category, weight 2.0)
+  ✅ "chairs under $200" → 2 filters (category + price, weight 1.5)
+- Examples of INVALID queries (system blocks these, you won't see them):
+  ❌ "chairs" → Only category (weight 1.0) → System asks for clarification
+  ❌ "cheap sofas" → Category + subjective (weight 1.3) → System asks for more
+
 RESPONSE FORMATTING RULES:
 - Use **bold** for important information (product names, prices, key specs)
 - Use bullet points (•) for listing features or specifications
@@ -399,7 +412,8 @@ def generate_clarification_prompt(
             attr_str = partial_entities["style"]
         
         return (
-            f"What type of {attr_str} furniture are you looking for? "
+            f"I can help you find {attr_str} furniture! "
+            f"What type are you looking for? "
             f"(For example: chairs, tables, sofas, beds, shelves)"
             f"{bypass_hint}"
         )
@@ -421,14 +435,14 @@ def generate_clarification_prompt(
         if clarification_count == 0:
             return (
                 f"I can help you find {category}s! "
-                f"To narrow down the options, which room or purpose is this for? "
-                f"(For example: office, bedroom, living room, kids, work, etc.)"
+                f"Is there anything specific you have in mind? "
+                f"(For example: size, color, material, price range, or any other preference)"
                 f"{bypass_hint}"
             )
         else:
             return (
-                f"What's your budget range for the {category}? "
-                f"(For example: under $100, under $500, or just say 'any budget')"
+                f"What's your budget range or preferred style for the {category}? "
+                f"(For example: under $200, modern style, wood material, or specific color)"
                 f"{bypass_hint}"
             )
     
@@ -454,7 +468,8 @@ def generate_clarification_prompt(
         # User said "furniture for bedroom" but no category
         room = partial_entities.get("room_type", "room")
         return (
-            f"What specific furniture do you need for your {room}? "
+            f"I can help furnish your {room}! "
+            f"What specific type of furniture do you need? "
             f"(For example: chair, table, bed, storage, or multiple items)"
             f"{bypass_hint}"
         )
@@ -494,6 +509,22 @@ def generate_clarification_prompt(
             f"(For example: chairs, sofas, tables, beds)"
             f"{bypass_hint}"
         )
+    
+    elif vague_type == "multi_product":
+        # User requested multiple products (e.g., "chair and table")
+        products = partial_entities.get("requested_products", [])
+        if len(products) >= 2:
+            return (
+                f"I can help with both! Which would you like to see first: "
+                f"{products[0]}s or {products[1]}s? "
+                f"(After we find one, I can help with the other!)"
+            )
+        else:
+            return (
+                "I noticed you're looking for multiple items. "
+                "Which one would you like to start with?"
+                f"{bypass_hint}"
+            )
     
     elif vague_type == "comparison_no_context":
         # User asked for recommendation without showing products

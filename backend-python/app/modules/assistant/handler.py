@@ -17,6 +17,7 @@ from .tools import EasymartAssistantTools, TOOL_DEFINITIONS, execute_tool
 from .intent_detector import IntentDetector
 from .intents import IntentType
 from .session_store import SessionStore, SessionContext, get_session_store
+from .filter_validator import FilterValidator
 from .prompts import (
     get_system_prompt,
     get_greeting_message,
@@ -113,13 +114,14 @@ class EasymartAssistantHandler:
         self.session_store = session_store or get_session_store()
         self.tools = get_assistant_tools()
         self.intent_detector = IntentDetector()
+        self.filter_validator = FilterValidator()
         self.event_tracker = EventTracker()
         self.context_analyzer = get_context_analyzer()
         
         # System prompt
         self.system_prompt = get_system_prompt()
         
-        logger.info("Easymart Assistant Handler initialized with context analyzer")
+        logger.info("Easymart Assistant Handler initialized with context analyzer and filter validator")
     
     async def handle_message(
         self,
@@ -325,49 +327,112 @@ class EasymartAssistantHandler:
                             # Merge clarification response with original entities
                             logger.info(f"[HANDLER] Merging clarification response: '{request.message}'")
                             logger.info(f"[HANDLER] Original entities: {pending['partial_entities']}")
-                            merged_entities = self.intent_detector.merge_clarification_response(
-                                pending["partial_entities"],
-                                request.message,
-                                pending["vague_type"]
-                            )
-                            logger.info(f"[HANDLER] ✅ Successfully merged entities: {merged_entities}")
                             
-                            has_category = "category" in merged_entities
-                            clarification_count = pending["clarification_count"]
-                            
-                            if has_category or clarification_count >= 1:
-                                logger.info("[HANDLER] Sufficient info collected, proceeding with search")
+                            # Check for bypass phrases using filter validator
+                            if self.filter_validator.is_bypass_phrase(request.message):
+                                logger.info("[HANDLER] Bypass phrase detected via filter validator")
                                 session.clear_pending_clarification()
-                                if merged_entities.get("query"):
-                                    request.message = merged_entities["query"]
-                            else:
-                                logger.info("[HANDLER] Need second clarification")
-                                session.increment_clarification_count()
-                                
-                                from .prompts import generate_clarification_prompt
-                                assistant_message = generate_clarification_prompt(
-                                    pending["vague_type"],
-                                    merged_entities,
-                                    clarification_count=1
-                                )
-                                
-                                pending["partial_entities"] = merged_entities
-                                session.add_message("assistant", assistant_message)
-                                
-                                return AssistantResponse(
-                                    message=assistant_message,
+                                partial = pending["partial_entities"]
+                                if partial.get("category"):
+                                    request.message = f"popular {partial['category']}s"
+                                elif partial.get("room_type"):
+                                    request.message = f"popular furniture for {partial['room_type']}"
+                                else:
+                                    request.message = "popular furniture"
+                                    
+                                # Track bypass event
+                                self.event_tracker.track_event(
+                                    "clarification_bypass",
                                     session_id=session.session_id,
-                                    products=[],
-                                    cart_summary=self._build_cart_summary(session),
                                     metadata={
-                                        "intent": "clarification_needed",
-                                        "clarification_count": clarification_count + 1,
+                                        "bypass_phrase": request.message.lower(),
                                         "vague_type": pending["vague_type"],
-                                        "context": topic_context.to_dict(),
-                                        "user_preferences": session.metadata.get("user_preferences", {}),
-                                        "topic_history": session.metadata.get("topic_history", [])
+                                        "filter_count": len(partial)
                                     }
                                 )
+                            else:
+                                # Merge clarification response
+                                merged_entities = self.intent_detector.merge_clarification_response(
+                                    pending["partial_entities"],
+                                    request.message,
+                                    pending["vague_type"]
+                                )
+                                logger.info(f"[HANDLER] ✅ Successfully merged entities: {merged_entities}")
+                                
+                                # Validate filter count using FilterValidator
+                                is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
+                                    merged_entities,
+                                    request.message
+                                )
+                                logger.info(f"[HANDLER] Filter validation: valid={is_valid}, weight={weight:.1f}")
+                                
+                                # Check for contradictions
+                                contradiction = self.filter_validator.detect_contradictions(
+                                    merged_entities,
+                                    request.message
+                                )
+                                
+                                if contradiction:
+                                    term1, term2, contradiction_msg = contradiction
+                                    logger.info(f"[HANDLER] Contradiction detected: {term1} vs {term2}")
+                                    session.add_message("assistant", contradiction_msg)
+                                    
+                                    return AssistantResponse(
+                                        message=contradiction_msg,
+                                        session_id=session.session_id,
+                                        products=[],
+                                        cart_summary=self._build_cart_summary(session),
+                                        metadata={
+                                            "intent": "contradiction_detected",
+                                            "contradiction": {"term1": term1, "term2": term2},
+                                            "context": topic_context.to_dict()
+                                        }
+                                    )
+                                
+                                clarification_count = pending["clarification_count"]
+                                
+                                # Proceed with search only if filter validation passes
+                                if is_valid or clarification_count >= 2:
+                                    if clarification_count >= 2:
+                                        logger.info("[HANDLER] Max clarifications reached (2), proceeding anyway")
+                                    else:
+                                        logger.info("[HANDLER] Sufficient filters collected, proceeding with search")
+                                    
+                                    session.clear_pending_clarification()
+                                    if merged_entities.get("query"):
+                                        request.message = merged_entities["query"]
+                                else:
+                                    # Need more clarification
+                                    logger.info(f"[HANDLER] Insufficient filters (weight={weight:.1f}), asking for more")
+                                    session.increment_clarification_count()
+                                    
+                                    from .prompts import generate_clarification_prompt
+                                    assistant_message = f"{validation_msg}\n\n"
+                                    assistant_message += generate_clarification_prompt(
+                                        pending["vague_type"],
+                                        merged_entities,
+                                        clarification_count=clarification_count + 1
+                                    )
+                                    
+                                    pending["partial_entities"] = merged_entities
+                                    session.add_message("assistant", assistant_message)
+                                    
+                                    return AssistantResponse(
+                                        message=assistant_message,
+                                        session_id=session.session_id,
+                                        products=[],
+                                        cart_summary=self._build_cart_summary(session),
+                                        metadata={
+                                            "intent": "clarification_needed",
+                                            "clarification_count": clarification_count + 1,
+                                            "vague_type": pending["vague_type"],
+                                            "filter_weight": weight,
+                                            "validation_message": validation_msg,
+                                            "context": topic_context.to_dict(),
+                                            "user_preferences": session.metadata.get("user_preferences", {}),
+                                            "topic_history": session.metadata.get("topic_history", [])
+                                        }
+                                    )
             
             # Step 2: If no pending clarification, check if current query is vague
             if not pending:
@@ -700,6 +765,86 @@ class EasymartAssistantHandler:
                 logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
                 # Temporarily update the message for search
                 request.message = refined_message
+            
+            # PRE-LLM FILTER VALIDATION - Check if query has sufficient filters before calling LLM
+            # This prevents wasting LLM calls on queries that will need clarification anyway
+            if intent == IntentType.PRODUCT_SEARCH:
+                entities = self.intent_detector.extract_entities(request.message, intent)
+                is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
+                    entities,
+                    request.message
+                )
+                
+                # Check for bypass phrases
+                if self.filter_validator.is_bypass_phrase(request.message):
+                    logger.info("[HANDLER] Bypass phrase detected, allowing search with available filters")
+                    bypass_disclaimer = "Here are some popular options based on your request. You can refine by mentioning specific preferences anytime."
+                    session.metadata["bypass_disclaimer"] = bypass_disclaimer
+                elif not is_valid:
+                    logger.info(f"[HANDLER] Insufficient filters before LLM call (weight={weight:.1f})")
+                    logger.info(f"[HANDLER] Triggering clarification to avoid wasting LLM resources")
+                    
+                    # Detect vague type for proper clarification, or use generic if no pattern matched
+                    vague_result = self.intent_detector.detect_vague_patterns(request.message)
+                    
+                    if not vague_result:
+                        # No specific vague pattern matched, but still insufficient filters
+                        # Create a generic clarification based on what we have
+                        logger.info("[HANDLER] No vague pattern matched, creating generic clarification")
+                        
+                        # Determine vague type based on entities
+                        if entities.get("category"):
+                            vague_type = "category_only"
+                            partial_entities = {"category": entities["category"]}
+                        elif entities.get("color"):
+                            vague_type = "attribute_only"
+                            partial_entities = {"color": entities["color"]}
+                        elif entities.get("material"):
+                            vague_type = "attribute_only"
+                            partial_entities = {"material": entities["material"]}
+                        elif entities.get("room_type"):
+                            vague_type = "room_purpose_only"
+                            partial_entities = {"room_type": entities["room_type"]}
+                        else:
+                            vague_type = "ultra_vague"
+                            partial_entities = {}
+                        
+                        vague_result = {
+                            "vague_type": vague_type,
+                            "partial_entities": partial_entities
+                        }
+                    
+                    session.set_pending_clarification(
+                        vague_result["vague_type"],
+                        vague_result["partial_entities"],
+                        request.message
+                    )
+                    
+                    from .prompts import generate_clarification_prompt
+                    assistant_message = f"{validation_msg}\n\n"
+                    assistant_message += generate_clarification_prompt(
+                        vague_result["vague_type"],
+                        vague_result["partial_entities"],
+                        clarification_count=0
+                    )
+                    
+                    session.add_message("assistant", assistant_message)
+                    
+                    return AssistantResponse(
+                        message=assistant_message,
+                        session_id=session.session_id,
+                        products=[],
+                        cart_summary=self._build_cart_summary(session),
+                        metadata={
+                            "intent": "insufficient_filters",
+                            "filter_weight": weight,
+                            "validation_message": validation_msg,
+                            "vague_type": vague_result["vague_type"],
+                            "context": topic_context.to_dict()
+                        }
+                    )
+                else:
+                    logger.info(f"[HANDLER] Filter validation passed (weight={weight:.1f}), proceeding to LLM")
             
             # Build conversation messages for LLM
             logger.info(f"[HANDLER] Building conversation messages...")
@@ -1678,6 +1823,22 @@ class EasymartAssistantHandler:
         # Put base query first, then the refinement for better search results
         refined_query = f"{last_query_clean} {clean_message}"
         logger.info(f"[CONTEXT] Filter addition detected. Base: '{last_query_clean}', Addition: '{clean_message}', Combined: '{refined_query}'")
+        
+        # Validate the refined query has sufficient filters
+        from .intents import IntentType
+        entities = self.intent_detector.extract_entities(refined_query, IntentType.PRODUCT_SEARCH)
+        is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
+            entities,
+            refined_query
+        )
+        
+        if not is_valid:
+            logger.warning(f"[CONTEXT] Refined query has insufficient filters (weight={weight:.1f})")
+            logger.warning(f"[CONTEXT] Will trigger clarification instead of progressive refinement")
+            # Return original message to allow clarification flow to handle it
+            return message
+        else:
+            logger.info(f"[CONTEXT] Refined query validated (weight={weight:.1f}), proceeding")
         
         return refined_query
     

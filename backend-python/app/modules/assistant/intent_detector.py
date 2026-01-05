@@ -518,7 +518,7 @@ class IntentDetector:
         
         # Category 4: Category-only without specifics
         category_only_patterns = [
-            r'^(i\s+)?(want|need|looking for|show me|find me)\s+(a\s+)?(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s*$',
+            r'^(i\s+)?(want|need|looking for|show me|find me|search for|search|get me|give me)\s+(a\s+|some\s+)?(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s*$',
         ]
         
         for pattern in category_only_patterns:
@@ -606,7 +606,21 @@ class IntentDetector:
                     partial_entities['aesthetic'] = aesthetic_match.group(1)
                 return {"vague_type": "aesthetic_only", "partial_entities": partial_entities}
         
-        # Category 10: Comparison without context
+        # Category 10: Multi-product request (compound queries)
+        multi_product_patterns = [
+            r'(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s+(and|or|\+|,)\s+(chair|table|desk|sofa|bed|shelf|locker|stool)s?',
+            r'(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s+and\s+(chair|table|desk|sofa|bed|shelf|locker|stool)s?',
+        ]
+        
+        for pattern in multi_product_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                product1 = match.group(1).rstrip('s')
+                product2 = match.group(3).rstrip('s')
+                partial_entities['requested_products'] = [product1, product2]
+                return {"vague_type": "multi_product", "partial_entities": partial_entities}
+        
+        # Category 11: Comparison without context
         comparison_patterns = [
             r'^(which\s+one\s+is\s+best|what\s+do\s+you\s+recommend|top\s+options|best\s+option\s+for\s+me)\s*\??$',
         ]

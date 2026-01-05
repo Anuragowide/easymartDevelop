@@ -26,6 +26,29 @@ PRICE_PATTERNS = [
     re.compile(r'maximum\s+\$?(\d+)', re.IGNORECASE),
 ]
 
+# Subjective price term mappings (convert to actual price ranges)
+SUBJECTIVE_PRICE_MAP = {
+    'cheap': 200,
+    'affordable': 300,
+    'budget': 250,
+    'inexpensive': 250,
+    'expensive': 500,
+    'premium': 800,
+    'luxury': 1000,
+    'high-end': 1000,
+    'designer': 1200,
+}
+
+# Subjective size term mappings (for future dimension filtering)
+SUBJECTIVE_SIZE_MAP = {
+    'small': {'max_width': 24, 'max_depth': 24},
+    'compact': {'max_width': 30, 'max_depth': 30},
+    'tiny': {'max_width': 18, 'max_depth': 18},
+    'large': {'min_width': 48},
+    'spacious': {'min_width': 48},
+    'huge': {'min_width': 60},
+}
+
 COLOR_KEYWORDS = ['black', 'white', 'red', 'green', 'blue', 'brown', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'beige']
 MATERIAL_KEYWORDS = ['wood', 'metal', 'leather', 'fabric', 'glass', 'plastic', 'steel']
 ROOM_KEYWORDS = ['office', 'bedroom', 'living room', 'dining room']
@@ -113,11 +136,20 @@ class ProductSearcher:
                     break
         
         if "price_max" not in filters:
+            # First, check for explicit price patterns
             for pattern in PRICE_PATTERNS:
                 match = pattern.search(query_lower)
                 if match:
                     filters["price_max"] = float(match.group(1))
                     break
+            
+            # If no explicit price, check for subjective price terms
+            if "price_max" not in filters:
+                for term, max_price in SUBJECTIVE_PRICE_MAP.items():
+                    if re.search(r'\b' + term + r'\b', query_lower):
+                        filters["price_max"] = max_price
+                        logger.info(f"[SEARCH] Converted '{term}' to price_max={max_price}")
+                        break
         
         # Track available colors before filtering (for "no color match" feedback)
         available_colors = set()
