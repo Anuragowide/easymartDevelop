@@ -160,8 +160,11 @@ class SessionContext:
         # Check if already in cart
         for item in self.cart_items:
             if item["product_id"] == product_id or item.get("id") == product_id:
+                # IMPORTANT: Only add to existing quantity (don't double-add)
+                # The quantity parameter represents the total quantity to add
                 logger.info(f"[ADD_TO_CART] Found existing item, adding {quantity} to current {item['quantity']}")
                 item["quantity"] += quantity
+                item["added_at"] = datetime.now().isoformat()  # Update timestamp
                 self.last_activity = datetime.now()
                 return
         

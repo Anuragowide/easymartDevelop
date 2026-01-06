@@ -41,6 +41,15 @@ class IntentDetector:
             r'\btell me (about|more about)\s+(product|option|number|item|the)\s+\d+',
             r'\b(product|option|number|item)\s+\d+',
         ],
+        IntentType.FIND_SIMILAR: [
+            r'\bfind\s+similar\s+products?\b',  # Explicit match for "find similar product(s)"
+            r'\b(find|show|see|get)\b.*\b(similar|alternatives?|more like|like this|like these|like that)\b',
+            r'\b(similar|alternatives?|more like)\b.*\b(products?|items?|options?)\b',
+            r'\b(show|find)\s+me\s+(more|other|different)\b',
+            r'\b(any other|other|more)\s+(options?|choices?|products?)\b',
+            r'^(similar|alternatives?|more like this|show more|find more)\s*\??$',
+            r'\bmore\s+(of\s+)?(these|this|that)\b',
+        ],
         IntentType.CART_ADD: [
             r'\b(add|put)\b.*\b(to|in|into)\b.*\b(cart|basket)\b',
             r'\b(buy|purchase|get|order)\b.*\b(this|that|the|it)\b',
@@ -197,6 +206,13 @@ class IntentDetector:
                          'howdy', 'hi there', 'hello there', 'hey there']
         if message_lower in greeting_exact:
             return IntentType.GREETING
+        
+        # PRIORITY 1.5: Check for FIND_SIMILAR intent BEFORE broad product search
+        # This prevents "find similar" from being caught as generic product search
+        if IntentType.FIND_SIMILAR in self.PATTERNS:
+            for pattern in self.PATTERNS[IntentType.FIND_SIMILAR]:
+                if re.search(pattern, message_lower):
+                    return IntentType.FIND_SIMILAR
         
         # PRIORITY 2: Check for BROAD product search patterns (catch vague queries)
         # This must come before specific patterns to catch "something for kids", etc.

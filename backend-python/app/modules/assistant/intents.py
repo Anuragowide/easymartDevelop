@@ -16,6 +16,7 @@ class IntentType(str, Enum):
     PRODUCT_SPEC_QA = "product_spec_qa"
     PRODUCT_COMPARE = "product_compare"
     PRODUCT_AVAILABILITY = "product_availability"
+    FIND_SIMILAR = "find_similar"
     
     # Cart-related intents
     CART_ADD = "cart_add"

@@ -198,6 +198,16 @@ class EasymartAssistantHandler:
             logger.info(f"[HANDLER] Adding user message to history...")
             session.add_message("user", request.message)
             
+            # CRITICAL: Apply context refinement IMMEDIATELY after adding message
+            # This must happen BEFORE vague query detection so single-word refinements
+            # like "wooden" get merged with previous search context ("desks" → "wooden desks")
+            original_message = request.message
+            refined_message = self._apply_context_refinement(request.message, session)
+            if refined_message != original_message:
+                logger.info(f"[HANDLER] ✅ Applied context refinement: '{original_message}' → '{refined_message}'")
+                # Update the request message for all subsequent processing
+                request.message = refined_message
+            
             # VALIDATION: Check if query is off-topic (not related to e-commerce/shopping)
             message_lower = request.message.lower()
             
@@ -652,12 +662,13 @@ class EasymartAssistantHandler:
             if intent_str == "cart_clear" or (intent == IntentType.CART_CLEAR):
                 logger.info("[HANDLER] Cart clear intent detected, clearing cart directly")
                 
-                # Use the tools to clear cart
+                # Use the tools to clear cart (skip_sync=False to sync with Node.js)
                 from .tools import get_assistant_tools
                 tools = get_assistant_tools()
                 clear_result = await tools.update_cart(
                     action="clear",
-                    session_id=session.session_id
+                    session_id=session.session_id,
+                    skip_sync=False
                 )
                 
                 if clear_result.get("success"):
@@ -680,6 +691,80 @@ class EasymartAssistantHandler:
                         "entities": entities,
                         "context": topic_context.to_dict(),
                         "cart_action": {"type": "clear_cart"},
+                        "user_preferences": session.metadata.get("user_preferences", {}),
+                        "topic_history": session.metadata.get("topic_history", [])
+                    }
+                )
+            
+            # SHORTCUT: Handle find similar intent - no need for LLM clarification
+            if intent_str == "find_similar" or (intent == IntentType.FIND_SIMILAR):
+                logger.info("[HANDLER] Find similar intent detected, calling find_similar_products directly")
+                
+                # Determine which product to find similar items for
+                product_id = None
+                if session.current_product:
+                    product_id = session.current_product.get('id')
+                    logger.info(f"[HANDLER] Using current_product for similar search: {product_id}")
+                elif session.last_shown_products:
+                    product_id = session.last_shown_products[0].get('id')
+                    logger.info(f"[HANDLER] Using first shown product for similar search: {product_id}")
+                
+                if not product_id:
+                    # No product context, ask for clarification
+                    assistant_message = "I'd be happy to find similar products! Please specify which product you'd like alternatives for, or search for a product first."
+                    session.add_message("assistant", assistant_message)
+                    
+                    return AssistantResponse(
+                        message=assistant_message,
+                        session_id=session.session_id,
+                        products=[],
+                        cart_summary=self._build_cart_summary(session),
+                        metadata={
+                            "intent": "find_similar",
+                            "entities": entities,
+                            "context": topic_context.to_dict(),
+                            "user_preferences": session.metadata.get("user_preferences", {}),
+                            "topic_history": session.metadata.get("topic_history", [])
+                        }
+                    )
+                
+                # Collect all IDs to exclude
+                exclude_ids = []
+                if session.last_shown_products:
+                    exclude_ids = [p.get('id') for p in session.last_shown_products if p.get('id')]
+                
+                # Call find_similar_products tool directly
+                from .tools import get_assistant_tools
+                tools = get_assistant_tools()
+                similar_result = await tools.find_similar_products(
+                    product_id=product_id,
+                    exclude_ids=exclude_ids,
+                    limit=5
+                )
+                
+                products = similar_result.get('products', [])
+                source_name = similar_result.get('source_product', 'this item')
+                
+                if products:
+                    # Update session with similar products
+                    session.last_shown_products = products
+                    session.current_product = None
+                    
+                    assistant_message = f"Here are {len(products)} similar products to {source_name} that you might like!"
+                else:
+                    assistant_message = f"I couldn't find any similar products to {source_name} at the moment. Try searching for a different category!"
+                
+                session.add_message("assistant", assistant_message)
+                
+                return AssistantResponse(
+                    message=assistant_message,
+                    session_id=session.session_id,
+                    products=products,
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "find_similar",
+                        "entities": entities,
+                        "context": topic_context.to_dict(),
                         "user_preferences": session.metadata.get("user_preferences", {}),
                         "topic_history": session.metadata.get("topic_history", [])
                     }
@@ -759,13 +844,6 @@ class EasymartAssistantHandler:
                         }
                     )
 
-            # Detect if this is a refinement query and inject context
-            refined_message = self._apply_context_refinement(request.message, session)
-            if refined_message != request.message:
-                logger.info(f"[HANDLER] Applied context refinement: '{request.message}' → '{refined_message}'")
-                # Temporarily update the message for search
-                request.message = refined_message
-            
             # PRE-LLM FILTER VALIDATION - Check if query has sufficient filters before calling LLM
             # This prevents wasting LLM calls on queries that will need clarification anyway
             if intent == IntentType.PRODUCT_SEARCH:
@@ -1015,14 +1093,24 @@ class EasymartAssistantHandler:
                         from .hf_llm_client import FunctionCall
                         
                         # Extract quantity if mentioned (e.g., "add 2 of this", "add 3 units")
-                        # CRITICAL: Don't match product references like "option 1" or "product 2"
+                        # CRITICAL: Don't match product references like "option 1", "product 2", "add option 2"
                         qty = 1
                         # Match patterns like: "2 of", "3 units", "5 items", "4x", but NOT "option 1" or "product 2"
+                        # IMPORTANT: Exclude patterns that look like product selection (e.g., "add option 2", "add product 2")
                         qty_match = re.search(r'\b(\d+)\s*(?:x|units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))', query_lower)
-                        if qty_match:
-                            qty = int(qty_match.group(1))
-                            logger.info(f"[HANDLER] Extracted quantity: {qty} from query: {query_lower}")
                         
+                        # Ensure we didn't capture a product reference number
+                        if qty_match:
+                            potential_qty = int(qty_match.group(1))
+                            # Check if this number is preceded by "option", "product", "item", "number"
+                            product_ref_check = re.search(r'\b(option|product|item|number|choice)\s+' + str(potential_qty), query_lower)
+                            if not product_ref_check:
+                                qty = potential_qty
+                                logger.info(f"[HANDLER] Extracted quantity: {qty} from query: {query_lower}")
+                            else:
+                                logger.info(f"[HANDLER] Number {potential_qty} detected but appears to be a product reference, not quantity. Using qty=1")
+                        
+                        logger.info(f"[HANDLER] SAFETY CATCH creating update_cart call: product_id={product_id}, quantity={qty}")
                         llm_response.function_calls = [
                             FunctionCall(
                                 name="update_cart",
@@ -1047,7 +1135,7 @@ class EasymartAssistantHandler:
                             msg_lower = original_message.lower()
                             
                             # Check if user explicitly mentioned a quantity number
-                            # IMPORTANT: Must NOT match "option 2", "item 3" etc. - those are product references!
+                            # IMPORTANT: Must NOT match "option 2", "item 3", "product 2" etc. - those are product references!
                             explicit_qty_patterns = [
                                 # "2 units", "3 items", "5 pieces", "2 of these"
                                 r'\b(\d+)\s*(?:units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))',
@@ -1060,8 +1148,15 @@ class EasymartAssistantHandler:
                             for pattern in explicit_qty_patterns:
                                 match = re.search(pattern, msg_lower)
                                 if match:
-                                    explicit_qty = int(match.group(1))
-                                    break
+                                    potential_qty = int(match.group(1))
+                                    # Verify this isn't a product reference
+                                    product_ref_check = re.search(r'\b(option|product|item|number|choice)\s+' + str(potential_qty), msg_lower)
+                                    if not product_ref_check:
+                                        explicit_qty = potential_qty
+                                        logger.info(f"[HANDLER] Found explicit quantity: {explicit_qty} in '{original_message}'")
+                                        break
+                                    else:
+                                        logger.info(f"[HANDLER] Number {potential_qty} appears to be product reference, not quantity")
                             
                             # ALWAYS force quantity to 1 unless explicit quantity phrase found
                             # This prevents "option 2", "this one", "add 2 to cart" confusion
@@ -1070,6 +1165,9 @@ class EasymartAssistantHandler:
                                 if llm_qty != 1:
                                     logger.warning(f"[HANDLER] Corrected cart quantity from {llm_qty} to 1 (no explicit qty phrase in: '{original_message}')")
                             else:
+                                # Double-check: if LLM extracted a different quantity, log it for debugging
+                                if llm_qty != explicit_qty:
+                                    logger.warning(f"[HANDLER] LLM extracted qty={llm_qty} but we found qty={explicit_qty}, using our extraction")
                                 func_call.arguments['quantity'] = explicit_qty
                                 logger.info(f"[HANDLER] Using explicit quantity: {explicit_qty}")
                         
