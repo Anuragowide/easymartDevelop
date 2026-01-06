@@ -917,14 +917,15 @@ class EasymartAssistantTools:
             
             logger.info(f"[CART_ADD] action=add, skip_sync={skip_sync}, product_id={product_id}, quantity={quantity}")
             
-            # Only add to session if this is NOT a sync callback from Node.js
-            # skip_sync=True means this call is FROM Node.js, so Python already added it
+            # Always add to session
+            logger.info(f"[CART_ADD] Adding to session (action=add)")
+            session.add_to_cart(product_id, quantity)
+            
+            # Only sync back to Node if this wasn't already triggered BY Node
             if not skip_sync:
-                logger.info(f"[CART_ADD] Adding to session (skip_sync=False)")
-                session.add_to_cart(product_id, quantity)
                 await _sync_with_node("add", product_id, quantity)
             else:
-                logger.info(f"[CART_ADD] Skipping session add (skip_sync=True)")
+                logger.info(f"[CART_ADD] Skipping sync callback to Node (skip_sync=True)")
             
             cart_state = await _get_cart_state()
             logger.info(f"[CART_ADD] Final cart state: {cart_state.get('item_count')} items")
@@ -939,9 +940,11 @@ class EasymartAssistantTools:
             }
         
         elif action == "remove":
-            # Only modify session if this is NOT a sync callback from Node.js
+            # Always update session
+            session.remove_from_cart(product_id)
+            
+            # Only sync if not already from Node
             if not skip_sync:
-                session.remove_from_cart(product_id)
                 await _sync_with_node("remove", product_id)
             
             cart_state = await _get_cart_state()
@@ -958,16 +961,18 @@ class EasymartAssistantTools:
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             
-            # Only modify session if this is NOT a sync callback from Node.js
+            # Always update local session
+            # Remove item first in local session
+            session.remove_from_cart(product_id)
+            
+            # Add back with new quantity if > 0
+            if quantity > 0:
+                session.add_to_cart(product_id, quantity)
+            
+            # Only sync if not already from Node
             if not skip_sync:
-                # Remove item first in local session
-                session.remove_from_cart(product_id)
-                
-                # Add back with new quantity if > 0
-                if quantity > 0:
-                    session.add_to_cart(product_id, quantity)
-                
                 await _sync_with_node("set", product_id, quantity)
+            
             cart_state = await _get_cart_state()
             return {
                 "action": "set",

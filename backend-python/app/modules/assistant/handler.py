@@ -173,7 +173,7 @@ class EasymartAssistantHandler:
             
             # Analyze context for better topic understanding
             logger.info(f"[HANDLER] Analyzing conversation context...")
-            conversation_history = [{"role": msg["role"], "content": msg["content"]} for msg in session.messages[-5:]]
+            conversation_history = [{"role": msg["role"], "content": msg["content"]} for msg in session.messages[-10:]]
             topic_context = self.context_analyzer.analyze(request.message, conversation_history)
             logger.info(f"[HANDLER] Context analyzed - Topic: {topic_context.topic.value}, Intent: {topic_context.intent.value}, Confidence: {topic_context.confidence:.2f}")
             
@@ -1906,8 +1906,8 @@ class EasymartAssistantHandler:
         ]
         messages.extend(few_shot_examples)
         
-        # Add conversation history (last 10 messages for context window)
-        for msg in session.messages[-10:]:
+        # Add conversation history (last 20 messages for context window)
+        for msg in session.messages[-20:]:
             messages.append(Message(
                 role=msg["role"],
                 content=msg["content"]
