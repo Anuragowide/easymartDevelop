@@ -9,9 +9,12 @@ import os
 import json
 import re
 import asyncio
+import logging
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from huggingface_hub import AsyncInferenceClient
+
+logger = logging.getLogger(__name__)
 
 
 class Message(BaseModel):
@@ -221,14 +224,14 @@ class HuggingFaceLLMClient:
             has_closing = end_marker in text_normalized
             
             if has_closing:
-                print(f"[DEBUG HF] Found {marker} markers in LLM response")
+                logger.debug(f"Found {marker} markers in LLM response")
                 # Extract tool calls with proper closing
                 try:
                     start = text_normalized.index(marker) + len(marker)
                     end = text_normalized.index(end_marker)
                     tool_calls_str = text_normalized[start:end].strip()
                     
-                    print(f"[DEBUG HF] Extracted tool_calls_str: {tool_calls_str[:200]}")
+                    logger.debug(f"Extracted tool_calls_str: {tool_calls_str[:200]}")
                     
                     # Extract content (everything not in tool calls)
                     # FIX: Use more robust extraction to handle multiple occurrences or messy text
@@ -241,7 +244,7 @@ class HuggingFaceLLMClient:
                     if not isinstance(tool_calls_json, list):
                         tool_calls_json = [tool_calls_json]
                     
-                    print(f"[DEBUG HF] Successfully parsed {len(tool_calls_json)} tool calls")
+                    logger.debug(f"Successfully parsed {len(tool_calls_json)} tool calls")
                     
                     function_calls = [
                         FunctionCall(
@@ -251,7 +254,7 @@ class HuggingFaceLLMClient:
                         for call in tool_calls_json
                     ]
                     
-                    print(f"[DEBUG HF] Returning LLMResponse with {len(function_calls)} function_calls")
+                    logger.debug(f"Returning LLMResponse with {len(function_calls)} function_calls")
                     
                     return LLMResponse(
                         content=content,
@@ -259,11 +262,11 @@ class HuggingFaceLLMClient:
                         finish_reason="function_call"
                     )
                 except (ValueError, json.JSONDecodeError) as e:
-                    print(f"[DEBUG HF] PARSING FAILED: {e}")
-                    print(f"[DEBUG HF] Falling back to incomplete tool call extraction")
+                    logger.warning(f"Tool call parsing failed: {e}")
+                    logger.debug("Falling back to incomplete tool call extraction")
             
             # FALLBACK: No closing tag or parsing failed - try to extract JSON array manually
-            print(f"[DEBUG HF] WARNING: {marker} found but no {end_marker} - attempting recovery")
+            logger.warning(f"{marker} found but no {end_marker} - attempting recovery")
             try:
                 start_idx = text_normalized.index(marker) + len(marker)
                 remaining_text = text_normalized[start_idx:].strip()
@@ -284,13 +287,13 @@ class HuggingFaceLLMClient:
                     
                     if end_idx > 0:
                         tool_calls_str = remaining_text[:end_idx]
-                        print(f"[DEBUG HF] Recovered tool_calls_str: {tool_calls_str[:200]}")
+                        logger.debug(f"Recovered tool_calls_str: {tool_calls_str[:200]}")
                         
                         tool_calls_json = json.loads(tool_calls_str)
                         if not isinstance(tool_calls_json, list):
                             tool_calls_json = [tool_calls_json]
                         
-                        print(f"[DEBUG HF] Successfully recovered {len(tool_calls_json)} tool calls")
+                        logger.debug(f"Successfully recovered {len(tool_calls_json)} tool calls")
                         
                         function_calls = [
                             FunctionCall(
@@ -306,8 +309,8 @@ class HuggingFaceLLMClient:
                             finish_reason="function_call"
                         )
             except (ValueError, json.JSONDecodeError, IndexError) as e:
-                print(f"[DEBUG HF] RECOVERY FAILED: {e}")
-                print(f"[DEBUG HF] Returning raw text as content")
+                logger.warning(f"Tool call recovery failed: {e}")
+                logger.debug("Returning raw text as content")
                 return LLMResponse(content=text, finish_reason="stop")
         
         # No function calls, regular response

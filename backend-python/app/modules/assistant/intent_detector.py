@@ -40,6 +40,11 @@ class IntentDetector:
             r'\b(seat|weight capacity|load)\b',
             r'\btell me (about|more about)\s+(product|option|number|item|the)\s+\d+',
             r'\b(product|option|number|item)\s+\d+',
+            # Color/attribute availability questions - HIGH PRIORITY
+            r'\b(is this|does this|does it|is it|can this|can it)\b.*\b(come|available|have|offered|sold)\b.*\b(in|with)\b',
+            r'\b(what|which)\s+(colors?|colours?|materials?|sizes?|finishes?)\b',
+            r'\b(available in|comes in|have in|offer in|sold in)\b',
+            r'\b(any other|other)\s+(colors?|colours?|sizes?)\b',
         ],
         IntentType.FIND_SIMILAR: [
             r'\bfind\s+similar\s+products?\b',  # Explicit match for "find similar product(s)"
@@ -146,12 +151,14 @@ class IntentDetector:
         ],
     }
     
-    def detect(self, message: str) -> IntentType:
+    def detect(self, message: str, current_product=None, last_shown_products=None) -> IntentType:
         """
         Detect intent from user message.
         
         Args:
             message: User message text
+            current_product: Optional current product from session context
+            last_shown_products: Optional list of recently shown products from session
         
         Returns:
             Detected IntentType enum
@@ -213,6 +220,19 @@ class IntentDetector:
             for pattern in self.PATTERNS[IntentType.FIND_SIMILAR]:
                 if re.search(pattern, message_lower):
                     return IntentType.FIND_SIMILAR
+        
+        # PRIORITY 1.6: Check for PRODUCT_SPEC_QA with product context
+        # If user has shown products and asks attribute questions, treat as spec inquiry
+        # This prevents "is this come in blue" from being caught as vague product search
+        has_product_context = (
+            current_product is not None or 
+            (last_shown_products and len(last_shown_products) > 0)
+        )
+        
+        if has_product_context and IntentType.PRODUCT_SPEC_QA in self.PATTERNS:
+            for pattern in self.PATTERNS[IntentType.PRODUCT_SPEC_QA]:
+                if re.search(pattern, message_lower):
+                    return IntentType.PRODUCT_SPEC_QA
         
         # PRIORITY 2: Check for BROAD product search patterns (catch vague queries)
         # This must come before specific patterns to catch "something for kids", etc.

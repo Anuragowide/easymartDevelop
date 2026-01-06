@@ -9,6 +9,14 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import uuid
+import pickle
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Session persistence
+SESSIONS_FILE = Path("data/sessions.pkl")
 
 
 @dataclass
@@ -256,11 +264,12 @@ class SessionContext:
 
 class SessionStore:
     """
-    In-memory session store.
+    In-memory session store with file persistence backup.
     
     Manages multiple user sessions with automatic expiration.
+    Sessions are saved to disk periodically to prevent data loss on restart.
     
-    TODO: Replace with Redis or database for production scalability.
+    TODO: Migrate to Redis for production scalability and multi-instance support.
     """
     
     def __init__(self, session_timeout_minutes: int = 30):
@@ -272,6 +281,30 @@ class SessionStore:
         """
         self.sessions: Dict[str, SessionContext] = {}
         self.session_timeout_minutes = session_timeout_minutes
+        self._load_sessions()
+    
+    def _save_sessions(self):
+        """Persist sessions to disk to prevent data loss on restart"""
+        try:
+            SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(SESSIONS_FILE, 'wb') as f:
+                pickle.dump(self.sessions, f)
+            logger.info(f"[SESSION_STORE] Saved {len(self.sessions)} sessions to disk")
+        except Exception as e:
+            logger.error(f"[SESSION_STORE] Failed to save sessions: {e}", exc_info=True)
+    
+    def _load_sessions(self):
+        """Load sessions from disk on startup"""
+        try:
+            if SESSIONS_FILE.exists():
+                with open(SESSIONS_FILE, 'rb') as f:
+                    self.sessions = pickle.load(f)
+                logger.info(f"[SESSION_STORE] Loaded {len(self.sessions)} sessions from disk")
+            else:
+                logger.info("[SESSION_STORE] No existing sessions file found, starting fresh")
+        except Exception as e:
+            logger.error(f"[SESSION_STORE] Failed to load sessions: {e}, starting fresh", exc_info=True)
+            self.sessions = {}
     
     def get_or_create_session(
         self,
@@ -305,9 +338,15 @@ class SessionStore:
         if session_id not in self.sessions:
             session = SessionContext(
                 session_id=session_id,
-                user_id=user_id
+                user_id=user_id,
+                metadata={"user_preferences": {}, "topic_history": []}
             )
             self.sessions[session_id] = session
+            logger.info(f"Created new session: {session_id}")
+            
+            # Save to disk for persistence
+            self._save_sessions()
+            
             return session
         
         # Update existing session

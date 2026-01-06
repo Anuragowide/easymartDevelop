@@ -201,12 +201,35 @@ class EasymartAssistantHandler:
             # CRITICAL: Apply context refinement IMMEDIATELY after adding message
             # This must happen BEFORE vague query detection so single-word refinements
             # like "wooden" get merged with previous search context ("desks" → "wooden desks")
+            # BUT: Don't apply to attribute questions about current products
             original_message = request.message
-            refined_message = self._apply_context_refinement(request.message, session)
-            if refined_message != original_message:
-                logger.info(f"[HANDLER] ✅ Applied context refinement: '{original_message}' → '{refined_message}'")
-                # Update the request message for all subsequent processing
-                request.message = refined_message
+            
+            # Check if this is an attribute question about current product
+            has_product_context = (
+                session.current_product is not None or 
+                (session.last_shown_products and len(session.last_shown_products) > 0)
+            )
+            
+            attribute_question_patterns = [
+                r'\b(is this|does this|does it|is it)\b.*\b(come|available|have)\b',
+                r'\b(what|which)\s+(colors?|colours?|materials?|sizes?)\b',
+                r'\b(available in|comes in)\b',
+            ]
+            
+            is_attribute_question = has_product_context and any(
+                re.search(pattern, original_message.lower()) 
+                for pattern in attribute_question_patterns
+            )
+            
+            # Only apply context refinement if NOT an attribute question
+            if not is_attribute_question:
+                refined_message = self._apply_context_refinement(request.message, session)
+                if refined_message != original_message:
+                    logger.info(f"[HANDLER] ✅ Applied context refinement: '{original_message}' → '{refined_message}'")
+                    # Update the request message for all subsequent processing
+                    request.message = refined_message
+            else:
+                logger.info(f"[HANDLER] Skipping context refinement - attribute question about current product")
             
             # VALIDATION: Check if query is off-topic (not related to e-commerce/shopping)
             message_lower = request.message.lower()
@@ -216,6 +239,26 @@ class EasymartAssistantHandler:
             
             # Additional check: if message contains none of the shopping keywords
             has_shopping_context = any(keyword in message_lower for keyword in self.SHOPPING_KEYWORDS)
+            
+            # CRITICAL: Skip off-topic check if message is a context refinement
+            # Single-word attributes like "grey", "wooden", "small" should NOT be flagged as off-topic
+            is_likely_refinement = False
+            if len(original_message.split()) <= 3:  # Short messages
+                refinement_indicators = [
+                    # Colors
+                    r'\b(red|blue|green|yellow|black|white|brown|grey|gray|orange|purple|pink|beige|cream)\b',
+                    # Materials
+                    r'\b(wooden|wood|metal|leather|fabric|plastic|glass|steel)\b',
+                    # Sizes
+                    r'\b(small|large|big|compact|mini|huge|medium)\b',
+                    # Styles  
+                    r'\b(modern|classic|vintage|contemporary|rustic|industrial)\b',
+                    # Contexts
+                    r'\b(for|in|with)\s+\w+',
+                ]
+                is_likely_refinement = any(re.search(pattern, message_lower) for pattern in refinement_indicators)
+                if is_likely_refinement:
+                    logger.info(f"[HANDLER] Detected likely refinement in '{original_message}' - skipping off-topic check")
             
             # CHECK FOR RESET/CLEAR COMMANDS
             is_reset = any(keyword in message_lower for keyword in self.RESET_KEYWORDS)
@@ -241,7 +284,7 @@ class EasymartAssistantHandler:
                     }
                 )
             
-            if is_off_topic and not has_shopping_context:
+            if is_off_topic and not has_shopping_context and not is_likely_refinement:
                 logger.warning(f"[HANDLER] Off-topic query detected: {request.message}")
                 
                 # Check for joke specifically
@@ -445,8 +488,32 @@ class EasymartAssistantHandler:
                                     )
             
             # Step 2: If no pending clarification, check if current query is vague
+            # BUT: Skip vague detection if user is asking about attributes of shown products
             if not pending:
-                vague_result = self.intent_detector.detect_vague_patterns(request.message)
+                # Check if user is asking about attributes of current/shown products
+                has_product_context = (
+                    session.current_product is not None or 
+                    (session.last_shown_products and len(session.last_shown_products) > 0)
+                )
+                
+                # Questions about product attributes when products are shown
+                attribute_questions = [
+                    r'\b(is this|does this|does it|is it|can this|can it)\b.*\b(come|available|have)\b.*\b(in|with)\b',  # "is this come in blue"
+                    r'\b(what|which)\s+(colors?|colours?|materials?|sizes?)\b',  # "what colors"
+                    r'\b(available in|comes in|have in|offer in)\b',  # "available in blue"
+                    r'\b(tell me (about|more)|information|details|specs)\b',  # "tell me about"
+                ]
+                
+                is_attribute_question = has_product_context and any(
+                    re.search(pattern, original_message.lower()) 
+                    for pattern in attribute_questions
+                )
+                
+                if is_attribute_question:
+                    logger.info(f"[HANDLER] Skipping vague detection - user asking about product attributes with context")
+                    vague_result = None
+                else:
+                    vague_result = self.intent_detector.detect_vague_patterns(request.message)
                 
                 if vague_result:
                     logger.info(f"[HANDLER] Vague query detected: {vague_result['vague_type']}")
@@ -493,7 +560,11 @@ class EasymartAssistantHandler:
             
             # Detect intent (for analytics/logging)
             logger.info(f"[HANDLER] Detecting intent...")
-            intent = self.intent_detector.detect(request.message)
+            intent = self.intent_detector.detect(
+                request.message,
+                current_product=session.current_product,
+                last_shown_products=session.last_shown_products
+            )
             logger.info(f"[HANDLER] Intent detected: {intent}, type: {type(intent)}")
             
             entities = self.intent_detector.extract_entities(request.message, intent)
@@ -1609,7 +1680,7 @@ class EasymartAssistantHandler:
                         
                         if has_price or has_dimensions or has_materials:
                             logger.warning(f"[BLOCKED] LLM hallucinated specs despite tool error!")
-                            print(f"[DEBUG] ✗ Blocked hallucination: {assistant_message[:100]}...")
+                            logger.warning(f"Blocked hallucination: {assistant_message[:100]}...")
                             assistant_message = "I'm unable to retrieve detailed information for this product at the moment. Please try another option from the list, or contact our support team for assistance."
                 
                 # Additional validation: Check if search results actually match the query
