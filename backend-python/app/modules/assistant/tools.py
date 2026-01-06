@@ -859,7 +859,8 @@ class EasymartAssistantTools:
                 async with httpx.AsyncClient() as client:
                     payload = {
                         "action": action_val,
-                        "session_id": session_id
+                        "session_id": session_id,
+                        "from_assistant": True
                     }
                     if pid:
                         payload["product_id"] = pid
@@ -892,9 +893,11 @@ class EasymartAssistantTools:
             }
         
         if action == "clear":
-            # Only modify session if this is NOT a sync callback from Node.js
+            # Always clear the local session
+            session.clear_cart()
+            
+            # Only sync back to Node if this wasn't already triggered BY Node
             if not skip_sync:
-                session.clear_cart()
                 await _sync_with_node("clear")
             
             return {

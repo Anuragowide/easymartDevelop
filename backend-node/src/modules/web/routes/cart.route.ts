@@ -2,53 +2,66 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { logger } from '../../../modules/observability/logger';
 import { pythonAssistantClient } from '../../../utils/pythonClient';
 
-interface CartRequestBody {
-  product_id?: string;
-  quantity?: number;
-  action?: 'add' | 'remove' | 'set' | 'clear';
-  session_id: string;
-}
+  interface CartRequestBody {
+    product_id?: string;
+    quantity?: number;
+    action?: 'add' | 'remove' | 'set' | 'clear';
+    session_id: string;
+    from_assistant?: boolean;
+  }
 
-interface CartQuerystring {
-  session_id: string;
-}
+  interface CartQuerystring {
+    session_id: string;
+  }
 
-export default async function cartRoutes(fastify: FastifyInstance) {
-  /**
-   * POST /api/cart/add
-   * Add/update/remove/clear items in cart
-   */
-  fastify.post('/api/cart/add', async (request: FastifyRequest<{ Body: CartRequestBody }>, reply: FastifyReply) => {
-    try {
-      const { product_id, quantity = 1, session_id, action } = request.body;
+  export default async function cartRoutes(fastify: FastifyInstance) {
+    /**
+     * POST /api/cart/add
+     * Add/update/remove/clear items in cart
+     */
+    fastify.post('/api/cart/add', async (request: FastifyRequest<{ Body: CartRequestBody }>, reply: FastifyReply) => {
+      try {
+        const { product_id, quantity = 1, session_id, action, from_assistant } = request.body;
 
-      if (!session_id) {
-        return reply.code(400).send({
-          success: false,
-          error: 'session_id is required'
-        });
-      }
-
-      if (action !== 'clear' && !product_id) {
-        return reply.code(400).send({
-          success: false,
-          error: 'product_id is required for this action'
-        });
-      }
-
-      logger.info('Adding to cart', { product_id, quantity, session_id, action });
-
-      // Forward to Python backend
-      const response = await pythonAssistantClient.request(
-        'POST',
-        '/assistant/cart',
-        {
-          product_id,
-          quantity,
-          action: action || 'add',  // Use action from request, default to 'add'
-          session_id
+        if (!session_id) {
+          return reply.code(400).send({
+            success: false,
+            error: 'session_id is required'
+          });
         }
-      );
+
+        if (action !== 'clear' && !product_id) {
+          return reply.code(400).send({
+            success: false,
+            error: 'product_id is required for this action'
+          });
+        }
+
+        logger.info('Cart update request', { product_id, quantity, session_id, action, from_assistant });
+
+        // If request came from assistant, we just return success to avoid circular loop
+        // since Python backend has already updated its local session state.
+        if (from_assistant) {
+          logger.info('Cart sync from assistant - skipping circular call');
+          return reply.send({ 
+            success: true, 
+            message: 'Cart synced from assistant',
+            action: action || 'add'
+          });
+        }
+
+        // Forward to Python backend
+        const response = await pythonAssistantClient.request(
+          'POST',
+          '/assistant/cart',
+          {
+            product_id,
+            quantity,
+            action: action || 'add',  // Use action from request, default to 'add'
+            session_id
+          }
+        );
+
 
       return reply.send(response.data);
     } catch (error: any) {

@@ -1319,8 +1319,8 @@ class EasymartAssistantHandler:
                             
                             result_str = f"Found {len(products)} products similar to {source_name}:\n" + "\n".join(product_list)
                             
-                            # Update session with new products
-                            session.last_shown_products = products
+                            # Update session with new products (FIX: use update_shown_products)
+                            session.update_shown_products(products)
                             logger.info(f"[HANDLER] Updated session with {len(products)} similar products")
                         else:
                             result_str = f"No similar products found for {source_name}."
@@ -2168,6 +2168,11 @@ class EasymartAssistantHandler:
                         "title": product_name,
                         "price": result.get("price", 0)
                     }])
+            
+                    # NEW: Also update shown products for find_similar_products
+                    if tool_name == "find_similar_products" and result.get("products"):
+                        logger.info(f"[EXECUTE_TOOLS] Storing {len(result['products'])} similar products in session")
+                        session.update_shown_products(result["products"])
             
             # Track cart actions (FIX: Moved OUTSIDE search_products block)
             if tool_name == "update_cart" and result.get("success"):
