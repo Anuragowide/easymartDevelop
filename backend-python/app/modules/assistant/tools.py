@@ -161,7 +161,7 @@ TOOL_DEFINITIONS = [
                     },
                     "quantity": {
                         "type": "integer",
-                        "description": "Quantity to add (default 1). Only set if user explicitly says a number like '2 units', '3 items'. Words like 'this one' mean 1, not 2.",
+                        "description": "Quantity to add (default 1). CRITICAL: Only set quantity if user explicitly says phrases like '2 units', '3 items', '5 pieces'. References like 'option 2', 'product 2', 'this one', 'add it', 'add this' ALL mean quantity=1, NOT 2. The number in 'option 2' is a product selector, not a quantity.",
                         "default": 1,
                         "minimum": 1
                     },
@@ -918,11 +918,14 @@ class EasymartAssistantTools:
             if not quantity or quantity < 1:
                 quantity = 1
             
+            logger.info(f"[CART_ADD] ======= CART ADD TOOL CALLED =======")
             logger.info(f"[CART_ADD] action=add, skip_sync={skip_sync}, product_id={product_id}, quantity={quantity}")
+            logger.info(f"[CART_ADD] Current cart items before add: {session.cart_items}")
             
             # Always add to session
             logger.info(f"[CART_ADD] Adding to session (action=add)")
             session.add_to_cart(product_id, quantity)
+            logger.info(f"[CART_ADD] Cart items after add: {session.cart_items}")
             
             # Only sync back to Node if this wasn't already triggered BY Node
             if not skip_sync:

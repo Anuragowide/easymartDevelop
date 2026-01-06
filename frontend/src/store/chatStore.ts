@@ -195,8 +195,10 @@ export const useChatStore = create<ChatState>()(
                   console.log(`[CHAT] Cart action detected: ${action.type}. Syncing cart...`);
                   await cartStore.getCart();
                 } else if (action.type === 'clear_cart') {
-                  console.log('[CHAT] Executing clear_cart');
-                  await cartStore.clearCart();
+                  // DON'T call cartStore.clearCart() - the backend already cleared the cart
+                  // Just refresh the local cart state to stay in sync
+                  console.log('[CHAT] Cart cleared by assistant. Syncing...');
+                  await cartStore.getCart();
                 } else if (action.type === 'view_cart') {
                   console.log('[CHAT] Executing view_cart');
                   set({ isCartOpen: true });

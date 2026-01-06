@@ -158,25 +158,50 @@ class SessionContext:
         
         return None
     
-    def add_to_cart(self, product_id: str, quantity: int = 1):
-        """Add item to cart (local state)"""
+    def add_to_cart(self, product_id: str, quantity: int = 1, source: str = "unknown"):
+        """Add item to cart (local state)
+        
+        Args:
+            product_id: Product SKU/ID to add
+            quantity: Quantity to add
+            source: Source of the add request ('button', 'assistant', 'unknown')
+        """
         import logging
+        from datetime import datetime, timedelta
         logger = logging.getLogger(__name__)
         
-        logger.info(f"[ADD_TO_CART] product_id={product_id}, quantity={quantity}")
+        logger.info(f"[SESSION.ADD_TO_CART] ======= ADDING TO SESSION CART =======")
+        logger.info(f"[SESSION.ADD_TO_CART] product_id={product_id}, quantity={quantity}, source={source}")
+        logger.info(f"[SESSION.ADD_TO_CART] Current cart BEFORE add: {self.cart_items}")
         
         # Check if already in cart
         for item in self.cart_items:
             if item["product_id"] == product_id or item.get("id") == product_id:
-                # IMPORTANT: Only add to existing quantity (don't double-add)
-                # The quantity parameter represents the total quantity to add
-                logger.info(f"[ADD_TO_CART] Found existing item, adding {quantity} to current {item['quantity']}")
+                # DEBOUNCE: Check if item was just added in last 5 seconds
+                # This prevents double-add from user clicking button AND typing "add this"
+                last_added = item.get("added_at")
+                if last_added:
+                    try:
+                        last_added_time = datetime.fromisoformat(last_added)
+                        time_since_add = datetime.now() - last_added_time
+                        if time_since_add < timedelta(seconds=5):
+                            logger.warning(f"[SESSION.ADD_TO_CART] DEBOUNCE: Skipping add - item was just added {time_since_add.total_seconds():.1f}s ago")
+                            logger.info(f"[SESSION.ADD_TO_CART] ======= END SESSION ADD (DEBOUNCED) =======")
+                            return
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Could not parse last_added timestamp: {e}")
+                
+                # Add to existing quantity
+                logger.info(f"[SESSION.ADD_TO_CART] Found existing item, adding {quantity} to current {item['quantity']}")
                 item["quantity"] += quantity
                 item["added_at"] = datetime.now().isoformat()  # Update timestamp
                 self.last_activity = datetime.now()
+                logger.info(f"[SESSION.ADD_TO_CART] Updated cart AFTER add: {self.cart_items}")
+                logger.info(f"[SESSION.ADD_TO_CART] ======= END SESSION ADD =======")
                 return
         
         # Add new item
+        logger.info(f"[SESSION.ADD_TO_CART] Adding new item to cart")
         self.cart_items.append({
             "product_id": product_id,
             "id": product_id, # Store both for consistency
@@ -184,6 +209,8 @@ class SessionContext:
             "added_at": datetime.now().isoformat()
         })
         self.last_activity = datetime.now()
+        logger.info(f"[SESSION.ADD_TO_CART] Cart AFTER adding new item: {self.cart_items}")
+        logger.info(f"[SESSION.ADD_TO_CART] ======= END SESSION ADD =======")
     
     def remove_from_cart(self, product_id: str):
         """Remove item from cart"""

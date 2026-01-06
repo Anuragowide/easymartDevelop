@@ -733,38 +733,37 @@ class EasymartAssistantHandler:
             if intent_str == "cart_clear" or (intent == IntentType.CART_CLEAR):
                 logger.info("[HANDLER] Cart clear intent detected, clearing cart directly")
                 
-                # Use the tools to clear cart (skip_sync=False to sync with Node.js)
+                # Use the tools to clear cart
                 from .tools import get_assistant_tools
                 tools = get_assistant_tools()
                 clear_result = await tools.update_cart(
                     action="clear",
-                    session_id=session.session_id,
-                    skip_sync=False
+                    session_id=session.session_id
                 )
                 
                 if clear_result.get("success"):
-                    assistant_message = "Your cart has been cleared. Would you like to start fresh and browse some products?"
+                    assistant_message = "Your cart has been emptied. Would you like to browse some products?"
                 else:
-                    assistant_message = "I had trouble clearing your cart. Please try again."
+                    assistant_message = "I couldn't clear your cart. Please try again."
                 
                 session.add_message("assistant", assistant_message)
                 
-                # Track cart action for frontend
+                # Set the action for frontend to sync
                 session.metadata["last_cart_action"] = {"type": "clear_cart"}
                 
                 return AssistantResponse(
                     message=assistant_message,
                     session_id=session.session_id,
                     products=[],
-                    cart_summary=self._build_cart_summary(session),
+                    cart_summary={"items": [], "item_count": 0, "total": 0.0},
                     metadata={
                         "intent": "cart_clear",
                         "entities": entities,
                         "context": topic_context.to_dict(),
-                        "cart_action": {"type": "clear_cart"},
                         "user_preferences": session.metadata.get("user_preferences", {}),
                         "topic_history": session.metadata.get("topic_history", [])
-                    }
+                    },
+                    actions=[{"type": "clear_cart"}]
                 )
             
             # SHORTCUT: Handle find similar intent - no need for LLM clarification
@@ -1189,7 +1188,19 @@ class EasymartAssistantHandler:
                             )
                         ]
                         llm_response.content = ""
-
+            
+            # SAFETY CHECK: If cart clear intent but NO tool calls → force update_cart(clear)!
+            if intent == IntentType.CART_CLEAR and not llm_response.function_calls:
+                logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart clear intent but LLM didn't call tool!")
+                from .hf_llm_client import FunctionCall
+                llm_response.function_calls = [
+                    FunctionCall(
+                        name="update_cart",
+                        arguments={"action": "clear"}
+                    )
+                ]
+                llm_response.content = ""
+            
             # Process function calls if any
             if llm_response.function_calls:
                 logger.info(f"[HANDLER] Processing {len(llm_response.function_calls)} function calls")
@@ -1204,6 +1215,10 @@ class EasymartAssistantHandler:
                         if func_call.name == 'update_cart':
                             llm_qty = func_call.arguments.get('quantity', 1)
                             msg_lower = original_message.lower()
+                            
+                            logger.info(f"[HANDLER] ======= CART QUANTITY VALIDATION =======")
+                            logger.info(f"[HANDLER] Original message: '{original_message}'")
+                            logger.info(f"[HANDLER] LLM provided quantity: {llm_qty}")
                             
                             # Check if user explicitly mentioned a quantity number
                             # IMPORTANT: Must NOT match "option 2", "item 3", "product 2" etc. - those are product references!
@@ -1232,6 +1247,7 @@ class EasymartAssistantHandler:
                             # ALWAYS force quantity to 1 unless explicit quantity phrase found
                             # This prevents "option 2", "this one", "add 2 to cart" confusion
                             if explicit_qty is None:
+                                logger.info(f"[HANDLER] No explicit quantity found - forcing to 1")
                                 func_call.arguments['quantity'] = 1
                                 if llm_qty != 1:
                                     logger.warning(f"[HANDLER] Corrected cart quantity from {llm_qty} to 1 (no explicit qty phrase in: '{original_message}')")
@@ -1241,6 +1257,9 @@ class EasymartAssistantHandler:
                                     logger.warning(f"[HANDLER] LLM extracted qty={llm_qty} but we found qty={explicit_qty}, using our extraction")
                                 func_call.arguments['quantity'] = explicit_qty
                                 logger.info(f"[HANDLER] Using explicit quantity: {explicit_qty}")
+                            
+                            logger.info(f"[HANDLER] Final validated quantity: {func_call.arguments.get('quantity')}")
+                            logger.info(f"[HANDLER] ======= END CART QUANTITY VALIDATION =======")
                         
                         # Try to extract number from user's message
                         product_num = None
