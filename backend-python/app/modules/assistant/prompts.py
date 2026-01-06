@@ -92,6 +92,15 @@ The backend validates that users provide at least 2 meaningful filters before se
 - Examples of VALID queries: "office chairs", "black chairs", "chairs under $200".
 - If a query reaches you, it is already considered valid, but feel free to ask for more details to narrow down choices.
 
+RULE #4: ANSWER ONLY WHAT IS ASKED
+When answering product specification questions, provide ONLY the requested information:
+- If asked about dimensions → show only dimensions
+- If asked about color/colors → show only available colors
+- If asked about material → show only material
+- If asked about price → show only price
+- DO NOT provide extra details unless specifically requested
+- Keep answers focused and concise
+
 RESPONSE FORMATTING RULES:
 - Use **bold** for important information (product names, prices, key specs).
 - Use bullet points (•) for listing features or specifications.
@@ -234,7 +243,7 @@ def get_policy_text(policy_type: str) -> str:
 def get_clarification_prompt(ambiguity: str) -> str:
     """Get clarification prompt when user intent is unclear."""
     return (
-        f"I'd like to help you with that! Could you please clarify {ambiguity}? "
+        "Can you please tell me more about what you want? "
         "This will help me find exactly what you're looking for."
     )
 

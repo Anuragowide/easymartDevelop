@@ -460,8 +460,8 @@ class EasymartAssistantHandler:
                                     session.increment_clarification_count()
                                     
                                     from .prompts import generate_clarification_prompt
-                                    assistant_message = f"{validation_msg}\n\n"
-                                    assistant_message += generate_clarification_prompt(
+                                    # Don't show technical validation message to user
+                                    assistant_message = generate_clarification_prompt(
                                         pending["vague_type"],
                                         merged_entities,
                                         clarification_count=clarification_count + 1
@@ -1861,6 +1861,9 @@ class EasymartAssistantHandler:
             'size': ['small', 'large', 'big', 'huge', 'tiny', 'medium', 'tall', 'short', 'wide', 'narrow', 'compact', 'spacious'],
             'material': ['wooden', 'wood', 'metal', 'plastic', 'fabric', 'leather', 'glass', 'steel', 'oak', 'pine', 'velvet', 'cotton'],
             'price': ['cheap', 'expensive', 'affordable', 'budget', 'luxury', 'premium', 'economy', 'high-end', 'low-cost'],
+            'room': ['office', 'bedroom', 'living room', 'dining room', 'kitchen', 'bathroom', 'outdoor', 'gym', 'school', 'home', 'industrial'],
+            'style': ['modern', 'contemporary', 'classic', 'vintage', 'rustic', 'industrial', 'scandinavian', 'minimalist', 'traditional'],
+            'descriptor': ['horizontal', 'vertical', 'adjustable', 'stackable', 'foldable', 'portable'],
         }
         
         # Refinement patterns: short queries that modify previous search
@@ -1879,9 +1882,13 @@ class EasymartAssistantHandler:
         if len(words) <= 3 and not is_refinement:
             if any(keyword in message_lower for keyword in all_refinement_keywords):
                 is_refinement = True
+                logger.info(f"[CONTEXT] Detected '{message}' as refinement (matched keyword)")
         
         if not is_refinement:
+            logger.info(f"[CONTEXT] '{message}' is NOT a refinement, returning as-is")
             return message  # Not a refinement, return as-is
+        
+        logger.info(f"[CONTEXT] '{message}' IS a refinement, looking for previous query...")
         
         # Extract context from recent conversation
         # Look for the last product search query that's NOT a refinement
@@ -1996,6 +2003,7 @@ class EasymartAssistantHandler:
         # Validate the refined query has sufficient filters
         from .intents import IntentType
         entities = self.intent_detector.extract_entities(refined_query, IntentType.PRODUCT_SEARCH)
+        logger.info(f"[CONTEXT] Extracted entities from refined query: {entities}")
         is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
             entities,
             refined_query
@@ -2003,12 +2011,12 @@ class EasymartAssistantHandler:
         
         if not is_valid:
             logger.warning(f"[CONTEXT] Refined query has insufficient filters (weight={weight:.1f})")
-            logger.warning(f"[CONTEXT] Will trigger clarification instead of progressive refinement")
-            # Return original message to allow clarification flow to handle it
-            return message
+            logger.warning(f"[CONTEXT] Entities extracted: {entities}")
+            logger.warning(f"[CONTEXT] Continuing with refined query '{refined_query}' - will be handled by vague query detection")
         else:
             logger.info(f"[CONTEXT] Refined query validated (weight={weight:.1f}), proceeding")
         
+        # ALWAYS return the refined query - let vague query detection handle insufficient filters
         return refined_query
     
     def _build_messages(self, session: SessionContext) -> List[Message]:
@@ -2041,11 +2049,23 @@ class EasymartAssistantHandler:
             Message(role="user", content="[TOOL_RESULTS] Found 2 office chairs: Kids Study Chair ($149), Junior Desk Chair ($129) [/TOOL_RESULTS]"),
             Message(role="assistant", content="I found 2 office chairs suitable for kids, shown above. Let me know if you'd like specifications for any of them."),
             
-            # Example 3: Product specification query
+            # Example 3: Product specification query (full details)
             Message(role="user", content="tell me about option 1"),
-            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_product_specs", "arguments": {"product_id": "CHR-001"}}] [/TOOLCALLS]'),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_product_specs", "arguments": {"product_id": "CHR-001", "question": "tell me about this product"}}] [/TOOLCALLS]'),
             Message(role="user", content="[TOOL_RESULTS] Kids Study Chair: Dimensions 45x45x80cm, weight capacity 50kg, fabric upholstery, adjustable height, easy assembly [/TOOL_RESULTS]"),
             Message(role="assistant", content="The Kids Study Chair has dimensions of 45×45×80cm with a 50kg weight capacity. It features fabric upholstery and adjustable height, and is easy to assemble."),
+            
+            # Example 3b: Specific question - dimensions only
+            Message(role="user", content="what are the dimensions?"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_product_specs", "arguments": {"product_id": "CHR-001", "question": "what are the dimensions"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Dimensions: 45cm x 45cm x 80cm [/TOOL_RESULTS]"),
+            Message(role="assistant", content="The dimensions are 45cm × 45cm × 80cm."),
+            
+            # Example 3c: Specific question - color only
+            Message(role="user", content="what colors is this available in?"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "get_product_specs", "arguments": {"product_id": "CHR-001", "question": "what colors is this available in"}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Available colors: Blue, Pink, Green [/TOOL_RESULTS]"),
+            Message(role="assistant", content="This is available in Blue, Pink, and Green."),
             
             # Example 4: No results found
             Message(role="user", content="show me pink unicorn desks"),
@@ -2066,6 +2086,12 @@ class EasymartAssistantHandler:
             Message(role="assistant", content='[TOOLCALLS] [{"name": "update_cart", "arguments": {"action": "add", "product_id": "DSK-002", "quantity": 1}}] [/TOOLCALLS]'),
             Message(role="user", content="[TOOL_RESULTS] Added Modern Desk to cart [/TOOL_RESULTS]"),
             Message(role="assistant", content="I've added the Modern Desk to your cart. Would you like to continue shopping or view your cart?"),
+            
+            # Example 6b: Cart operation with "this product"
+            Message(role="user", content="add this product to my cart"),
+            Message(role="assistant", content='[TOOLCALLS] [{"name": "update_cart", "arguments": {"action": "add", "product_id": "CHR-KDS-001", "quantity": 1}}] [/TOOLCALLS]'),
+            Message(role="user", content="[TOOL_RESULTS] Added Kids Study Chair to cart [/TOOL_RESULTS]"),
+            Message(role="assistant", content="I've added the Kids Study Chair to your cart. Is there anything else you'd like?"),
             
             # Example 7: Policy question (no tool needed)
             Message(role="user", content="what's your return policy?"),
