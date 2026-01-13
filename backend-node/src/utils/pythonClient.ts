@@ -91,12 +91,14 @@ class PythonAssistantClient {
       // Transform Python response to match Node backend format
       // Also transform product fields: name→title, image_url→image, add url
       const transformedProducts = (response.data.products || []).map((product: any) => ({
-        id: product.id,
-        title: product.name,           // name → title
+        id: product.id || product.sku,  // Use id or fallback to sku
+        sku: product.sku,               // Keep sku for reference
+        title: product.name || product.title,  // name → title
         price: product.price,
-        image: product.image_url,       // image_url → image
-        url: product.url || `/products/${product.id}`,  // add url field
+        image: product.image_url || product.image,  // image_url → image
+        url: product.url || `/products/${product.id || product.sku}`,  // add url field
         description: product.description,
+        inventory_quantity: product.inventory_quantity,  // Pass through for stock check
       }));
 
       // Transform actions from strings/objects to proper action objects
