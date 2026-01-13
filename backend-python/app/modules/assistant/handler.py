@@ -110,6 +110,7 @@ class EasymartAssistantHandler:
         """
         from .tools import get_assistant_tools
         from .context_analyzer import get_context_analyzer
+        from app.modules.assistant.conversation_state import ConversationStateManager
         self.llm_client = llm_client
         self.session_store = session_store or get_session_store()
         self.tools = get_assistant_tools()
@@ -117,6 +118,7 @@ class EasymartAssistantHandler:
         self.filter_validator = FilterValidator()
         self.event_tracker = EventTracker()
         self.context_analyzer = get_context_analyzer()
+        self.state_manager = ConversationStateManager()
         
         # System prompt
         self.system_prompt = get_system_prompt()
@@ -197,6 +199,50 @@ class EasymartAssistantHandler:
             # Add user message to history
             logger.info(f"[HANDLER] Adding user message to history...")
             session.add_message("user", request.message)
+            
+            # Store original message BEFORE any modifications
+            original_message = request.message
+            
+            # USE STATE MANAGER FOR BETTER REFINEMENT DETECTION
+            logger.info(f"[HANDLER] Using state manager to analyze message...")
+            analysis = self.state_manager.analyze_message(
+                original_message,
+                session.messages
+            )
+            
+            logger.info(f"[HANDLER] State Analysis: phase={analysis['phase']}, intent={analysis['intent']}")
+            logger.info(f"[HANDLER] Processed message: '{analysis['processed_message']}'")
+            
+            # Handle incomplete search
+            if analysis['intent'] == 'incomplete_search':
+                logger.info(f"[HANDLER] ⚠️ INCOMPLETE SEARCH - no context")
+                response_text = (
+                    "I'd be happy to help you find furniture! What type of furniture "
+                    "are you looking for? (For example: chairs, tables, sofas, beds, "
+                    "shelves, storage, etc.)"
+                )
+                session.add_message("assistant", response_text)
+                
+                return AssistantResponse(
+                    session_id=session.session_id,
+                    message=response_text,
+                    products=[],
+                    cart_summary=self._build_cart_summary(session),
+                    metadata={
+                        "intent": "clarification_needed",
+                        "entities": {},
+                        "function_calls_made": 0
+                    }
+                )
+            
+            # Apply state manager refinement if detected
+            if analysis['intent'] == 'refinement':
+                logger.info(f"[HANDLER] ✅ STATE MANAGER REFINEMENT detected")
+                logger.info(f"[HANDLER] Full query from state: '{analysis['processed_message']}'")
+                # Override the request message with refined query
+                request.message = analysis['processed_message']
+                # Mark as not an attribute question to use the refined message
+                is_attribute_question = False
             
             # CRITICAL: Apply context refinement IMMEDIATELY after adding message
             # This must happen BEFORE vague query detection so single-word refinements
