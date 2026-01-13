@@ -29,7 +29,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Build-time environment variables (can be overridden in docker-compose)
-ARG NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
+ARG NEXT_PUBLIC_API_URL=http://node.gowideai.com
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Copy dependencies

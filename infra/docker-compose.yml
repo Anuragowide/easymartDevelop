@@ -61,7 +61,7 @@ services:
       - ENVIRONMENT=production
       - HOST=0.0.0.0
       - PORT=8000
-      - ALLOWED_ORIGINS=http://167.71.228.100:3000,http://167.71.228.100:3001,http://localhost:3000,http://localhost:3001,http://frontend:3000,http://backend-node:3001
+      - ALLOWED_ORIGINS=https://gowideai.com,https://www.gowideai.com,https://frontend.gowideai.com,https://node.gowideai.com,https://python.gowideai.com,http://gowideai.com,http://www.gowideai.com,http://frontend.gowideai.com,http://node.gowideai.com,http://python.gowideai.com,http://167.71.228.100:3000,http://167.71.228.100:3001,http://167.71.228.100:8000,http://localhost:3000,http://localhost:3001,http://localhost:8000,http://frontend:3000,http://backend-node:3001,http://backend-python:8000
       - NODE_BACKEND_URL=http://backend-node:3001
       - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
       - HUGGINGFACE_MODEL=${HUGGINGFACE_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
@@ -127,13 +127,13 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
+        - NEXT_PUBLIC_API_URL=http://node.gowideai.com
     image: easymart/frontend:latest
     container_name: easymart-frontend
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://167.71.228.100:3001
+      - NEXT_PUBLIC_API_URL=http://node.gowideai.com
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
     depends_on:
