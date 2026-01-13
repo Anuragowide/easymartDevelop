@@ -161,7 +161,7 @@ TOOL_DEFINITIONS = [
                     },
                     "quantity": {
                         "type": "integer",
-                        "description": "Quantity to add (default 1). Only set if user explicitly says a number like '2 units', '3 items'. Words like 'this one' mean 1, not 2.",
+                        "description": "Quantity to add (default 1). CRITICAL: Only set quantity if user explicitly says phrases like '2 units', '3 items', '5 pieces'. References like 'option 2', 'product 2', 'this one', 'add it', 'add this' ALL mean quantity=1, NOT 2. The number in 'option 2' is a product selector, not a quantity.",
                         "default": 1,
                         "minimum": 1
                     },
@@ -859,7 +859,8 @@ class EasymartAssistantTools:
                 async with httpx.AsyncClient() as client:
                     payload = {
                         "action": action_val,
-                        "session_id": session_id
+                        "session_id": session_id,
+                        "from_assistant": True
                     }
                     if pid:
                         payload["product_id"] = pid
@@ -917,16 +918,21 @@ class EasymartAssistantTools:
             if not quantity or quantity < 1:
                 quantity = 1
             
+            logger.info(f"[CART_ADD] ======= CART ADD TOOL CALLED =======")
             logger.info(f"[CART_ADD] action=add, skip_sync={skip_sync}, product_id={product_id}, quantity={quantity}")
+            logger.info(f"[CART_ADD] Current cart items before add: {session.cart_items}")
             
             # ALWAYS add to session - Python is the source of truth for cart
             logger.info(f"[CART_ADD] Adding to session")
             session.add_to_cart(product_id, quantity)
+            logger.info(f"[CART_ADD] Cart items after add: {session.cart_items}")
             
             # Only sync back to Node.js if this call originated from Python (LLM action)
             # skip_sync=True means the call came FROM Node.js, so don't call back
             if not skip_sync:
                 await _sync_with_node("add", product_id, quantity)
+            else:
+                logger.info(f"[CART_ADD] Skipping sync callback to Node (skip_sync=True)")
             
             cart_state = await _get_cart_state()
             logger.info(f"[CART_ADD] Final cart state: {cart_state.get('item_count')} items")

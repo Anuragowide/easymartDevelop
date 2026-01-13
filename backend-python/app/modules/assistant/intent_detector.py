@@ -40,15 +40,32 @@ class IntentDetector:
             r'\b(seat|weight capacity|load)\b',
             r'\btell me (about|more about)\s+(product|option|number|item|the)\s+\d+',
             r'\b(product|option|number|item)\s+\d+',
+            # Color/attribute availability questions - HIGH PRIORITY
+            r'\b(is this|does this|does it|is it|can this|can it)\b.*\b(come|available|have|offered|sold)\b.*\b(in|with)\b',
+            r'\b(what|which)\s+(colors?|colours?|materials?|sizes?|finishes?)\b',
+            r'\b(available in|comes in|have in|offer in|sold in)\b',
+            r'\b(any other|other)\s+(colors?|colours?|sizes?)\b',
+        ],
+        IntentType.FIND_SIMILAR: [
+            r'\bfind\s+similar\s+products?\b',  # Explicit match for "find similar product(s)"
+            r'\b(find|show|see|get)\b.*\b(similar|alternatives?|more like|like this|like these|like that)\b',
+            r'\b(similar|alternatives?|more like)\b.*\b(products?|items?|options?)\b',
+            r'\b(show|find)\s+me\s+(more|other|different)\b',
+            r'\b(any other|other|more)\s+(options?|choices?|products?)\b',
+            r'^(similar|alternatives?|more like this|show more|find more)\s*\??$',
+            r'\bmore\s+(of\s+)?(these|this|that)\b',
         ],
         IntentType.CART_ADD: [
             r'\b(add|put)\b.*\b(to|in|into)\b.*\b(cart|basket)\b',
+            r'\badd\s+(this|that|it|the)\s+(product|item|one|to)',  # "add this product", "add this to cart"
             r'\b(buy|purchase|get|order)\b.*\b(this|that|the|it)\b',
             r'\b(i\'ll take)\b.*\b(this|that|the|it|one)\b',
             r'\b(also|too|as well)\s+(add|get|put)\b',
             r'\badd.*\b(also|too|as well)\b',
             r'\bput.*\b(also|too|as well)\b',
             r'\bget.*\b(also|too|as well)\b',
+            r'^add\s+(to\s+)?cart$',  # "add cart" or "add to cart"
+            r'^(buy|purchase|order)\s+(this|that|it)$',  # "buy this"
         ],
         IntentType.CART_REMOVE: [
             r'\b(remove|delete|take out|discard)\b.*\b(from|out of)\b.*\b(cart|basket)\b',
@@ -137,12 +154,14 @@ class IntentDetector:
         ],
     }
     
-    def detect(self, message: str) -> IntentType:
+    def detect(self, message: str, current_product=None, last_shown_products=None) -> IntentType:
         """
         Detect intent from user message.
         
         Args:
             message: User message text
+            current_product: Optional current product from session context
+            last_shown_products: Optional list of recently shown products from session
         
         Returns:
             Detected IntentType enum
@@ -198,6 +217,36 @@ class IntentDetector:
         if message_lower in greeting_exact:
             return IntentType.GREETING
         
+        # PRIORITY 1.5: Check for FIND_SIMILAR intent BEFORE broad product search
+        # This prevents "find similar" from being caught as generic product search
+        if IntentType.FIND_SIMILAR in self.PATTERNS:
+            for pattern in self.PATTERNS[IntentType.FIND_SIMILAR]:
+                if re.search(pattern, message_lower):
+                    return IntentType.FIND_SIMILAR
+        
+        # PRIORITY 1.55: Check for CART operations BEFORE PRODUCT_SPEC_QA
+        # This prevents "add this product" from being caught as product spec inquiry
+        # Check cart-related intents (add, remove, show, clear)
+        cart_intents = [IntentType.CART_ADD, IntentType.CART_REMOVE, IntentType.CART_SHOW, IntentType.CART_CLEAR]
+        for cart_intent in cart_intents:
+            if cart_intent in self.PATTERNS:
+                for pattern in self.PATTERNS[cart_intent]:
+                    if re.search(pattern, message_lower):
+                        return cart_intent
+        
+        # PRIORITY 1.6: Check for PRODUCT_SPEC_QA with product context
+        # If user has shown products and asks attribute questions, treat as spec inquiry
+        # This prevents "is this come in blue" from being caught as vague product search
+        has_product_context = (
+            current_product is not None or 
+            (last_shown_products and len(last_shown_products) > 0)
+        )
+        
+        if has_product_context and IntentType.PRODUCT_SPEC_QA in self.PATTERNS:
+            for pattern in self.PATTERNS[IntentType.PRODUCT_SPEC_QA]:
+                if re.search(pattern, message_lower):
+                    return IntentType.PRODUCT_SPEC_QA
+        
         # PRIORITY 2: Check for BROAD product search patterns (catch vague queries)
         # This must come before specific patterns to catch "something for kids", etc.
         broad_product_patterns = [
@@ -211,6 +260,9 @@ class IntentDetector:
             r'\b(cheap|affordable|expensive|best|good|quality|nice|premium|luxury|budget)\b',  # Adjectives
             r'\bunder\s+\$?\d+\b',  # Price queries
             r'\b(small|large|big|compact|modern|classic|vintage|contemporary)\b',  # Size/style
+            # Category + attribute combinations (e.g., "grey sofa", "sofa grey", "wood table")
+            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage)\s+(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\b',
+            r'\b(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\s+(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage)\b',
         ]
         
         # If ANY broad pattern matches, assume PRODUCT_SEARCH
@@ -344,18 +396,31 @@ class IntentDetector:
                     entities["style"] = style
                     break
             
-            # Extract room type
+            # Extract room type and purpose
             rooms = {
                 "office": ["office", "workspace", "study"],
                 "bedroom": ["bedroom", "bed room"],
                 "living_room": ["living room", "lounge"],
                 "dining_room": ["dining room", "dining"],
-                "outdoor": ["outdoor", "patio", "garden"]
+                "outdoor": ["outdoor", "patio", "garden"],
+                "gym": ["gym", "fitness", "exercise", "workout"],
+                "school": ["school", "classroom", "student"],
+                "kids": ["kids", "children", "child", "nursery"],
+                "industrial": ["industrial", "warehouse", "factory"],
+                "home": ["home", "house", "apartment"]
             }
             
             for room, keywords in rooms.items():
                 if any(kw in message_lower for kw in keywords):
                     entities["room_type"] = room
+                    break
+            
+            # Extract descriptive attributes (horizontal, vertical, adjustable, etc.)
+            descriptors = ["horizontal", "vertical", "adjustable", "stackable", "foldable", 
+                          "portable", "wall-mounted", "standing", "sitting", "reclining"]
+            for descriptor in descriptors:
+                if descriptor in message_lower:
+                    entities["descriptor"] = descriptor
                     break
         
         elif intent == IntentType.PRODUCT_SPEC_QA:

@@ -15,6 +15,7 @@ class FilterValidator:
         'material': 1.0,
         'style': 1.0,
         'room_type': 0.8,
+        'descriptor': 0.8,  # horizontal, vertical, adjustable, etc.
         'price_max': 0.5,
         'age_group': 0.5,
     }
@@ -23,6 +24,7 @@ class FilterValidator:
     SUBJECTIVE_TERM_WEIGHT = 0.3
     
     # Minimum total weight required to proceed with search
+    # Set to 1.5 to require category + at least one attribute/context
     MIN_FILTER_WEIGHT = 1.5
     
     # Incompatible filter pairs that create contradictions
@@ -111,7 +113,8 @@ class FilterValidator:
         subjective_terms = [
             'cheap', 'affordable', 'budget', 'expensive', 'premium', 'luxury',
             'small', 'compact', 'large', 'spacious', 'tiny', 'huge',
-            'cozy', 'comfortable', 'sturdy', 'elegant', 'stylish'
+            'cozy', 'comfortable', 'sturdy', 'elegant', 'stylish',
+            'horizontal', 'vertical', 'adjustable', 'stackable', 'foldable'
         ]
         
         count = 0
@@ -119,7 +122,7 @@ class FilterValidator:
             if re.search(r'\b' + term + r'\b', query_lower):
                 count += 1
         
-        return min(count, 2)  # Cap at 2 to avoid over-counting
+        return min(count, 3)  # Cap at 3 to avoid over-counting
     
     def _generate_filter_suggestion(
         self, 
@@ -128,11 +131,11 @@ class FilterValidator:
     ) -> str:
         """Generate a helpful suggestion for what filters are needed."""
         if not present_filters:
-            return "Please specify at least two preferences (e.g., category + color, or material + style, or room + price range)"
+            return "Is there anything specific you have in mind? (For example: size, color, material, price range, or any other preference)"
         
         # Determine what type of filter is present
         has_category = 'category' in present_filters
-        has_attribute = any(f in present_filters for f in ['color', 'material', 'style'])
+        has_attribute = any(f in present_filters for f in ['color', 'material', 'style', 'descriptor'])
         has_context = any(f in present_filters for f in ['room_type', 'age_group'])
         has_price = 'price_max' in present_filters
         
@@ -144,16 +147,16 @@ class FilterValidator:
             suggestions.append("furniture type (chair, table, desk, etc.)")
         
         if not has_context:
-            suggestions.append("room or purpose (office, bedroom, for kids, etc.)")
+            suggestions.append("room or purpose (office, bedroom, for kids, gym, school, etc.)")
         
         if not has_price and needed_weight >= 0.5:
             suggestions.append("price range")
         
         if suggestions:
             suggestion_text = ", ".join(suggestions[:2])  # Limit to 2 suggestions
-            return f"I need one more preference to find the best options. Try adding: {suggestion_text}"
+            return f"Is there anything specific you have in mind? (For example: {suggestion_text}, or any other preference)"
         
-        return "Please add one more preference to help narrow down the search"
+        return "Can you please tell me more about what you want?"
     
     def detect_contradictions(
         self, 

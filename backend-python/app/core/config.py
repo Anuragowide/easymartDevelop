@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = Field(default=0.7, description="LLM temperature")
     LLM_MAX_TOKENS: int = Field(default=512, description="LLM max tokens")
     
+    # Timeout configurations (seconds) - CRITICAL FOR PRODUCTION
+    LLM_TIMEOUT: float = Field(default=30.0, description="Maximum time for LLM to respond")
+    API_TIMEOUT: float = Field(default=10.0, description="Maximum time for API calls (Node.js backend)")
+    SEARCH_TIMEOUT: float = Field(default=5.0, description="Maximum time for search operations")
+    HTTP_CONNECT_TIMEOUT: float = Field(default=5.0, description="Connection establishment timeout")
+    
+    # Connection pooling - CRITICAL FOR PRODUCTION
+    HTTP_MAX_CONNECTIONS: int = Field(default=100, description="Maximum concurrent connections")
+    HTTP_MAX_KEEPALIVE: int = Field(default=20, description="Maximum keepalive connections")
+    
     # Embedding Model (for vector search)
     EMBEDDING_MODEL: str = Field(default="all-MiniLM-L6-v2", description="Sentence transformer model")
     
