@@ -892,9 +892,11 @@ class EasymartAssistantTools:
             }
         
         if action == "clear":
-            # Only modify session if this is NOT a sync callback from Node.js
+            # ALWAYS modify session - Python is the source of truth
+            session.clear_cart()
+            
+            # Only sync back to Node.js if not already from Node (prevent infinite loop)
             if not skip_sync:
-                session.clear_cart()
                 await _sync_with_node("clear")
             
             return {
@@ -917,14 +919,14 @@ class EasymartAssistantTools:
             
             logger.info(f"[CART_ADD] action=add, skip_sync={skip_sync}, product_id={product_id}, quantity={quantity}")
             
-            # Only add to session if this is NOT a sync callback from Node.js
-            # skip_sync=True means this call is FROM Node.js, so Python already added it
+            # ALWAYS add to session - Python is the source of truth for cart
+            logger.info(f"[CART_ADD] Adding to session")
+            session.add_to_cart(product_id, quantity)
+            
+            # Only sync back to Node.js if this call originated from Python (LLM action)
+            # skip_sync=True means the call came FROM Node.js, so don't call back
             if not skip_sync:
-                logger.info(f"[CART_ADD] Adding to session (skip_sync=False)")
-                session.add_to_cart(product_id, quantity)
                 await _sync_with_node("add", product_id, quantity)
-            else:
-                logger.info(f"[CART_ADD] Skipping session add (skip_sync=True)")
             
             cart_state = await _get_cart_state()
             logger.info(f"[CART_ADD] Final cart state: {cart_state.get('item_count')} items")
@@ -939,9 +941,11 @@ class EasymartAssistantTools:
             }
         
         elif action == "remove":
-            # Only modify session if this is NOT a sync callback from Node.js
+            # ALWAYS modify session - Python is the source of truth
+            session.remove_from_cart(product_id)
+            
+            # Only sync back to Node.js if not already from Node
             if not skip_sync:
-                session.remove_from_cart(product_id)
                 await _sync_with_node("remove", product_id)
             
             cart_state = await _get_cart_state()
@@ -958,16 +962,18 @@ class EasymartAssistantTools:
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             
-            # Only modify session if this is NOT a sync callback from Node.js
+            # ALWAYS modify session - Python is the source of truth
+            # Remove item first in local session
+            session.remove_from_cart(product_id)
+            
+            # Add back with new quantity if > 0
+            if quantity > 0:
+                session.add_to_cart(product_id, quantity)
+            
+            # Only sync back to Node.js if not already from Node
             if not skip_sync:
-                # Remove item first in local session
-                session.remove_from_cart(product_id)
-                
-                # Add back with new quantity if > 0
-                if quantity > 0:
-                    session.add_to_cart(product_id, quantity)
-                
                 await _sync_with_node("set", product_id, quantity)
+            
             cart_state = await _get_cart_state()
             return {
                 "action": "set",
