@@ -1542,34 +1542,60 @@ class EasymartAssistantHandler:
                             result_str = "Found 0 products matching the search."
                     
                     elif tool_name == 'compare_products':
-                        # Format comparison with position labels to preserve context
+                        # Generate a PROPER markdown table programmatically
                         products = result.get('products', [])
                         position_labels = result.get('position_labels', [])
                         
-                        if products:
-                            comparison_lines = ["=== PRODUCT COMPARISON ==="]
-                            for idx, product in enumerate(products):
-                                # Add position label if available
-                                if idx < len(position_labels):
-                                    comparison_lines.append(f"\n{position_labels[idx]}:")
-                                else:
-                                    comparison_lines.append(f"\nProduct {idx + 1}:")
-                                
-                                comparison_lines.append(f"  Name: {product.get('name', 'Unknown')}")
-                                comparison_lines.append(f"  Price: ${product.get('price', 0):.2f}")
-                                
-                                # Add key specs if available
-                                specs = product.get('specs', {})
-                                for section, content in list(specs.items())[:3]:  # Limit to first 3 specs
+                        if products and len(products) >= 2:
+                            # Get product names (shortened for table)
+                            def shorten_name(name, max_len=25):
+                                if len(name) <= max_len:
+                                    return name
+                                return name[:max_len-3] + "..."
+                            
+                            p1 = products[0]
+                            p2 = products[1]
+                            name1 = shorten_name(p1.get('name', 'Product 1'))
+                            name2 = shorten_name(p2.get('name', 'Product 2'))
+                            
+                            # Build comparison data
+                            comparison_lines = []
+                            comparison_lines.append(f"**Comparison Summary:**")
+                            comparison_lines.append(f"• **Price**: {p1.get('name', 'Product 1')} (${p1.get('price', 0):.2f}) vs {p2.get('name', 'Product 2')} (${p2.get('price', 0):.2f})")
+                            comparison_lines.append("")
+                            
+                            # Build specs comparison dict
+                            all_specs = {}
+                            for p in products:
+                                for section, content in p.get('specs', {}).items():
                                     if content and 'nan' not in str(content).lower():
-                                        comparison_lines.append(f"  {section}: {content}")
+                                        if section not in all_specs:
+                                            all_specs[section] = {}
+                                        all_specs[section][p.get('name')] = str(content)[:40]
                             
-                            # Add comparison summary if available
-                            comparison = result.get('comparison', {})
-                            if comparison.get('price_range'):
-                                comparison_lines.append(f"\nPrice Range: {comparison['price_range']}")
+                            # Create table rows
+                            rows = []
+                            rows.append(f"| Price | ${p1.get('price', 0):.2f} | ${p2.get('price', 0):.2f} |")
                             
-                            result_str = "\n".join(comparison_lines)
+                            # Add specs rows (limit to 6)
+                            spec_count = 0
+                            for section, values in all_specs.items():
+                                if spec_count >= 6:
+                                    break
+                                val1 = values.get(p1.get('name'), 'N/A')[:30]
+                                val2 = values.get(p2.get('name'), 'N/A')[:30]
+                                rows.append(f"| {section[:20]} | {val1} | {val2} |")
+                                spec_count += 1
+                            
+                            # Build final result with pre-formatted table for LLM context
+                            result_str = "\n".join(comparison_lines) + "\n\n"
+                            result_str += f"COMPARISON_TABLE_DATA:\n"
+                            result_str += f"Product1: {p1.get('name')} (${p1.get('price', 0):.2f})\n"
+                            result_str += f"Product2: {p2.get('name')} (${p2.get('price', 0):.2f})\n"
+                            for section, values in list(all_specs.items())[:6]:
+                                val1 = values.get(p1.get('name'), 'N/A')
+                                val2 = values.get(p2.get('name'), 'N/A')
+                                result_str += f"{section}: {val1} vs {val2}\n"
                         else:
                             result_str = json.dumps(result)
                     
@@ -1668,13 +1694,20 @@ class EasymartAssistantHandler:
                         )
                 elif 'compare_products' in tool_names:
                     post_tool_instruction = (
-                        "Format the comparison clearly using this structure:\n"
+                        "Create a CLEAR comparison summary using ONLY bullet points (NO tables):\n\n"
                         "**Comparison Summary:**\n"
                         "• **Price**: Product A ($X) vs Product B ($Y)\n"
-                        "• **Key Difference 1**: brief comparison\n"
-                        "• **Key Difference 2**: brief comparison\n"
-                        "• **Recommendation**: based on user's needs\n"
-                        "Use bullet points and bold for key info."
+                        "• **Key Difference 1**: Brief comparison (e.g., Material: steel vs aluminum)\n"
+                        "• **Key Difference 2**: Brief comparison\n"
+                        "• **Key Difference 3**: Brief comparison\n"
+                        "• **Key Difference 4**: Brief comparison\n\n"
+                        "**Recommendation:** Which product is better for what use case.\n\n"
+                        "CRITICAL RULES:\n"
+                        "- Use ONLY bullet points with • symbol\n"
+                        "- DO NOT use tables or pipes (|)\n"
+                        "- Keep each bullet under 80 characters\n"
+                        "- Compare 4-6 key features\n"
+                        "- End with a clear recommendation\n"
                     )
                 elif 'find_similar_products' in tool_names:
                     similar_result = tool_results.get('find_similar_products', {})
@@ -1879,8 +1912,37 @@ class EasymartAssistantHandler:
                 # Only include products if search_products was called
                 if 'search_products' in tool_names:
                     should_include_products = True
-                # For compare_products, include only the compared products
+                # For compare_products, include only the compared products (not all previous)
                 elif 'compare_products' in tool_names:
+                    # Get the compared product IDs from the tool result
+                    compare_result = tool_results.get('compare_products', {})
+                    compared_products = compare_result.get('products', [])
+                    if compared_products:
+                        # ONLY show the 2 products being compared, not all previous products
+                        # Fetch fresh product details from the database
+                        products_to_return = []
+                        for comp_prod in compared_products:
+                            prod_id = comp_prod.get('id')
+                            if prod_id:
+                                # Get fresh product from database
+                                product_full = await self.tools.product_searcher.get_product(prod_id)
+                                if product_full:
+                                    # Convert to frontend format
+                                    products_to_return.append({
+                                        'id': prod_id,
+                                        'product_id': prod_id,
+                                        'name': product_full.get('title') or product_full.get('name') or comp_prod.get('name'),
+                                        'title': product_full.get('title') or product_full.get('name') or comp_prod.get('name'),
+                                        'price': product_full.get('price', comp_prod.get('price')),
+                                        'image_url': product_full.get('image_url'),
+                                        'product_url': product_full.get('product_url') or f"/products/{prod_id}",
+                                        'description': product_full.get('description', ''),
+                                    })
+                        
+                        # Update session to ONLY show compared products
+                        if products_to_return:
+                            session.last_shown_products = products_to_return
+                            logger.info(f"[HANDLER] Comparison - showing ONLY {len(products_to_return)} compared products: {[p['id'] for p in products_to_return]}")
                     should_include_products = True
                 # For find_similar_products, include the similar products found
                 elif 'find_similar_products' in tool_names:

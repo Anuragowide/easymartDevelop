@@ -1,7 +1,10 @@
 import { MessageBubbleProps, ProductCard as ProductCardType, SearchResultsAction } from '@/lib/types';
 import { ProductCard } from './ProductCard';
+import { ComparisonTable, parseComparisonFromMessage } from './ComparisonTable';
 import { format } from 'date-fns';
 import { useCartStore } from '@/store/cartStore';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
@@ -75,7 +78,58 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             ? 'bg-red-500 text-white rounded-br-sm' 
             : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm'
         }`}>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
+          {isUser ? (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
+          ) : (
+            <div className="text-sm leading-relaxed">
+              {(() => {
+                // Check if this is a comparison message
+                const parsed = parseComparisonFromMessage(message.content);
+                
+                if (parsed.hasComparison && parsed.comparison) {
+                  return (
+                    <div>
+                      {/* Header */}
+                      <p className="font-semibold text-gray-900 mb-2">Comparison Summary:</p>
+                      
+                      {/* Render beautiful comparison table */}
+                      <ComparisonTable
+                        product1Name={parsed.comparison.product1Name}
+                        product2Name={parsed.comparison.product2Name}
+                        rows={parsed.comparison.rows}
+                        recommendation={parsed.recommendation}
+                      />
+                    </div>
+                  );
+                }
+                
+                // Regular markdown rendering for non-comparison messages
+                return (
+                  <div className="prose prose-sm max-w-none prose-headings:mt-3 prose-headings:mb-2 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ node, ...props }) => (
+                          <p className="my-1 text-gray-800" {...props} />
+                        ),
+                        strong: ({ node, ...props }) => (
+                          <strong className="font-semibold text-gray-900" {...props} />
+                        ),
+                        ul: ({ node, ...props }) => (
+                          <ul className="list-disc list-inside my-2 space-y-1.5" {...props} />
+                        ),
+                        li: ({ node, ...props }) => (
+                          <li className="text-sm text-gray-700" {...props} />
+                        ),
+                      }}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         {/* Timestamp */}
