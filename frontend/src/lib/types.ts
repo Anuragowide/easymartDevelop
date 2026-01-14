@@ -99,7 +99,7 @@ export interface MessageBubbleProps {
 
 export interface ProductCardProps {
   product: ProductCard;
-  onAddToCart?: (productId: string) => void;
+  onAddToCart?: (productId: string) => void | Promise<void>;
 }
 
 export interface MessageInputProps {

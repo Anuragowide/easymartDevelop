@@ -8,11 +8,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const time = format(new Date(message.timestamp), 'h:mm a');
   const { addToCart } = useCartStore();
 
-  const handleAddToCart = async (productId: string) => {
+  const handleAddToCart = async (productId: string): Promise<void> => {
     try {
       await addToCart(productId);
+      // Success is handled by ProductCard's "Added" state
     } catch (error) {
       console.error('Failed to add to cart:', error);
+      // Re-throw so ProductCard can handle the error state
+      throw error;
     }
   };
 

@@ -37,39 +37,75 @@ export const useCartStore = create<CartStore>()(
         try {
           const response: CartResponse = await cartApi.addToCart(productId, quantity);
           
-          if (response.success) {
+          if (response.success && response.cart) {
             set({
-              items: response.cart.items,
-              itemCount: response.cart.item_count,
-              total: response.cart.total,
+              items: response.cart.items || [],
+              itemCount: response.cart.item_count || 0,
+              total: response.cart.total || 0,
               isLoading: false,
             });
           } else {
             throw new Error(response.error || 'Failed to add to cart');
           }
         } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
+          const errorMsg = error?.response?.data?.error || error.message || 'Failed to add to cart';
+          set({ error: errorMsg, isLoading: false });
+          throw new Error(errorMsg);
         }
       },
 
       increaseQuantity: async (productId: string) => {
-        set({ isLoading: true, error: null });
+        // Optimistic update - update UI immediately
+        const currentState = get();
+        const itemIndex = currentState.items.findIndex(
+          (item) => item.id === productId || item.product_id === productId
+        );
+        
+        if (itemIndex === -1) return;
+        
+        const currentQty = currentState.items[itemIndex].quantity;
+        const newQty = currentQty + 1;
+        
+        const optimisticItems = [...currentState.items];
+        optimisticItems[itemIndex] = {
+          ...optimisticItems[itemIndex],
+          quantity: newQty,
+        };
+        
+        const optimisticTotal = optimisticItems.reduce(
+          (sum, item) => sum + item.price * item.quantity,
+          0
+        );
+        
+        // Update UI immediately
+        set({
+          items: optimisticItems,
+          itemCount: optimisticItems.reduce((sum, item) => sum + item.quantity, 0),
+          total: optimisticTotal,
+        });
+        
+        // Then sync with backend using 'set' action to avoid debounce
         try {
-          const response: CartResponse = await cartApi.addToCart(productId, 1);
+          const response: CartResponse = await cartApi.updateQuantity(productId, newQty);
           
-          if (response.success) {
+          if (response.success && response.cart) {
+            // Sync with actual backend state
             set({
               items: response.cart.items,
               itemCount: response.cart.item_count,
               total: response.cart.total,
-              isLoading: false,
             });
           } else {
             throw new Error(response.error || 'Failed to increase quantity');
           }
         } catch (error: any) {
-          set({ error: error.message, isLoading: false });
+          // Revert optimistic update on error
+          set({ 
+            items: currentState.items,
+            itemCount: currentState.itemCount,
+            total: currentState.total,
+            error: error.message 
+          });
           throw error;
         }
       },
@@ -82,23 +118,55 @@ export const useCartStore = create<CartStore>()(
               return get().removeFromCart(productId);
             }
 
-            set({ isLoading: true, error: null });
+            // Optimistic update - update UI immediately
+            const currentState = get();
+            const itemIndex = currentState.items.findIndex(
+              (item) => item.id === productId || item.product_id === productId
+            );
+            
+            if (itemIndex === -1) return;
+            
+            const optimisticItems = [...currentState.items];
+            optimisticItems[itemIndex] = {
+              ...optimisticItems[itemIndex],
+              quantity: optimisticItems[itemIndex].quantity - 1,
+            };
+            
+            const optimisticTotal = optimisticItems.reduce(
+              (sum, item) => sum + item.price * item.quantity,
+              0
+            );
+            
+            // Update UI immediately
+            set({
+              items: optimisticItems,
+              itemCount: optimisticItems.reduce((sum, item) => sum + item.quantity, 0),
+              total: optimisticTotal,
+            });
+
+            // Then sync with backend
             try {
               const newQuantity = currentQty - 1;
               const response: CartResponse = await cartApi.updateQuantity(productId, newQuantity);
               
-              if (response.success) {
+              if (response.success && response.cart) {
+                // Sync with actual backend state
                 set({
                   items: response.cart.items,
                   itemCount: response.cart.item_count,
                   total: response.cart.total,
-                  isLoading: false,
                 });
               } else {
                 throw new Error(response.error || 'Failed to decrease quantity');
               }
             } catch (error: any) {
-              set({ error: error.message, isLoading: false });
+              // Revert optimistic update on error
+              set({ 
+                items: currentState.items,
+                itemCount: currentState.itemCount,
+                total: currentState.total,
+                error: error.message 
+              });
               throw error;
             }
           },
