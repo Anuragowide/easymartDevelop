@@ -11,6 +11,8 @@ class FilterValidator:
     # Filter weight mappings - determines how much each filter contributes to total
     FILTER_WEIGHTS = {
         'category': 1.0,
+        'subcategory': 1.0,  # MMA, Boxing, Dumbbells, etc.
+        'product_type': 1.0,  # gloves, bag, bench, etc.
         'color': 1.0,
         'material': 1.0,
         'style': 1.0,
@@ -24,8 +26,8 @@ class FilterValidator:
     SUBJECTIVE_TERM_WEIGHT = 0.3
     
     # Minimum total weight required to proceed with search
-    # Set to 1.5 to require category + at least one attribute/context
-    MIN_FILTER_WEIGHT = 1.5
+    # Set to 1.0 - a single clear product type is enough
+    MIN_FILTER_WEIGHT = 1.0
     
     # Incompatible filter pairs that create contradictions
     INCOMPATIBLE_PAIRS = [
@@ -82,6 +84,66 @@ class FilterValidator:
         total_weight = 0.0
         present_filters = []
         
+        # Special case: Check for CLEAR product queries that don't need clarification
+        # Examples: "mma gloves", "boxing bag", "dog kennel", "electric scooter"
+        query_lower = query.lower() if query else ""
+        
+        # Product category keywords (count as 1.0 weight each)
+        category_keywords = [
+            # Sports & Fitness - Cardio
+            'fitness', 'gym', 'exercise', 'workout', 'training', 'cardio',
+            'treadmill', 'treadmills', 'exercise bike', 'rowing', 'rower', 'elliptical',
+            # Sports & Fitness - Weights
+            'weightlifting', 'weight lifting', 'weights', 'dumbbell', 'dumbbells',
+            'kettlebell', 'kettlebells', 'barbell', 'barbells', 'weight plates', 'olympic',
+            # Sports & Fitness - Boxing/MMA
+            'mma', 'boxing', 'muay thai', 'kickboxing', 'martial arts', 'karate',
+            'taekwondo', 'judo', 'jiu jitsu', 'bjj', 'sparring', 'punching',
+            # Sports & Fitness - General
+            'trampoline', 'air track', 'gymnastics', 'yoga', 'pilates',
+            'massage', 'relaxation', 'foam roller', 'recovery', 'stretching',
+            'rugby', 'basketball', 'sports',
+            # Pet Products
+            'dog', 'cat', 'pet', 'puppy', 'kitten', 'bird', 'aquarium', 'fish tank',
+            # Electric Scooters  
+            'scooter', 'e-scooter', 'escooter', 'electric scooter',
+            # Furniture
+            'office', 'gaming', 'ergonomic', 'furniture', 'desk', 'chair', 'table',
+            'sofa', 'bed', 'mattress', 'cabinet', 'shelf', 'bookcase'
+        ]
+        
+        # Product type keywords (count as 1.0 weight each)
+        product_type_keywords = [
+            # Boxing/MMA
+            'gloves', 'bag', 'bags', 'pads', 'shield', 'shields', 'ring', 'rings',
+            'uniform', 'belt', 'helmet', 'guard', 'guards', 'wraps', 'protector',
+            # Gym Equipment
+            'bench', 'benches', 'rack', 'racks', 'mat', 'mats', 'plates', 'sets',
+            'machine', 'machines', 'equipment', 'gear', 'roller', 'ball', 'bands',
+            # Pet Products
+            'kennel', 'kennels', 'cage', 'cages', 'crate', 'tree', 'tower',
+            'bed', 'beds', 'bowl', 'bowls', 'collar', 'leash', 'toy', 'toys',
+            'pump', 'filter', 'litter', 'carrier',
+            # Electric Scooters
+            'scooter', 'scooters', 'wheel', 'wheels', 'battery',
+            # Furniture
+            'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
+            'cabinet', 'cabinets', 'shelf', 'shelves', 'stool', 'stools',
+            'ottoman', 'recliner', 'bookcase'
+        ]
+        
+        # Check for category keywords
+        has_category = any(keyword in query_lower for keyword in category_keywords)
+        if has_category:
+            total_weight += 1.0
+            present_filters.append('category')
+        
+        # Check for product type keywords
+        has_product_type = any(keyword in query_lower for keyword in product_type_keywords)
+        if has_product_type:
+            total_weight += 1.0
+            present_filters.append('product_type')
+        
         # Calculate weight from structured entities
         for filter_name, weight in self.FILTER_WEIGHTS.items():
             if entities.get(filter_name):
@@ -114,7 +176,9 @@ class FilterValidator:
             'cheap', 'affordable', 'budget', 'expensive', 'premium', 'luxury',
             'small', 'compact', 'large', 'spacious', 'tiny', 'huge',
             'cozy', 'comfortable', 'sturdy', 'elegant', 'stylish',
-            'horizontal', 'vertical', 'adjustable', 'stackable', 'foldable'
+            'horizontal', 'vertical', 'adjustable', 'stackable', 'foldable',
+            # Sports/fitness specific
+            'leather', 'padded', 'heavy', 'light', 'professional', 'training', 'sparring'
         ]
         
         count = 0

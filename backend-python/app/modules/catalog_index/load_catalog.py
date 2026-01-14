@@ -18,6 +18,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from app.modules.catalog_index.catalog import CatalogIndexer
 from app.core.config import settings
+from app.modules.assistant.categories import (
+    is_valid_category, 
+    ALL_CATEGORIES, 
+    ALL_SUBCATEGORIES,
+    CATEGORY_MAPPING
+)
 
 # Configuration
 NODE_API_URL = os.getenv("NODE_BACKEND_URL", "http://localhost:3002")
@@ -73,7 +79,8 @@ def fetch_from_node_adapter() -> List[Dict[str, Any]]:
     print(f"[Catalog] Fetching data from Node.js Adapter: {url}")
     
     try:
-        response = requests.get(url, timeout=30)
+        # Increased timeout to 120 seconds for large product catalogs
+        response = requests.get(url, timeout=120)
         response.raise_for_status()
         data = response.json()
         
@@ -81,6 +88,28 @@ def fetch_from_node_adapter() -> List[Dict[str, Any]]:
             raise ValueError("API response expected to be a list of products")
             
         print(f"[Catalog] Successfully fetched {len(data)} products from API.")
+        
+        # Log categories found
+        categories = set(p.get('category', 'Unknown') for p in data)
+        print(f"[Catalog] 📊 Categories found: {', '.join(sorted(categories))}")
+        
+        # Validate categories against known mappings
+        invalid_categories = [cat for cat in categories if not is_valid_category(cat) and cat not in ['Unknown', 'Uncategorized']]
+        if invalid_categories:
+            print(f"[Catalog] ⚠️  Warning: Found products with unmapped categories: {', '.join(invalid_categories)}")
+            print(f"[Catalog] 💡 Valid categories are: {', '.join(ALL_CATEGORIES)}")
+        
+        # Category breakdown
+        category_count = {}
+        for p in data:
+            cat = p.get('category', 'Unknown')
+            category_count[cat] = category_count.get(cat, 0) + 1
+        
+        print("\n[Catalog] 📊 Product Distribution by Category:")
+        for cat, count in sorted(category_count.items()):
+            print(f"  - {cat}: {count} products")
+        print()
+        
         return process_products(data)
     except requests.exceptions.RequestException as e:
         print(f"[Catalog] ⚠️ API Fetch failed: {e}")

@@ -74,11 +74,27 @@ class EasymartAssistantHandler:
     
     # Common shopping keywords for quick validation
     SHOPPING_KEYWORDS = {
-        'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'product', 'item',
-        'buy', 'purchase', 'order', 'cart', 'price', 'cost', 'shipping', 'delivery',
-        'return', 'policy', 'warranty', 'available', 'stock', 'show', 'find', 'search',
-        'compare', 'recommend', 'looking for', 'need', 'want', 'locker', 'cabinet',
-        'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen'
+        # Furniture
+        'chair', 'table', 'desk', 'sofa', 'bed', 'furniture', 'locker', 'cabinet',
+        'storage', 'drawer', 'office', 'home', 'bedroom', 'living room', 'kitchen',
+        'stool', 'shelf', 'bookcase', 'cupboard',
+        
+        # Sports & Fitness
+        'fitness', 'gym', 'exercise', 'workout', 'treadmill', 'dumbbell', 'kettlebell',
+        'barbell', 'weights', 'bench', 'boxing', 'martial arts', 'mma', 'rugby',
+        'basketball', 'trampoline', 'rowing machine', 'bike', 'cycling',
+        
+        # Electric Scooters
+        'scooter', 'escooter', 'e-scooter', 'electric scooter',
+        
+        # Pet Products
+        'pet', 'dog', 'cat', 'bird', 'kennel', 'cage', 'cat tree', 'pet supplies',
+        'aquarium', 'litter box', 'pet toys',
+        
+        # General shopping terms
+        'product', 'item', 'buy', 'purchase', 'order', 'cart', 'price', 'cost', 
+        'shipping', 'delivery', 'return', 'policy', 'warranty', 'available', 'stock', 
+        'show', 'find', 'search', 'compare', 'recommend', 'looking for', 'need', 'want'
     }
     
     RESET_KEYWORDS = {'clear chat', 'reset chat', 'start over', 'clear history', 'clear session', 'reset session', 'clear all', 'restart chat'}
@@ -217,9 +233,13 @@ class EasymartAssistantHandler:
             if analysis['intent'] == 'incomplete_search':
                 logger.info(f"[HANDLER] ⚠️ INCOMPLETE SEARCH - no context")
                 response_text = (
-                    "I'd be happy to help you find furniture! What type of furniture "
-                    "are you looking for? (For example: chairs, tables, sofas, beds, "
-                    "shelves, storage, etc.)"
+                    "I'd be happy to help you! What are you looking for? We have:\n"
+                    "• 🏋️ Sports & Fitness (gym equipment, boxing gear, MMA equipment, weights)\n"
+                    "• 🛴 Electric Scooters\n"
+                    "• 🏢 Office Furniture (desks, chairs, tables, storage)\n"
+                    "• 🏠 Home Furniture (bedroom, living room, dining)\n"
+                    "• 🐶 Pet Products (kennels, cat trees, cages, supplies)\n\n"
+                    "What would you like to see?"
                 )
                 session.add_message("assistant", response_text)
                 
@@ -635,10 +655,10 @@ class EasymartAssistantHandler:
             if intent_str == "out_of_scope":
                 logger.info("[HANDLER] Out-of-scope intent detected, returning polite redirect")
                 assistant_message = (
-                    "I'm EasyMart's furniture shopping assistant, and I specialize in helping you find the perfect furniture! "
-                    "I can help you search for chairs, tables, sofas, beds, storage solutions, and more. "
-                    "I can also answer questions about shipping, returns, and our policies. "
-                    "How can I assist you with your furniture needs today?"
+                    "I'm EasyMart's shopping assistant! I can help you find products across all our categories: "
+                    "Office Furniture, Home Furniture, Sports & Fitness equipment (dumbbells, treadmills, boxing gear), "
+                    "Electric Scooters, and Pet Products. I can also answer questions about shipping, returns, and policies. "
+                    "What are you looking for today?"
                 )
                 
                 # Add assistant response to history
@@ -886,17 +906,28 @@ class EasymartAssistantHandler:
                     }
                 )
             
-            # FORCE product_search intent for furniture-related queries
-            furniture_keywords = [
-                "chair", "table", "desk", "sofa", "bed", "shelf", "locker", "stool",
-                "cabinet", "storage", "furniture", "office", "bedroom", "living",
-                "dining", "wardrobe", "drawer", "bench", "ottoman"
+            # FORCE product_search intent for product-related queries (all categories)
+            product_keywords = [
+                # Office Furniture
+                "chair", "table", "desk", "shelf", "locker", "stool", "cabinet", "storage", "furniture", "office",
+                # Home Furniture
+                "sofa", "bed", "bedroom", "living", "dining", "wardrobe", "drawer", "bench", "ottoman", "mattress",
+                # Sports & Fitness
+                "mma", "boxing", "gloves", "bag", "punching", "kickboxing", "muay thai", "martial arts",
+                "dumbbell", "kettlebell", "barbell", "treadmill", "bike", "gym", "fitness", "exercise",
+                "weightlifting", "weights", "bench press", "squat rack", "rowing", "yoga", "trampoline",
+                # Pet Products
+                "dog", "cat", "pet", "kennel", "cage", "aquarium", "bird", "rabbit", "feeder", "carrier",
+                # Electric Scooters
+                "scooter", "electric scooter", "e-scooter",
+                # Hospitality Furniture
+                "reception", "training", "conference", "lectern"
             ]
             
-            # Overrides for furniture queries
-            if any(keyword in request.message.lower() for keyword in furniture_keywords):
+            # Overrides for product queries
+            if any(keyword in request.message.lower() for keyword in product_keywords):
                 if intent not in [IntentType.PRODUCT_SEARCH, IntentType.PRODUCT_SPEC_QA, IntentType.CART_ADD, IntentType.PRODUCT_AVAILABILITY]:
-                    logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for furniture query")
+                    logger.info(f"[HANDLER] Overriding intent from {intent} to PRODUCT_SEARCH for product query")
                     intent = IntentType.PRODUCT_SEARCH
             
             # AMBIGUITY CHECK: Handle references like "option 1", "product 2"
@@ -968,6 +999,8 @@ class EasymartAssistantHandler:
                     entities,
                     request.message
                 )
+                
+                logger.info(f"[HANDLER] Filter validation: is_valid={is_valid}, weight={weight:.1f}, entities={entities}")
                 
                 # Check for bypass phrases
                 if self.filter_validator.is_bypass_phrase(request.message):
@@ -1587,17 +1620,32 @@ class EasymartAssistantHandler:
                             "CRITICAL: Tool error. Say exactly: 'I'm unable to retrieve detailed information for this product at the moment. Please try another option, or contact support.'"
                         )
                     else:
-                        post_tool_instruction = (
-                            "Respond with well-formatted product information using this structure:\n"
-                            "1. Start with **Product Name** in bold\n"
-                            "2. Give a 1-sentence description\n"
-                            "3. Use bullet points (•) for key specs like:\n"
-                            "   • **Dimensions**: width x depth x height\n"
-                            "   • **Material**: material type\n"
-                            "   • **Weight**: if available\n"
-                            "   • **Key Features**: important features\n"
-                            "Keep it concise - 3-5 bullet points max. Only include data from the tool result."
-                        )
+                        # Detect specific attribute question type from user message
+                        user_msg_lower = request.message.lower()
+                        
+                        # Check for specific attribute questions - answer ONLY what's asked
+                        specific_question = self._detect_specific_attribute_question(user_msg_lower)
+                        
+                        if specific_question:
+                            post_tool_instruction = (
+                                f"CRITICAL: User asked ONLY about '{specific_question}'. "
+                                f"Respond with ONLY that specific information in 1-2 short sentences. "
+                                f"DO NOT show full product details, dimensions, materials, or other specs. "
+                                f"After answering, ask: 'Is there anything else you'd like to know about this product?'"
+                            )
+                        else:
+                            # Full product info request
+                            post_tool_instruction = (
+                                "Respond with well-formatted product information using this structure:\n"
+                                "1. Start with **Product Name** in bold\n"
+                                "2. Give a 1-sentence description\n"
+                                "3. Use bullet points (•) for key specs like:\n"
+                                "   • **Dimensions**: width x depth x height\n"
+                                "   • **Material**: material type\n"
+                                "   • **Weight**: if available\n"
+                                "   • **Key Features**: important features\n"
+                                "Keep it concise - 3-5 bullet points max. Only include data from the tool result."
+                            )
                 elif 'calculate_shipping' in tool_names:
                     post_tool_instruction = (
                         "Format shipping information clearly:\n"
@@ -1903,6 +1951,74 @@ class EasymartAssistantHandler:
                 session_id=request.session_id or "error",
                 metadata=error_metadata
             )
+    
+    def _detect_specific_attribute_question(self, message: str) -> Optional[str]:
+        """
+        Detect if user is asking about a specific product attribute.
+        Returns the attribute type if found, None otherwise.
+        
+        This helps provide concise answers instead of full product details.
+        """
+        message_lower = message.lower()
+        
+        # Map question patterns to attribute types
+        attribute_patterns = {
+            'color': [
+                r'\bcolou?rs?\b', r'\bcolou?r\s*(option|available|choice)',
+                r'\bavailable\s*(in\s+)?colou?rs?\b', r'\bwhat\s+colou?rs?\b',
+                r'\bwhich\s+colou?rs?\b', r'\bshade\b', r'\bfinish\b',
+                r'\bcolou?r\s*(of|for|in)\b'
+            ],
+            'dimensions': [
+                r'\bdimensions?\b', r'\bsize\b', r'\bmeasurements?\b',
+                r'\bhow\s+(big|large|small|tall|wide|long)\b',
+                r'\bwidth\b', r'\bheight\b', r'\bdepth\b', r'\blength\b',
+                r'\b(what|whats|what\'s)\s+(the\s+)?size\b'
+            ],
+            'price': [
+                r'\bprice\b', r'\bcost\b', r'\bhow\s+much\b',
+                r'\bpricing\b', r'\b\$\b'
+            ],
+            'material': [
+                r'\bmaterials?\b', r'\bmade\s+(of|from|with)\b',
+                r'\bfabric\b', r'\bcomposition\b', r'\bconstruction\b'
+            ],
+            'weight': [
+                r'\bweights?\b', r'\bhow\s+heavy\b', r'\bheavy\b',
+                r'\bkilos?\b', r'\bkg\b', r'\blbs?\b', r'\bpounds?\b'
+            ],
+            'weight capacity': [
+                r'\bweight\s+capacity\b', r'\bmax\s+weight\b', r'\bload\s+capacity\b',
+                r'\bhow\s+much\s+weight\b', r'\bsupport\s+weight\b'
+            ],
+            'warranty': [
+                r'\bwarranty\b', r'\bguarantee\b', r'\bcoverage\b'
+            ],
+            'assembly': [
+                r'\bassembly\b', r'\bassemble\b', r'\bsetup\b', r'\bset\s*up\b',
+                r'\binstallation\b', r'\bput\s+together\b'
+            ],
+            'delivery': [
+                r'\bdelivery\b', r'\bshipping\b', r'\bdeliver\b',
+                r'\bhow\s+long\b.*\b(arrive|get|delivery|ship)\b'
+            ],
+            'stock': [
+                r'\bin\s+stock\b', r'\bavailable\b', r'\bavailability\b',
+                r'\bstock\b', r'\binventory\b'
+            ],
+            'features': [
+                r'\bfeatures?\b', r'\bspecifications?\b', r'\bspecs?\b',
+                r'\bdetails?\b', r'\btell\s+me\s+(about|more)\b'
+            ]
+        }
+        
+        for attribute, patterns in attribute_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, message_lower):
+                    logger.info(f"[HANDLER] Detected specific attribute question: {attribute}")
+                    return attribute
+        
+        return None
     
     def _apply_context_refinement(self, message: str, session: SessionContext) -> str:
         """

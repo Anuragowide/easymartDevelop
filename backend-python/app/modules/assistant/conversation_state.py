@@ -94,9 +94,26 @@ class ConversationStateManager:
     
     # Product categories
     CATEGORIES = [
+        # Furniture
         'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
         'bed', 'beds', 'shelf', 'shelves', 'cabinet', 'cabinets', 'storage',
-        'locker', 'lockers', 'furniture', 'couch', 'dresser', 'nightstand'
+        'locker', 'lockers', 'furniture', 'couch', 'dresser', 'nightstand',
+        
+        # Sports & Fitness
+        'dumbbell', 'dumbbells', 'weight', 'weights', 'kettlebell', 'kettlebells',
+        'barbell', 'barbells', 'treadmill', 'treadmills', 'bike', 'bikes',
+        'bench', 'benches', 'gym equipment', 'fitness equipment', 'exercise equipment',
+        'boxing', 'mma', 'martial arts', 'gloves', 'punching bag', 'boxing bag',
+        'focus pads', 'shin guards', 'headgear', 'protective gear',
+        'trampoline', 'rowing machine', 'exercise bike',
+        
+        # Electric Scooters
+        'scooter', 'scooters', 'electric scooter', 'e-scooter',
+        
+        # Pet Products
+        'kennel', 'kennels', 'dog house', 'cat tree', 'cage', 'cages',
+        'pet supplies', 'dog toy', 'cat toy', 'bird cage', 'aquarium',
+        'litter box', 'pet bed'
     ]
     
     # Refinement keywords
@@ -104,13 +121,16 @@ class ConversationStateManager:
         'colors': ['red', 'blue', 'green', 'black', 'white', 'grey', 'gray', 'brown', 
                    'beige', 'navy', 'pink', 'yellow', 'orange', 'purple'],
         'materials': ['wooden', 'wood', 'metal', 'plastic', 'leather', 'fabric', 
-                      'glass', 'steel', 'oak', 'pine', 'marble', 'canvas'],
+                      'glass', 'steel', 'oak', 'pine', 'marble', 'canvas', 'rubber',
+                      'aluminum', 'iron', 'vinyl', 'synthetic'],
         'styles': ['modern', 'contemporary', 'traditional', 'rustic', 'minimalist',
-                   'industrial', 'vintage', 'classic', 'scandinavian'],
+                   'industrial', 'vintage', 'classic', 'scandinavian', 'professional',
+                   'training', 'competition'],
         'rooms': ['office', 'bedroom', 'living room', 'kitchen', 'dining', 'kids',
-                  'bathroom', 'outdoor', 'patio'],
+                  'bathroom', 'outdoor', 'patio', 'gym', 'home gym', 'garage'],
         'features': ['storage', 'adjustable', 'foldable', 'portable', 'ergonomic',
-                     'reclining', 'swivel', 'wheels', 'cushioned']
+                     'reclining', 'swivel', 'wheels', 'cushioned', 'padded', 'heavy duty',
+                     'lightweight', 'compact', 'professional', 'training', 'sparring']
     }
     
     def __init__(self):
@@ -238,8 +258,13 @@ class ConversationStateManager:
             return True
         
         # Search intent keywords with category-like words
-        search_keywords = ['find', 'show', 'search', 'looking for', 'need', 'want', 'get me']
+        search_keywords = ['find', 'show', 'search', 'looking for', 'need', 'want', 'get me', 'i want', 'i need']
         if any(keyword in message for keyword in search_keywords):
+            return True
+        
+        # Check for product type words (nouns that suggest products)
+        product_words = ['equipment', 'gear', 'supplies', 'accessories', 'products', 'items']
+        if any(word in message for word in product_words):
             return True
         
         return False

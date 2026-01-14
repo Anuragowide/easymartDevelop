@@ -21,6 +21,9 @@ from ..retrieval.spec_search import SpecSearcher
 # Import prompts for policy info
 from .prompts import POLICIES, STORE_INFO, get_policy_text, get_contact_text
 
+# Import category mapping
+from .categories import ALL_CATEGORIES, ALL_SUBCATEGORIES, CATEGORY_MAPPING
+
 logger = logging.getLogger(__name__)
 
 # Node.js backend URL for cart synchronization
@@ -33,22 +36,21 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_products",
-            "description": "Search Easymart furniture catalog by keyword, category, style, material, or price range. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
+            "description": "Search Easymart catalog by keyword, category, style, material, or price range. Supports furniture, sports equipment, electric scooters, and pet products. Returns EXACT products from database - NO MORE, NO LESS. Display results exactly as returned. If 0 results, inform user that items in that category/color/style are not available.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query or keywords (e.g., 'office chair', 'modern dining table')"
+                        "description": "Search query or keywords (e.g., 'office chair', 'dumbbells', 'electric scooter', 'dog kennel')"
                     },
                     "category": {
                         "type": "string",
-                        "enum": ["chair", "table", "sofa", "bed", "desk", "shelf", "stool", "storage", "locker"],
-                        "description": "Product category filter"
+                        "description": f"Product category filter. Valid categories: {', '.join(ALL_CATEGORIES[:3])}..."
                     },
                     "material": {
                         "type": "string",
-                        "enum": ["wood", "metal", "leather", "fabric", "glass", "rattan", "plastic"],
+                        "enum": ["wood", "metal", "leather", "fabric", "glass", "rattan", "plastic", "steel", "aluminum", "rubber"],
                         "description": "Material filter"
                     },
                     "style": {
@@ -58,7 +60,7 @@ TOOL_DEFINITIONS = [
                     },
                     "room_type": {
                         "type": "string",
-                        "enum": ["office", "bedroom", "living_room", "dining_room", "outdoor"],
+                        "enum": ["office", "bedroom", "living_room", "dining_room", "outdoor", "gym", "home_gym"],
                         "description": "Room type filter"
                     },
                     "price_max": {

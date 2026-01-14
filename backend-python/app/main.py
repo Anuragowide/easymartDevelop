@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import get_settings
 from app.api import health_router, assistant_router
-from app.modules.catalog_index.load_catalog import load_all_products
 
 settings = get_settings()
 
@@ -60,11 +59,19 @@ async def startup_event():
     print(f"  Debug: {settings.DEBUG}")
     print(f"  Host: {settings.HOST}:{settings.PORT}")
     
-    # Trigger auto-indexing in background
-    # Move to background task so server starts immediately
-    import asyncio
-    asyncio.create_task(load_all_products())
-    print(f"[{settings.APP_NAME}] Auto-indexing task started in background")
+    # Check catalog status
+    from app.modules.catalog_index.catalog import CatalogIndexer
+    try:
+        indexer = CatalogIndexer()
+        product_count = indexer.get_product_count()
+        if product_count > 0:
+            print(f"[Catalog] ✅ Ready with {product_count} products indexed")
+        else:
+            print(f"[Catalog] ⚠️  No products indexed. Run: python -m app.modules.assistant.cli index-catalog")
+    except Exception as e:
+        print(f"[Catalog] ⚠️  Error checking catalog: {e}")
+    
+    print(f"[{settings.APP_NAME}] Ready!")
 
 
 @app.on_event("shutdown")

@@ -62,10 +62,28 @@ class ContextAnalyzer:
     # Topic detection keywords
     TOPIC_KEYWORDS = {
         TopicType.PRODUCTS: [
-            'product', 'item', 'furniture', 'chair', 'table', 'desk', 
-            'sofa', 'bed', 'cabinet', 'storage', 'locker', 'drawer',
+            # General
+            'product', 'item', 'equipment', 'gear',
             'buy', 'purchase', 'looking for', 'need', 'want', 'show me',
-            'find', 'search', 'available', 'stock', 'price', 'cost'
+            'find', 'search', 'available', 'stock', 'price', 'cost',
+            
+            # Furniture
+            'furniture', 'chair', 'table', 'desk', 'sofa', 'bed', 
+            'cabinet', 'storage', 'locker', 'drawer', 'shelf', 'stool',
+            
+            # Sports & Fitness
+            'sports', 'fitness', 'gym', 'exercise', 'workout', 'training',
+            'dumbbell', 'dumbbells', 'weight', 'weights', 'kettlebell', 'barbell',
+            'treadmill', 'bike', 'rowing', 'bench', 'trampoline',
+            'boxing', 'mma', 'martial arts', 'gloves', 'punching bag', 'boxing bag',
+            'protective gear', 'headgear', 'shin guards',
+            
+            # Electric Scooters
+            'scooter', 'electric scooter', 'e-scooter',
+            
+            # Pet Products
+            'pet', 'dog', 'cat', 'bird', 'kennel', 'cage', 'cat tree',
+            'pet supplies', 'aquarium', 'litter box'
         ],
         TopicType.CART: [
             'cart', 'add to cart', 'remove from cart', 'basket', 

@@ -19,12 +19,24 @@ class IntentDetector:
     # Intent patterns for Easymart
     PATTERNS = {
         IntentType.PRODUCT_SEARCH: [
+            # Furniture searches
             r'\b(show|find|search|looking for|want|need|browse)\b.*\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|furniture)\b',
             r'\b(office|bedroom|living room|dining)\b.*\b(furniture|chairs?|tables?)\b',
             r'\bdo you have\b.*\b(any|some)\b',
-            # NEW: "Tell me about" and information queries
-            r'\b(tell me about|what is|what are|information about|info about|details about|describe)\b.*\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|furniture|storage|cabinet)\\b',
-            r'\b(tell me about|what is|what are)\b.*\b(police|office|dining|bedroom|living|kitchen)\b',
+            # Sports & Fitness searches
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(fitness|gym|exercise|workout|training|sports)\b',
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(treadmill|dumbbell|kettlebell|barbell|weights?|bench)\b',
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(boxing|mma|martial arts|yoga|pilates)\b',
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(gloves?|bags?|pads?|mats?|equipment|gear)\b',
+            # Pet product searches
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(dog|cat|pet|bird|aquarium|fish)\b',
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(kennel|cage|crate|pet supplies?)\b',
+            # Electric scooter searches
+            r'\b(show|find|search|looking for|want|need|browse)\b.*\b(scooter|e-scooter|electric scooter)\b',
+            # Tell me about / information queries
+            r'\b(tell me about|what is|what are|information about|info about|details about|describe)\b.*\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|furniture|storage|cabinet)\b',
+            r'\b(tell me about|what is|what are)\b.*\b(office|dining|bedroom|living|kitchen)\b',
+            # Style/Material/Color queries
             r'\b(modern|industrial|rustic|scandinavian|contemporary|minimalist|classic)\b',
             r'\b(wood|metal|leather|fabric|glass|rattan|plastic)\b',
             r'\b(red|blue|green|yellow|black|white|brown|gray|orange|purple|pink)\b',
@@ -175,15 +187,15 @@ class IntentDetector:
         message_lower = message.lower().strip()
         
         # PRIORITY 0: Check for out-of-scope queries FIRST
-        # These are clearly not furniture-related and should not be forced into product search
+        # These are clearly not related to products we sell and should not be forced into product search
         out_of_scope_keywords = [
             # Programming & Tech
             r'\b(python|java|javascript|code|programming|coding|function|script|algorithm)\b',
             r'\b(html|css|react|vue|angular|node|npm|git|github)\b',
             r'\b(sql|database|query|api|server|backend|frontend)\b',
-            # Vehicles & Transportation
-            r'\b(car|cars|vehicle|automobile|motorcycle|bike|truck|van)\b',
-            # Electronics (non-furniture)
+            # Vehicles & Transportation (NOT electric scooters)
+            r'\b(car|cars|vehicle|automobile|motorcycle|truck|van)\b',
+            # Electronics (non-products we sell)
             r'\b(laptop|computer|pc|mac|tablet|ipad|iphone|smartphone|phone|mobile)\b',
             r'\b(tv|television|camera|watch|headphone|speaker|gaming console)\b',
             # Clothing & Fashion
@@ -197,8 +209,6 @@ class IntentDetector:
             r'\b(definition of|what is the capital|who invented|when did)\b',
             # Entertainment
             r'\b(movie|film|music|song|video game|tv show|netflix|joke)\b',
-            # Sports
-            r'\b(football|soccer|basketball|tennis|cricket|sports)\b',
             # Weather
             r'\b(weather|temperature|forecast|rain|snow)\b',
             # Travel
@@ -251,18 +261,35 @@ class IntentDetector:
         # This must come before specific patterns to catch "something for kids", etc.
         broad_product_patterns = [
             r'\b(show|find|search|looking for|want|need|get me)\b',  # Action verbs
-            r'\b(something|anything|items|products|furniture)\b',     # Generic nouns
-            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?)\s+(available|in stock|options|list)\b', # Furniture availability
-            r'^(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?)\??$', # Single word furniture?
-            r'\bfor\s+(kids|children|baby|toddler|adult|teen|gaming|office|home|bedroom|living room|kitchen|dining|study|outdoor)\b',  # Context - expanded!
-            r'\bin\s+(black|white|red|blue|green|brown|grey|gray|wood|metal|leather|fabric)\b',  # Colors/materials with "in"
-            r'\bwith\s+(storage|drawers|wheels|cushion|armrest)\b',  # Features with "with"
-            r'\b(cheap|affordable|expensive|best|good|quality|nice|premium|luxury|budget)\b',  # Adjectives
-            r'\bunder\s+\$?\d+\b',  # Price queries
-            r'\b(small|large|big|compact|modern|classic|vintage|contemporary)\b',  # Size/style
-            # Category + attribute combinations (e.g., "grey sofa", "sofa grey", "wood table")
-            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage)\s+(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\b',
-            r'\b(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\s+(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage)\b',
+            r'\b(something|anything|items|products|furniture|equipment|gear|supplies)\b',     # Generic nouns
+            # Furniture products
+            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|bookcases?|wardrobes?|dressers?|mattress|ottoman)\s+(available|in stock|options|list)\b',
+            r'^(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?)\??$',
+            # Sports & Fitness products
+            r'\b(treadmill|treadmills|exercise bike|rowing machine|rower|elliptical)\b',
+            r'\b(dumbbell|dumbbells|kettlebell|kettlebells|barbell|barbells|weight plates?|olympic)\b',
+            r'\b(gym bench|weight bench|workout bench|squat rack|power rack|pull up bar)\b',
+            r'\b(boxing|mma|martial arts|muay thai|kickboxing|karate|taekwondo|judo|bjj)\b',
+            r'\b(boxing gloves?|punching bags?|heavy bags?|focus pads?|kick shields?)\b',
+            r'\b(yoga|yoga mat|pilates|foam roller|massage|relaxation|stretching)\b',
+            r'\b(trampoline|air track|gymnastics|fitness|gym|exercise|workout)\b',
+            r'\b(rugby|basketball|sports)\b',
+            # Pet products
+            r'\b(dog|cat|pet|puppy|kitten|bird|aquarium|fish tank)\b',
+            r'\b(dog kennel|dog cage|dog crate|cat tree|cat tower|bird cage)\b',
+            r'\b(pet supplies?|pet products?|pet accessories?)\b',
+            # Electric scooters
+            r'\b(electric scooter|e-scooter|escooter|scooter)\b',
+            # Context patterns
+            r'\bfor\s+(kids|children|baby|toddler|adult|teen|gaming|office|home|bedroom|living room|kitchen|dining|study|outdoor|gym|training)\b',
+            r'\bin\s+(black|white|red|blue|green|brown|grey|gray|wood|metal|leather|fabric)\b',
+            r'\bwith\s+(storage|drawers|wheels|cushion|armrest|padding)\b',
+            r'\b(cheap|affordable|expensive|best|good|quality|nice|premium|luxury|budget)\b',
+            r'\bunder\s+\$?\d+\b',
+            r'\b(small|large|big|compact|modern|classic|vintage|contemporary|professional)\b',
+            # Category + attribute combinations
+            r'\b(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage|gloves?|bags?|mats?|benches?)\s+(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\b',
+            r'\b(black|white|red|blue|green|brown|grey|gray|yellow|pink|purple|orange|beige|navy|wood|wooden|metal|leather|fabric|glass|plastic|modern|classic|vintage|contemporary|small|large|compact)\s+(chairs?|tables?|desks?|sofas?|beds?|shelves|shelving|lockers?|stools?|cabinets?|storage|gloves?|bags?|mats?|benches?)\b',
         ]
         
         # If ANY broad pattern matches, assume PRODUCT_SEARCH
@@ -345,8 +372,9 @@ class IntentDetector:
         if intent == IntentType.PRODUCT_SEARCH:
             entities["query"] = message
             
-            # Extract category
+            # Extract category - now includes ALL product types
             categories = {
+                # Furniture
                 "chair": ["chair", "chairs", "seating"],
                 "table": ["table", "tables", "desk", "desks"],
                 "sofa": ["sofa", "sofas", "couch", "couches"],
@@ -354,7 +382,39 @@ class IntentDetector:
                 "shelf": ["shelf", "shelves", "shelving", "bookcase"],
                 "stool": ["stool", "stools", "bar stool"],
                 "locker": ["locker", "lockers", "cabinet", "cabinets"],
-                "storage": ["storage", "wardrobe", "dresser"]
+                "storage": ["storage", "wardrobe", "dresser"],
+                # Sports & Fitness - Cardio
+                "treadmill": ["treadmill", "treadmills", "running machine"],
+                "exercise_bike": ["exercise bike", "spin bike", "stationary bike", "cycling"],
+                "rowing": ["rowing", "rowing machine", "rower"],
+                # Sports & Fitness - Weights
+                "dumbbell": ["dumbbell", "dumbbells"],
+                "kettlebell": ["kettlebell", "kettlebells"],
+                "barbell": ["barbell", "barbells", "weight plates", "olympic plates", "olympic weight"],
+                "weights": ["weights", "weight plates", "plates"],
+                "gym_bench": ["gym bench", "weight bench", "workout bench", "bench"],
+                # Sports & Fitness - Boxing/MMA/Martial Arts
+                "boxing": ["boxing", "boxing gloves", "punching bag", "heavy bag"],
+                "mma": ["mma", "mma gloves", "mixed martial arts"],
+                "martial_arts": ["martial arts", "karate", "taekwondo", "judo", "bjj", "jiu jitsu"],
+                # Sports & Fitness - Other
+                "yoga": ["yoga", "yoga mat", "pilates"],
+                "massage": ["massage", "relaxation", "foam roller", "recovery", "massage gun"],
+                "trampoline": ["trampoline", "trampolines", "rebounder"],
+                "air_track": ["air track", "gymnastics mat", "tumbling mat"],
+                "fitness": ["fitness", "gym", "exercise", "workout", "training"],
+                "rugby": ["rugby", "rugby ball", "tackle bag"],
+                "basketball": ["basketball", "basketball hoop", "basketball ring"],
+                # Pet Products
+                "dog": ["dog", "dogs", "puppy", "puppies", "canine"],
+                "cat": ["cat", "cats", "kitten", "kittens", "feline"],
+                "pet": ["pet", "pets", "pet supplies"],
+                "bird": ["bird", "birds", "aviary", "parrot", "budgie"],
+                "aquarium": ["aquarium", "fish tank", "fish", "aquatic"],
+                "kennel": ["kennel", "dog house", "dog kennel"],
+                "cat_tree": ["cat tree", "cat tower", "scratching post"],
+                # Electric Scooters
+                "scooter": ["scooter", "scooters", "electric scooter", "e-scooter", "escooter"],
             }
             
             for cat, keywords in categories.items():

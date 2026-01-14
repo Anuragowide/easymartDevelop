@@ -42,7 +42,16 @@ class CatalogIndexer:
         self.products_bm25.load()
         self.specs_bm25.load()
         
-        print("[Catalog] Initialized successfully")
+        # Check if we have products loaded
+        self.products = self._get_all_products()
+        product_count = len(self.products)
+        
+        if product_count > 0:
+            print(f"[Catalog] Initialized successfully with {product_count} products")
+        else:
+            print("[Catalog] WARNING: No products in index. Run 'python -m app.modules.assistant.cli index-catalog' to index products")
+        
+        print("[Catalog] Ready for searches")
     
     # Public API Methods
     
@@ -205,3 +214,16 @@ class CatalogIndexer:
         self.specs_vector.clear()
         
         print("[Catalog] Cleared all indexes")
+    
+    def _get_all_products(self) -> List[Dict[str, Any]]:
+        """Get all products from database"""
+        session = self.db_manager.get_session()
+        try:
+            products = session.query(ProductDB).all()
+            return [p.to_dict() for p in products]
+        finally:
+            session.close()
+    
+    def get_product_count(self) -> int:
+        """Get total number of indexed products"""
+        return len(self.products)

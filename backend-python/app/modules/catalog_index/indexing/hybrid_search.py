@@ -15,49 +15,238 @@ from .vector_index import VectorIndex
 class HybridSearch:
     """Combines BM25 and Vector search using RRF with phrase boost"""
     
-    # Common furniture/product nouns that should match in title
+    # Common product nouns that should match in title - ALL CATEGORIES
     IMPORTANT_NOUNS = {
-        'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
-        'bed', 'beds', 'locker', 'lockers', 'cabinet', 'cabinets', 'shelf', 'shelves',
-        'storage', 'stool', 'stools', 'bench', 'benches', 'wardrobe', 'wardrobes',
-        'drawer', 'drawers', 'ottoman', 'ottomans', 'rack', 'racks', 'stand', 'stands',
-        'recliner', 'recliners', 'armchair', 'armchairs', 'lounge', 'lounges'
+        # Office Furniture
+        'chair', 'chairs', 'desk', 'desks', 'table', 'tables', 'cabinet', 'cabinets',
+        'shelf', 'shelves', 'bookcase', 'bookcases', 'pedestal', 'pedestals',
+        'credenza', 'workstation', 'workstations', 'pod', 'pods', 'screen', 'screens',
+        # Hospitality Furniture
+        'stool', 'stools', 'sofa', 'sofas', 'lounge', 'lounges', 'ottoman', 'ottomans',
+        # Home Furniture
+        'bed', 'beds', 'mattress', 'mattresses', 'wardrobe', 'wardrobes', 'dresser', 'dressers',
+        'nightstand', 'nightstands', 'drawer', 'drawers', 'recliner', 'recliners',
+        # Sports & Fitness - Cardio
+        'treadmill', 'treadmills', 'bike', 'bikes', 'rower', 'rowers', 'elliptical',
+        # Sports & Fitness - Weights
+        'dumbbell', 'dumbbells', 'kettlebell', 'kettlebells', 'barbell', 'barbells',
+        'plate', 'plates', 'weight', 'weights', 'rack', 'racks',
+        # Sports & Fitness - Gym Equipment
+        'bench', 'benches', 'mat', 'mats', 'trampoline', 'trampolines', 'ball', 'balls',
+        # Boxing & MMA
+        'gloves', 'glove', 'bag', 'bags', 'pad', 'pads', 'shield', 'shields',
+        'protector', 'protectors', 'guard', 'guards', 'wrap', 'wraps', 'ring', 'rings',
+        # Martial Arts
+        'uniform', 'uniforms', 'belt', 'belts', 'weapon', 'weapons', 'nunchaku', 'bo',
+        # Functional Fitness & Yoga/Relaxation
+        'rope', 'ropes', 'band', 'bands', 'roller', 'rollers', 'slider', 'sliders',
+        'yoga', 'pilates', 'massage', 'relaxation', 'stretching', 'flexibility',
+        # Pet Products - Dogs
+        'kennel', 'kennels', 'crate', 'crates', 'pram', 'prams', 'collar', 'collars',
+        'leash', 'leashes', 'lead', 'leads', 'toy', 'toys',
+        # Pet Products - Cats
+        'tree', 'trees', 'litter', 'carrier', 'carriers', 'scratcher', 'scratchers',
+        # Pet Products - Other
+        'cage', 'cages', 'aviary', 'aviaries', 'hutch', 'hutches', 'coop', 'coops',
+        # Pet Products - Aquarium
+        'aquarium', 'aquariums', 'tank', 'tanks', 'pump', 'pumps', 'filter', 'filters',
+        'bowl', 'bowls', 'feeder', 'feeders', 'fountain', 'fountains',
+        # Electric Scooters
+        'scooter', 'scooters', 'wheel', 'wheels', 'tire', 'tires', 'battery', 'batteries',
     }
     
-    # Category mapping for filtering - expanded with related terms and Shopify categories
+    # Category mapping for filtering - COMPREHENSIVE for all product types
     CATEGORY_KEYWORDS = {
-        'chair': ['chair', 'chairs', 'seating', 'seat', 'gaming chair', 'office chair', 'desk chair'],
-        'table': ['table', 'tables', 'console table', 'coffee table', 'dining table', 'side table'],
-        'desk': ['desk', 'desks', 'workstation', 'work station', 'computer desk', 'office desk', 'writing desk'],
-        'sofa': ['sofa', 'sofas', 'couch', 'couches', 'settee', 'loveseat', 'lounge', 'lounger', 
-                 'sectional', 'chaise', 'reception sofa', 'seater sofa', '2 seater', '3 seater', 'triple sofa'],
-        'bed': ['bed', 'beds', 'mattress', 'mattresses', 'bedframe', 'bed frame', 'headboard', 'bunk'],
-        'shelf': ['shelf', 'shelves', 'bookcase', 'bookcases', 'shelving', 'bookshelf', 'display unit'],
-        'storage': ['storage', 'locker', 'lockers', 'cabinet', 'cabinets', 'wardrobe', 'wardrobes', 'drawer', 'chest', 'organizer'],
-        'stool': ['stool', 'stools', 'ottoman', 'ottomans', 'bar stool', 'footstool', 'counter stool'],
-        'recliner': ['recliner', 'recliners', 'reclining', 'lounge chair', 'lounger', 'massage chair'],
-        'armchair': ['armchair', 'armchairs', 'arm chair'],
-        # Common Shopify categories
-        'lighting': ['lamp', 'lamps', 'light', 'lights', 'lighting', 'chandelier', 'pendant', 'sconce'],
-        'outdoor': ['outdoor', 'patio', 'garden', 'deck', 'balcony', 'exterior'],
-        'rug': ['rug', 'rugs', 'carpet', 'carpets', 'mat', 'mats', 'runner'],
-        'mirror': ['mirror', 'mirrors', 'vanity'],
-        'decor': ['decor', 'decoration', 'decorative', 'art', 'vase', 'ornament', 'wall art'],
+        # ============ SPORTS & FITNESS ============
+        # Fitness Accessories & Equipment
+        'fitness': ['fitness', 'workout', 'exercise', 'training', 'gym', 'fitness accessories'],
+        'treadmill': ['treadmill', 'treadmills', 'running machine', 'walking machine', 'cardio'],
+        'exercise bike': ['exercise bike', 'exercise bikes', 'spin bike', 'stationary bike', 'cycling bike', 'indoor bike', 'recumbent bike'],
+        'rowing': ['rowing', 'rowing machine', 'rowing machines', 'rower', 'rowers', 'erg', 'ergometer'],
+        'dumbbell': ['dumbbell', 'dumbbells', 'dumb bell', 'free weights', 'hand weights'],
+        'kettlebell': ['kettlebell', 'kettlebells', 'kettle bell', 'kb', 'cast iron kettlebell'],
+        'gym bench': ['gym bench', 'weight bench', 'workout bench', 'adjustable bench', 'flat bench', 'incline bench', 'decline bench'],
+        'air track': ['air track', 'air track mat', 'tumbling mat', 'gymnastics mat', 'inflatable mat'],
+        'trampoline': ['trampoline', 'trampolines', 'rebounder', 'mini trampoline', 'fitness trampoline'],
+        
+        # Boxing & Muay Thai
+        'boxing': ['boxing', 'boxer', 'punching', 'muay thai', 'kickboxing', 'boxing training'],
+        'boxing gloves': ['boxing gloves', 'sparring gloves', 'training gloves', 'bag gloves', 'fight gloves'],
+        'boxing bag': ['boxing bag', 'punching bag', 'heavy bag', 'speed bag', 'kick bag', 'uppercut bag', 'free standing bag'],
+        'focus pads': ['focus pads', 'punch mitts', 'focus mitts', 'target pads', 'coaching pads'],
+        'kick shields': ['kick shields', 'kick pads', 'thai pads', 'curved kick shield', 'belly pad'],
+        'boxing ring': ['boxing ring', 'boxing rings', 'fight ring', 'mma cage'],
+        'boxing apparel': ['boxing shorts', 'boxing shoes', 'boxing boots', 'hand wraps', 'inner gloves', 'carry bag'],
+        'protective equipment': ['headgear', 'head guard', 'body protector', 'chest guard', 'groin guard', 'shin guards', 'mouth guard'],
+        
+        # Martial Arts
+        'martial arts': ['martial arts', 'karate', 'taekwondo', 'judo', 'jiu jitsu', 'bjj', 'kung fu', 'aikido'],
+        'martial arts uniform': ['gi', 'uniform', 'dobok', 'karate gi', 'judo gi', 'bjj gi', 'martial arts belt'],
+        'training weapons': ['training weapons', 'bo staff', 'nunchaku', 'practice sword', 'training knife', 'kali sticks', 'escrima'],
+        'martial arts protective': ['sparring gear', 'chest protector', 'arm guards', 'leg guards', 'instep guards'],
+        
+        # Functional Fitness
+        'functional fitness': ['functional fitness', 'crossfit', 'hiit', 'circuit training'],
+        'strength equipment': ['strength equipment', 'power rack', 'squat rack', 'pull up bar', 'dip station', 'cable machine'],
+        'conditioning': ['conditioning', 'battle ropes', 'slam ball', 'medicine ball', 'plyo box', 'sandbag'],
+        'speed agility': ['speed', 'agility', 'agility ladder', 'cones', 'hurdles', 'speed parachute'],
+        'body weight': ['body weight', 'resistance bands', 'suspension trainer', 'trx', 'parallettes', 'ab roller'],
+        'mobility recovery': ['mobility', 'recovery', 'foam roller', 'massage ball', 'yoga block', 'stretch strap', 'lacrosse ball'],
+        
+        # Yoga & Relaxation
+        'yoga': ['yoga', 'yoga mat', 'yoga mats', 'yoga block', 'yoga strap', 'yoga wheel', 'yoga bolster', 'meditation'],
+        'massage': ['massage', 'massage gun', 'massage roller', 'massage ball', 'relaxation', 'muscle recovery'],
+        'pilates': ['pilates', 'pilates ring', 'pilates ball', 'pilates mat', 'reformer'],
+        'stretching': ['stretching', 'stretch', 'flexibility', 'stretch strap', 'stretch band'],
+        
+        # Weightlifting
+        'weightlifting': ['weightlifting', 'weight lifting', 'powerlifting', 'olympic lifting', 'strength training'],
+        'barbell': ['barbell', 'barbells', 'olympic barbell', 'ez curl bar', 'trap bar', 'barbell rack'],
+        'weight plates': ['weight plates', 'olympic plates', 'bumper plates', 'iron plates', 'rubber plates', 'fractional plates'],
+        
+        # MMA
+        'mma': ['mma', 'mixed martial arts', 'ufc', 'cage fighting', 'grappling', 'ground and pound'],
+        'mma gloves': ['mma gloves', 'grappling gloves', 'hybrid gloves', 'sparring mma gloves'],
+        'mma shorts': ['mma shorts', 'fight shorts', 'grappling shorts', 'vale tudo shorts'],
+        'rashguard': ['rashguard', 'rash guard', 'compression shirt', 'bjj rashguard'],
+        
+        # Rugby
+        'rugby': ['rugby', 'rugby ball', 'rugby balls', 'rugby training', 'tackle bag', 'scrum machine', 'rugby pad'],
+        
+        # Basketball
+        'basketball': ['basketball', 'basketball hoop', 'basketball ring', 'basketball stand', 'basketball accessories'],
+        
+        # ============ ELECTRIC SCOOTERS ============
+        'scooter': ['scooter', 'scooters', 'electric scooter', 'e-scooter', 'escooter', 'kick scooter', 'commuter scooter'],
+        'scooter accessories': ['scooter accessories', 'scooter helmet', 'scooter bag', 'scooter lock', 'scooter tire', 'scooter battery'],
+        
+        # ============ OFFICE FURNITURE ============
+        # Desks
+        'desk': ['desk', 'desks', 'office desk', 'work desk'],
+        'computer desk': ['computer desk', 'pc desk', 'gaming desk'],
+        'corner desk': ['corner desk', 'l-shaped desk', 'l shaped desk', 'corner workstation'],
+        'sit stand desk': ['sit stand desk', 'standing desk', 'height adjustable desk', 'electric desk', 'motorized desk'],
+        'study desk': ['study desk', 'student desk', 'homework desk'],
+        'reception desk': ['reception desk', 'reception counter', 'front desk'],
+        'desk frame': ['desk frame', 'table frame', 'desk legs', 'table legs'],
+        'drawing desk': ['drawing desk', 'drafting table', 'artist desk'],
+        
+        # Chairs
+        'chair': ['chair', 'chairs', 'seating', 'seat'],
+        'gaming chair': ['gaming chair', 'gamer chair', 'racing chair', 'rgb chair'],
+        'executive chair': ['executive chair', 'boss chair', 'ceo chair', 'leather chair', 'high back chair'],
+        'mesh chair': ['mesh chair', 'mesh office chair', 'breathable chair', 'mesh back chair'],
+        'ergonomic chair': ['ergonomic chair', 'ergonomic office chair', 'posture chair', 'lumbar support chair'],
+        'computer chair': ['computer chair', 'desk chair', 'office chair', 'swivel chair'],
+        'massage chair': ['massage chair', 'massage office chair', 'heated chair'],
+        'visitor chair': ['visitor chair', 'guest chair', 'waiting chair', 'reception chair'],
+        
+        # Tables
+        'table': ['table', 'tables'],
+        'boardroom table': ['boardroom table', 'conference table', 'meeting table', 'board table'],
+        'coffee table': ['coffee table', 'cocktail table', 'center table'],
+        'round table': ['round table', 'circular table'],
+        'folding table': ['folding table', 'foldable table', 'portable table'],
+        'bar table': ['bar table', 'pub table', 'high table', 'standing table'],
+        
+        # Filing & Storage
+        'filing cabinet': ['filing cabinet', 'file cabinet', 'filing drawer', 'document cabinet'],
+        'bookcase': ['bookcase', 'bookshelf', 'book shelf', 'bookshelves'],
+        'pedestal': ['pedestal', 'pedestal drawer', 'mobile pedestal', 'desk pedestal'],
+        'office shelving': ['office shelving', 'office shelf', 'storage shelf'],
+        'storage cabinet': ['storage cabinet', 'cupboard', 'office cupboard'],
+        'credenza': ['credenza', 'sideboard', 'sliding door cabinet'],
+        
+        # Office Accessories
+        'monitor arm': ['monitor arm', 'monitor mount', 'screen arm', 'dual monitor arm', 'monitor stand'],
+        'power point': ['power point', 'powerpoint', 'desk power', 'usb charger', 'power strip'],
+        'desk screen': ['desk screen', 'privacy screen', 'partition', 'desk divider'],
+        'vertical garden': ['vertical garden', 'wall planter', 'office plant', 'green wall'],
+        'whiteboard': ['whiteboard', 'white board', 'dry erase board', 'marker board'],
+        
+        # ============ HOSPITALITY FURNITURE ============
+        'bar stool': ['bar stool', 'bar stools', 'counter stool', 'high stool', 'pub stool'],
+        'cafe chair': ['cafe chair', 'bistro chair', 'restaurant chair', 'dining chair'],
+        'cafe table': ['cafe table', 'bistro table', 'restaurant table'],
+        'sofa': ['sofa', 'sofas', 'couch', 'couches', 'settee', 'loveseat', 'lounge', 'sectional'],
+        'reception seating': ['reception seating', 'waiting room chair', 'lobby seating', 'reception sofa'],
+        'outdoor furniture': ['outdoor furniture', 'patio furniture', 'garden furniture', 'outdoor chair', 'outdoor table'],
+        
+        # ============ HOME FURNITURE ============
+        'bedside table': ['bedside table', 'nightstand', 'night table', 'side table'],
+        'shoe cabinet': ['shoe cabinet', 'shoe storage', 'shoe rack', 'entryway cabinet'],
+        'mattress': ['mattress', 'mattresses', 'bed mattress', 'foam mattress', 'spring mattress'],
+        'tv unit': ['tv unit', 'tv stand', 'entertainment unit', 'media unit', 'tv cabinet'],
+        'ottoman': ['ottoman', 'ottomans', 'footstool', 'pouf', 'storage ottoman'],
+        'bed': ['bed', 'beds', 'bed frame', 'bedframe', 'bedroom bed'],
+        'bedroom furniture': ['bedroom furniture', 'bedroom set', 'wardrobe', 'dresser', 'chest of drawers'],
+        'living room': ['living room', 'living room furniture', 'lounge furniture'],
+        'dining room': ['dining room', 'dining table', 'dining chairs', 'dining set'],
+        'kids furniture': ['kids furniture', 'children furniture', 'kids bed', 'kids desk', 'bunk bed'],
+        'bathroom furniture': ['bathroom furniture', 'bathroom cabinet', 'vanity', 'bathroom shelf'],
+        
+        # ============ PET PRODUCTS ============
+        # Dog Products
+        'dog': ['dog', 'dogs', 'puppy', 'puppies', 'canine', 'pet dog'],
+        'dog kennel': ['dog kennel', 'kennel', 'dog house', 'dog shelter', 'outdoor kennel'],
+        'dog pram': ['dog pram', 'dog stroller', 'pet stroller', 'dog buggy'],
+        'dog toy': ['dog toy', 'dog toys', 'chew toy', 'fetch toy', 'squeaky toy'],
+        'dog cage': ['dog cage', 'dog crate', 'pet crate', 'wire crate', 'travel crate'],
+        'dog training pad': ['dog training pad', 'puppy pad', 'pee pad', 'potty pad', 'wee pad'],
+        'dog bowl': ['dog bowl', 'dog bowls', 'pet bowl', 'water bowl', 'food bowl', 'dog dispenser'],
+        'dog car seat': ['dog car seat', 'pet car seat', 'car seat cover', 'dog hammock'],
+        'dog collar': ['dog collar', 'dog collars', 'dog lead', 'dog leash', 'harness'],
+        
+        # Cat Products
+        'cat': ['cat', 'cats', 'kitten', 'kittens', 'feline', 'kitty'],
+        'cat tree': ['cat tree', 'cat tower', 'cat condo', 'cat scratching post', 'cat climbing tree'],
+        'cat litter': ['cat litter', 'litter box', 'litter tray', 'cat toilet', 'self cleaning litter'],
+        'cat bed': ['cat bed', 'cat bedding', 'cat cushion', 'cat hammock'],
+        'cat carrier': ['cat carrier', 'cat cage', 'pet carrier', 'travel carrier'],
+        'cat toy': ['cat toy', 'cat toys', 'cat teaser', 'cat wand', 'cat laser'],
+        'cat bowl': ['cat bowl', 'cat bowls', 'cat feeder', 'cat food dispenser', 'cat fountain'],
+        
+        # Other Pet Products
+        'bird cage': ['bird cage', 'bird cages', 'aviary', 'aviaries', 'bird stand', 'parrot cage'],
+        'pet farm': ['pet farm', 'farm supplies', 'chicken feeder', 'poultry supplies'],
+        'pet coop': ['pet coop', 'chicken coop', 'rabbit hutch', 'guinea pig cage', 'hutch'],
+        
+        # Aquarium
+        'aquarium': ['aquarium', 'aquariums', 'fish tank', 'fish tanks', 'aquatic', 'fishbowl'],
+        'aquarium pump': ['aquarium pump', 'fish tank pump', 'air pump', 'water pump', 'submersible pump'],
+        'aquarium filter': ['aquarium filter', 'fish tank filter', 'canister filter', 'external filter', 'internal filter'],
     }
     
-    # Category aliases - maps related categories together (but NOT the reverse)
+    # Category aliases - maps related categories together
     CATEGORY_ALIASES = {
-        'sofa': ['lounge', 'settee'],  # sofa search also matches these - NOT chairs/armchairs
-        'chair': ['stool', 'seating'],
-        'recliner': ['lounge chair', 'lounger'],
-        'table': ['desk'],
-        'desk': ['table'],
-        'storage': ['shelf', 'cabinet'],
-        'bed': ['mattress'],
+        # Office Furniture aliases
+        'desk': ['computer desk', 'corner desk', 'sit stand desk', 'study desk'],
+        'chair': ['gaming chair', 'executive chair', 'mesh chair', 'ergonomic chair', 'computer chair'],
+        'table': ['boardroom table', 'coffee table', 'bar table'],
+        'storage': ['filing cabinet', 'bookcase', 'pedestal', 'credenza'],
+        # Home Furniture aliases
+        'sofa': ['lounge', 'settee', 'reception seating'],
+        'bed': ['mattress', 'bedroom furniture'],
+        # Sports & Fitness aliases
+        'boxing': ['boxing gloves', 'boxing bag', 'focus pads', 'kick shields', 'muay thai'],
+        'mma': ['mma gloves', 'mma shorts', 'rashguard', 'grappling'],
+        'martial arts': ['martial arts uniform', 'training weapons', 'martial arts protective'],
+        'gym': ['fitness', 'gym bench', 'strength equipment'],
+        'fitness': ['treadmill', 'exercise bike', 'rowing', 'functional fitness'],
+        'weightlifting': ['barbell', 'weight plates', 'dumbbell', 'kettlebell'],
+        'functional fitness': ['strength equipment', 'conditioning', 'speed agility', 'body weight', 'mobility recovery'],
+        # Pet aliases
+        'dog': ['dog kennel', 'dog cage', 'dog bowl', 'dog collar', 'dog toy', 'dog pram'],
+        'cat': ['cat tree', 'cat litter', 'cat carrier', 'cat toy', 'cat bowl'],
+        'aquarium': ['aquarium pump', 'aquarium filter'],
+        'pet': ['dog', 'cat', 'bird cage', 'pet coop'],
+        # Electric Scooters aliases
+        'scooter': ['scooter accessories'],
     }
     
     # Incompatible keyword pairs - if query has key, penalize results with values
     NEGATIVE_KEYWORDS = {
+        # Office/Gaming exclusions
         'gaming': ['kids', 'kid', 'children', 'child', 'baby', 'toddler', 'toy', 'playground', 'plastic'],
         'office': ['kids', 'kid', 'children', 'child', 'baby', 'toddler', 'toy', 'playground'],
         'professional': ['kids', 'kid', 'children', 'child', 'baby', 'toy', 'plastic'],
@@ -71,23 +260,56 @@ class HybridSearch:
         'wood': ['plastic', 'cardboard'],
         'kids': ['office', 'executive', 'professional', 'gaming', 'adult'],
         'children': ['office', 'executive', 'professional', 'gaming', 'adult'],
+        # Pet-specific negatives (don't mix pet types or with furniture)
+        'aquarium': ['furniture', 'chair', 'desk', 'bed', 'sofa', 'dog', 'cat'],
+        'dog': ['cat', 'bird', 'fish', 'rabbit', 'aquarium'],
+        'cat': ['dog', 'bird', 'fish', 'rabbit', 'aquarium'],
+        'bird': ['dog', 'cat', 'fish', 'aquarium'],
+        # Sports-specific negatives
+        'boxing': ['yoga', 'meditation', 'pilates'],
+        'mma': ['yoga', 'meditation', 'pilates'],
+        'yoga': ['boxing', 'mma', 'weightlifting'],
     }
     
     # Intent-related keywords for boosting
     INTENT_KEYWORDS = {
-        'gaming': ['rgb', 'racing', 'ergonomic', 'reclining', 'adjustable', 'swivel', 'lumbar'],
-        'office': ['ergonomic', 'executive', 'professional', 'swivel', 'adjustable', 'mesh', 'lumbar'],
-        'kids': ['child', 'children', 'youth', 'junior', 'study', 'colorful', 'small'],
-        'outdoor': ['weather', 'waterproof', 'patio', 'garden', 'resistant'],
-        'bedroom': ['bed', 'nightstand', 'dresser', 'wardrobe', 'sleeping'],
-        'living': ['sofa', 'couch', 'coffee', 'entertainment', 'lounge', 'recliner', 'armchair'],
-        'living room': ['sofa', 'couch', 'lounge', 'recliner', 'armchair', 'ottoman', 'coffee table'],
+        # Office Furniture intents
+        'gaming': ['rgb', 'racing', 'ergonomic', 'reclining', 'adjustable', 'swivel', 'lumbar', 'gamer'],
+        'office': ['ergonomic', 'executive', 'professional', 'swivel', 'adjustable', 'mesh', 'lumbar', 'commercial'],
+        'home office': ['desk', 'chair', 'monitor', 'keyboard', 'ergonomic'],
+        'reception': ['waiting', 'lobby', 'guest', 'visitor', 'front desk'],
+        # Home Furniture intents
+        'kids': ['child', 'children', 'youth', 'junior', 'study', 'colorful', 'small', 'bunk'],
+        'bedroom': ['bed', 'nightstand', 'dresser', 'wardrobe', 'sleeping', 'mattress'],
+        'living room': ['sofa', 'couch', 'lounge', 'recliner', 'armchair', 'ottoman', 'coffee table', 'tv unit'],
+        'dining': ['dining table', 'dining chairs', 'buffet', 'sideboard'],
+        'outdoor': ['weather', 'waterproof', 'patio', 'garden', 'resistant', 'uv'],
+        # Sports & Fitness intents
+        'boxing': ['gloves', 'bag', 'wraps', 'pads', 'ring', 'sparring', 'heavy bag', 'muay thai'],
+        'mma': ['gloves', 'shorts', 'rashguard', 'grappling', 'sparring', 'cage', 'ufc'],
+        'martial arts': ['gi', 'uniform', 'belt', 'training', 'dojo', 'karate', 'taekwondo', 'judo'],
+        'fitness': ['workout', 'exercise', 'training', 'strength', 'cardio', 'gym', 'hiit'],
+        'gym': ['weights', 'bench', 'rack', 'barbell', 'dumbbell', 'machine', 'cable'],
+        'cardio': ['treadmill', 'bike', 'rowing', 'elliptical', 'running', 'cycling'],
+        'weightlifting': ['barbell', 'plates', 'rack', 'bench', 'olympic', 'powerlifting'],
+        'functional': ['crossfit', 'hiit', 'circuit', 'kettlebell', 'battle ropes', 'plyo'],
+        'training': ['workout', 'exercise', 'fitness', 'equipment', 'gear', 'professional'],
+        # Pet intents
+        'aquarium': ['fish', 'tank', 'filter', 'pump', 'water', 'aquatic', 'marine', 'tropical'],
+        'dog': ['kennel', 'crate', 'bed', 'collar', 'leash', 'toy', 'food', 'puppy', 'training'],
+        'cat': ['tree', 'scratching', 'litter', 'bed', 'toy', 'food', 'kitten', 'climbing'],
+        'pet': ['supplies', 'food', 'bed', 'carrier', 'bowl', 'feeder', 'grooming'],
+        'bird': ['cage', 'aviary', 'perch', 'feeder', 'parrot', 'budgie'],
+        # Electric Scooter intents
+        'scooter': ['electric', 'commute', 'folding', 'portable', 'wheel', 'battery'],
     }
     
     # Query expansion - map common synonyms to search terms
     QUERY_SYNONYMS = {
+        # Price synonyms
         'cheap': ['budget', 'affordable', 'value', 'low price'],
         'expensive': ['premium', 'luxury', 'high-end', 'designer'],
+        # Furniture synonyms
         'couch': ['sofa', 'settee', 'lounge'],
         'cupboard': ['cabinet', 'storage', 'wardrobe'],
         'wardrobe': ['closet', 'armoire', 'clothes storage'],
@@ -96,11 +318,30 @@ class HybridSearch:
         'bookshelf': ['bookcase', 'shelving', 'book storage'],
         'lamp': ['light', 'lighting', 'table lamp'],
         'rug': ['carpet', 'floor mat', 'area rug'],
+        # Size synonyms
         'small': ['compact', 'mini', 'little'],
         'big': ['large', 'oversized', 'spacious'],
+        # Style synonyms
         'modern': ['contemporary', 'minimalist', 'sleek'],
         'rustic': ['farmhouse', 'country', 'vintage'],
         'comfy': ['comfortable', 'cozy', 'plush'],
+        # Sports & Fitness synonyms
+        'punching bag': ['heavy bag', 'boxing bag', 'kick bag'],
+        'boxing gloves': ['sparring gloves', 'training gloves', 'bag gloves'],
+        'weights': ['dumbbells', 'barbells', 'kettlebells'],
+        'treadmill': ['running machine', 'walking machine'],
+        'exercise bike': ['spin bike', 'stationary bike', 'cycling bike'],
+        'rowing machine': ['rower', 'erg', 'ergometer'],
+        'focus mitts': ['focus pads', 'punch mitts', 'target pads'],
+        'thai pads': ['kick pads', 'kick shields'],
+        # Pet synonyms
+        'fish tank': ['aquarium', 'fish bowl'],
+        'dog crate': ['kennel', 'dog house', 'dog cage'],
+        'cat tower': ['cat tree', 'scratching post', 'cat condo'],
+        'puppy pad': ['training pad', 'pee pad', 'potty pad'],
+        'pet carrier': ['travel carrier', 'cat carrier', 'dog carrier'],
+        # Electric scooter synonyms
+        'e-scooter': ['electric scooter', 'escooter'],
     }
     
     def __init__(self, bm25_index: BM25Index, vector_index: VectorIndex, alpha: float = 0.5):
@@ -157,8 +398,61 @@ class HybridSearch:
         """
         query_lower = query.lower()
         
-        # Check for category keywords in order of specificity
-        priority_order = ['lighting', 'rug', 'mirror', 'decor', 'sofa', 'recliner', 'chair', 'bed', 'desk', 'table', 'shelf', 'stool', 'storage', 'outdoor']
+        # Check for category keywords in order of specificity (most specific first)
+        priority_order = [
+            # ===== PET PRODUCTS (most specific first) =====
+            'aquarium pump', 'aquarium filter', 'aquarium',  # Aquarium specific
+            'dog kennel', 'dog cage', 'dog pram', 'dog toy', 'dog bowl', 'dog collar', 'dog car seat', 'dog training pad',
+            'cat tree', 'cat litter', 'cat carrier', 'cat toy', 'cat bowl', 'cat bed',
+            'bird cage', 'pet coop', 'pet farm',
+            'dog', 'cat', 'pet',  # General pet categories
+            
+            # ===== SPORTS & FITNESS (most specific first) =====
+            # Boxing & MMA
+            'boxing gloves', 'mma gloves', 'boxing bag', 'focus pads', 'kick shields', 
+            'boxing ring', 'boxing apparel', 'protective equipment',
+            'mma shorts', 'rashguard',
+            'boxing', 'mma',
+            # Martial Arts
+            'martial arts uniform', 'training weapons', 'martial arts protective', 'martial arts',
+            # Gym Equipment
+            'gym bench', 'air track', 'trampoline',
+            'treadmill', 'exercise bike', 'rowing',
+            'dumbbell', 'kettlebell', 'barbell', 'weight plates',
+            # Functional Fitness
+            'strength equipment', 'conditioning', 'speed agility', 'body weight', 'mobility recovery',
+            'functional fitness', 'weightlifting',
+            # General Fitness
+            'fitness', 'gym',
+            # Sports
+            'rugby', 'basketball',
+            
+            # ===== ELECTRIC SCOOTERS =====
+            'scooter accessories', 'scooter',
+            
+            # ===== OFFICE FURNITURE (most specific first) =====
+            # Desks
+            'computer desk', 'corner desk', 'sit stand desk', 'study desk', 'reception desk', 
+            'desk frame', 'drawing desk', 'desk',
+            # Chairs  
+            'gaming chair', 'executive chair', 'mesh chair', 'ergonomic chair', 'computer chair',
+            'massage chair', 'visitor chair', 'chair',
+            # Tables
+            'boardroom table', 'coffee table', 'round table', 'folding table', 'bar table', 'table',
+            # Storage
+            'filing cabinet', 'bookcase', 'pedestal', 'office shelving', 'storage cabinet', 'credenza', 'storage',
+            # Accessories
+            'monitor arm', 'power point', 'desk screen', 'vertical garden', 'whiteboard',
+            
+            # ===== HOSPITALITY FURNITURE =====
+            'bar stool', 'cafe chair', 'cafe table', 'reception seating', 'outdoor furniture',
+            'sofa',
+            
+            # ===== HOME FURNITURE =====
+            'bedside table', 'shoe cabinet', 'mattress', 'tv unit', 'ottoman',
+            'bedroom furniture', 'living room', 'dining room', 'kids furniture', 'bathroom furniture',
+            'bed',
+        ]
         
         for category in priority_order:
             if category in self.CATEGORY_KEYWORDS:
