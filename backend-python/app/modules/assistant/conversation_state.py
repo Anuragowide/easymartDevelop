@@ -92,31 +92,38 @@ class SearchContext:
 class ConversationStateManager:
     """Manages conversation state and determines message intent"""
     
-    # Product categories
+    # Product categories - Include broad category terms AND specific product types
     CATEGORIES = [
+        # Broad Category Terms (high priority - these are complete search terms)
+        'gym equipment', 'fitness equipment', 'exercise equipment', 'sports equipment',
+        'boxing equipment', 'mma equipment', 'martial arts equipment',
+        'office furniture', 'home furniture', 'pet supplies', 'pet products',
+        'electric scooters',
+        
         # Furniture
         'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
         'bed', 'beds', 'shelf', 'shelves', 'cabinet', 'cabinets', 'storage',
         'locker', 'lockers', 'furniture', 'couch', 'dresser', 'nightstand',
+        'ottoman', 'bookcase', 'stool', 'stools',
         
         # Sports & Fitness
         'dumbbell', 'dumbbells', 'weight', 'weights', 'kettlebell', 'kettlebells',
         'barbell', 'barbells', 'treadmill', 'treadmills', 'bike', 'bikes',
-        'bench', 'benches', 'gym equipment', 'fitness equipment', 'exercise equipment',
-        'boxing', 'mma', 'martial arts', 'gloves', 'punching bag', 'boxing bag',
-        'focus pads', 'shin guards', 'headgear', 'protective gear',
-        'trampoline', 'rowing machine', 'exercise bike',
+        'bench', 'benches', 'boxing', 'mma', 'martial arts', 'gloves', 
+        'punching bag', 'boxing bag', 'focus pads', 'shin guards', 'headgear', 
+        'protective gear', 'trampoline', 'rowing machine', 'exercise bike',
+        'yoga mat', 'foam roller', 'gym', 'fitness',
         
         # Electric Scooters
         'scooter', 'scooters', 'electric scooter', 'e-scooter',
         
         # Pet Products
         'kennel', 'kennels', 'dog house', 'cat tree', 'cage', 'cages',
-        'pet supplies', 'dog toy', 'cat toy', 'bird cage', 'aquarium',
-        'litter box', 'pet bed'
+        'dog toy', 'cat toy', 'bird cage', 'aquarium',
+        'litter box', 'pet bed', 'dog', 'cat', 'pet'
     ]
     
-    # Refinement keywords
+    # Refinement keywords - attributes/modifiers, NOT category terms
     REFINEMENT_KEYWORDS = {
         'colors': ['red', 'blue', 'green', 'black', 'white', 'grey', 'gray', 'brown', 
                    'beige', 'navy', 'pink', 'yellow', 'orange', 'purple'],
@@ -127,7 +134,7 @@ class ConversationStateManager:
                    'industrial', 'vintage', 'classic', 'scandinavian', 'professional',
                    'training', 'competition'],
         'rooms': ['office', 'bedroom', 'living room', 'kitchen', 'dining', 'kids',
-                  'bathroom', 'outdoor', 'patio', 'gym', 'home gym', 'garage'],
+                  'bathroom', 'outdoor', 'patio', 'garage'],  # Removed 'gym' and 'home gym' - these are categories
         'features': ['storage', 'adjustable', 'foldable', 'portable', 'ergonomic',
                      'reclining', 'swivel', 'wheels', 'cushioned', 'padded', 'heavy duty',
                      'lightweight', 'compact', 'professional', 'training', 'sparring']
@@ -229,10 +236,28 @@ class ConversationStateManager:
         }
     
     def _is_refinement(self, message: str) -> bool:
-        """Check if message is a refinement"""
+        """Check if message is a refinement (NOT a new search)"""
         words = message.split()
         
-        # Very short messages with refinement keywords
+        # IMPORTANT: If message contains a product category, it's a NEW SEARCH not a refinement
+        # This prevents "gym equipment" from being treated as a refinement
+        if any(category in message for category in self.CATEGORIES):
+            logger.info(f"[STATE] Not a refinement - contains category keyword")
+            return False
+        
+        # Also check for search intent keywords - these indicate new search
+        search_keywords = ['find', 'show', 'search', 'looking for', 'need', 'want', 'get me', 'i want', 'i need']
+        if any(keyword in message for keyword in search_keywords):
+            logger.info(f"[STATE] Not a refinement - contains search intent keyword")
+            return False
+        
+        # Also check for product type words - these indicate new search
+        product_words = ['equipment', 'gear', 'supplies', 'accessories', 'products', 'items', 'furniture']
+        if any(word in message for word in product_words):
+            logger.info(f"[STATE] Not a refinement - contains product type word")
+            return False
+        
+        # Very short messages with refinement keywords (but NOT category keywords)
         if len(words) <= 5:
             for keywords in self.REFINEMENT_KEYWORDS.values():
                 if any(keyword in message for keyword in keywords):

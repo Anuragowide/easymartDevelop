@@ -48,6 +48,7 @@ class AssistantResponse(BaseModel):
     products: List[Dict[str, Any]] = []
     cart_summary: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = {}
+    actions: List[Dict[str, Any]] = []  # Actions for frontend (e.g., clear_cart, open_cart)
 
 
 class EasymartAssistantHandler:

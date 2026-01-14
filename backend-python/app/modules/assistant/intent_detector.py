@@ -87,13 +87,13 @@ class IntentDetector:
         IntentType.CART_SHOW: [
             r'\b(show|view|see|check|open|display)\b.*\b(cart|basket|items)\b',
             r'\bwhat\'s in\b.*\b(cart|basket|my list)\b',
-            r'\b(my cart|my basket|cart contents|view list)\b',
+            r'(?<!clear )(?<!empty )(?<!reset )\b(my cart|my basket|cart contents|view list)\b',
             r'^view cart',  # Matches "view cart", "view cart (1)", etc.
             r'^show cart',  # Matches "show cart", "show cart (2)", etc.
             r'^cart$',
-            r'view.*cart',  # General view cart pattern
-            r'show.*my.*cart',
-            r'what.*in.*cart',
+            r'^view\s+my\s+cart$',
+            r'^show\s+my\s+cart$',
+            r'^what\s+(is\s+)?in\s+(my\s+)?cart',
         ],
         IntentType.CART_CLEAR: [
             r'\b(empty|clear|reset|delete|wipe)\b.*\b(cart|basket)\b',
@@ -236,8 +236,8 @@ class IntentDetector:
         
         # PRIORITY 1.55: Check for CART operations BEFORE PRODUCT_SPEC_QA
         # This prevents "add this product" from being caught as product spec inquiry
-        # Check cart-related intents (add, remove, show, clear)
-        cart_intents = [IntentType.CART_ADD, IntentType.CART_REMOVE, IntentType.CART_SHOW, IntentType.CART_CLEAR]
+        # Check cart-related intents (add, remove, CLEAR before SHOW to avoid "clear my cart" matching "my cart")
+        cart_intents = [IntentType.CART_ADD, IntentType.CART_REMOVE, IntentType.CART_CLEAR, IntentType.CART_SHOW]
         for cart_intent in cart_intents:
             if cart_intent in self.PATTERNS:
                 for pattern in self.PATTERNS[cart_intent]:
