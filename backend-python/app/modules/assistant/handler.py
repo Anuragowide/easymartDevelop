@@ -992,87 +992,110 @@ class EasymartAssistantHandler:
                         }
                     )
 
-            # PRE-LLM FILTER VALIDATION - Check if query has sufficient filters before calling LLM
-            # This prevents wasting LLM calls on queries that will need clarification anyway
+            # PRE-LLM FILTER VALIDATION - Smart check based on result count
+            # Only ask for clarification if the search would return too many results
             if intent == IntentType.PRODUCT_SEARCH:
                 entities = self.intent_detector.extract_entities(request.message, intent)
-                is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
-                    entities,
-                    request.message
-                )
                 
-                logger.info(f"[HANDLER] Filter validation: is_valid={is_valid}, weight={weight:.1f}, entities={entities}")
-                
-                # Check for bypass phrases
+                # Check for bypass phrases first
                 if self.filter_validator.is_bypass_phrase(request.message):
                     logger.info("[HANDLER] Bypass phrase detected, allowing search with available filters")
                     bypass_disclaimer = "Here are some popular options based on your request. You can refine by mentioning specific preferences anytime."
                     session.metadata["bypass_disclaimer"] = bypass_disclaimer
-                elif not is_valid:
-                    logger.info(f"[HANDLER] Insufficient filters before LLM call (weight={weight:.1f})")
-                    logger.info(f"[HANDLER] Triggering clarification to avoid wasting LLM resources")
-                    
-                    # Detect vague type for proper clarification, or use generic if no pattern matched
-                    vague_result = self.intent_detector.detect_vague_patterns(request.message)
-                    
-                    if not vague_result:
-                        # No specific vague pattern matched, but still insufficient filters
-                        # Create a generic clarification based on what we have
-                        logger.info("[HANDLER] No vague pattern matched, creating generic clarification")
-                        
-                        # Determine vague type based on entities
-                        if entities.get("category"):
-                            vague_type = "category_only"
-                            partial_entities = {"category": entities["category"]}
-                        elif entities.get("color"):
-                            vague_type = "attribute_only"
-                            partial_entities = {"color": entities["color"]}
-                        elif entities.get("material"):
-                            vague_type = "attribute_only"
-                            partial_entities = {"material": entities["material"]}
-                        elif entities.get("room_type"):
-                            vague_type = "room_purpose_only"
-                            partial_entities = {"room_type": entities["room_type"]}
-                        else:
-                            vague_type = "ultra_vague"
-                            partial_entities = {}
-                        
-                        vague_result = {
-                            "vague_type": vague_type,
-                            "partial_entities": partial_entities
-                        }
-                    
-                    session.set_pending_clarification(
-                        vague_result["vague_type"],
-                        vague_result["partial_entities"],
-                        request.message
-                    )
-                    
-                    from .prompts import generate_clarification_prompt
-                    assistant_message = f"{validation_msg}\n\n"
-                    assistant_message += generate_clarification_prompt(
-                        vague_result["vague_type"],
-                        vague_result["partial_entities"],
-                        clarification_count=0
-                    )
-                    
-                    session.add_message("assistant", assistant_message)
-                    
-                    return AssistantResponse(
-                        message=assistant_message,
-                        session_id=session.session_id,
-                        products=[],
-                        cart_summary=self._build_cart_summary(session),
-                        metadata={
-                            "intent": "insufficient_filters",
-                            "filter_weight": weight,
-                            "validation_message": validation_msg,
-                            "vague_type": vague_result["vague_type"],
-                            "context": topic_context.to_dict()
-                        }
-                    )
                 else:
-                    logger.info(f"[HANDLER] Filter validation passed (weight={weight:.1f}), proceeding to LLM")
+                    # SMART VALIDATION: Do a quick search to check result count
+                    # Only ask for clarification if there are too many results (> 20)
+                    from app.modules.retrieval import ProductSearcher
+                    quick_search = ProductSearcher()
+                    
+                    # Extract search query (remove common phrases)
+                    search_query = request.message.lower()
+                    for phrase in ['show me', 'find me', 'search for', 'looking for', 'i want', 'i need', 'get me', 'can you show']:
+                        search_query = search_query.replace(phrase, '').strip()
+                    
+                    quick_results = await quick_search.search(search_query, limit=25)
+                    result_count = len(quick_results)
+                    
+                    logger.info(f"[HANDLER] Quick search for '{search_query}' returned {result_count} results")
+                    
+                    # Threshold: If <= 20 results, show them directly. If > 20, ask for clarification
+                    RESULT_THRESHOLD = 20
+                    
+                    if result_count == 0:
+                        # No results - let LLM handle with empty results message
+                        logger.info("[HANDLER] No results found, proceeding to LLM for helpful response")
+                    elif result_count <= RESULT_THRESHOLD:
+                        # Small enough result set - proceed directly to show products
+                        logger.info(f"[HANDLER] {result_count} results is manageable, proceeding to LLM")
+                    else:
+                        # Too many results - check if query is too vague
+                        is_valid, weight, validation_msg = self.filter_validator.validate_filter_count(
+                            entities,
+                            request.message
+                        )
+                        
+                        logger.info(f"[HANDLER] Filter validation: is_valid={is_valid}, weight={weight:.1f}")
+                        
+                        if not is_valid:
+                            logger.info(f"[HANDLER] Too many results ({result_count}) and vague query, asking for clarification")
+                            
+                            # Detect vague type for proper clarification
+                            vague_result = self.intent_detector.detect_vague_patterns(request.message)
+                            
+                            if not vague_result:
+                                # Determine vague type based on entities
+                                if entities.get("category"):
+                                    vague_type = "category_only"
+                                    partial_entities = {"category": entities["category"]}
+                                elif entities.get("color"):
+                                    vague_type = "attribute_only"
+                                    partial_entities = {"color": entities["color"]}
+                                elif entities.get("material"):
+                                    vague_type = "attribute_only"
+                                    partial_entities = {"material": entities["material"]}
+                                elif entities.get("room_type"):
+                                    vague_type = "room_purpose_only"
+                                    partial_entities = {"room_type": entities["room_type"]}
+                                else:
+                                    vague_type = "ultra_vague"
+                                    partial_entities = {}
+                                
+                                vague_result = {
+                                    "vague_type": vague_type,
+                                    "partial_entities": partial_entities
+                                }
+                            
+                            session.set_pending_clarification(
+                                vague_result["vague_type"],
+                                vague_result["partial_entities"],
+                                request.message
+                            )
+                            
+                            from .prompts import generate_clarification_prompt
+                            assistant_message = f"I found over {RESULT_THRESHOLD} products matching '{search_query}'. To help narrow it down:\n\n"
+                            assistant_message += generate_clarification_prompt(
+                                vague_result["vague_type"],
+                                vague_result["partial_entities"],
+                                clarification_count=0
+                            )
+                            
+                            session.add_message("assistant", assistant_message)
+                            
+                            return AssistantResponse(
+                                message=assistant_message,
+                                session_id=session.session_id,
+                                products=[],
+                                cart_summary=self._build_cart_summary(session),
+                                metadata={
+                                    "intent": "insufficient_filters",
+                                    "result_count": result_count,
+                                    "filter_weight": weight,
+                                    "vague_type": vague_result["vague_type"],
+                                    "context": topic_context.to_dict()
+                                }
+                            )
+                        else:
+                            logger.info(f"[HANDLER] Many results but specific query, proceeding to LLM")
             
             # Build conversation messages for LLM
             logger.info(f"[HANDLER] Building conversation messages...")

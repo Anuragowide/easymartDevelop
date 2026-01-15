@@ -88,6 +88,17 @@ class FilterValidator:
         # Examples: "mma gloves", "boxing bag", "dog kennel", "electric scooter"
         query_lower = query.lower() if query else ""
         
+        # Check for specific product name queries (3+ content words = specific enough)
+        # Remove common stopwords and check remaining word count
+        stopwords = {'show', 'me', 'find', 'search', 'for', 'the', 'a', 'an', 'i', 'want', 
+                     'need', 'looking', 'am', 'get', 'some', 'any', 'please', 'can', 'you',
+                     'do', 'have', 'with', 'in', 'on', 'at', 'to', 'of', 'and', 'or'}
+        query_words = [w for w in query_lower.split() if w not in stopwords and len(w) > 1]
+        if len(query_words) >= 3:
+            # Specific enough query like "three tiers utility trolley" or "standing desk motorised"
+            total_weight += 1.5
+            present_filters.append('specific_query')
+        
         # Product category keywords (count as 1.0 weight each)
         category_keywords = [
             # Sports & Fitness - Cardio
@@ -107,9 +118,15 @@ class FilterValidator:
             'dog', 'cat', 'pet', 'puppy', 'kitten', 'bird', 'aquarium', 'fish tank',
             # Electric Scooters  
             'scooter', 'e-scooter', 'escooter', 'electric scooter',
-            # Furniture
+            # Furniture - Office/Home
             'office', 'gaming', 'ergonomic', 'furniture', 'desk', 'chair', 'table',
-            'sofa', 'bed', 'mattress', 'cabinet', 'shelf', 'bookcase'
+            'sofa', 'bed', 'mattress', 'cabinet', 'shelf', 'bookcase',
+            'workstation', 'standing desk', 'sit stand', 'motorised', 'motorized',
+            'living room', 'dining room', 'bathroom', 'bedroom', 'kitchen',
+            # Storage & Organization
+            'storage', 'locker', 'filing', 'cupboard', 'divider', 'pedestal',
+            # Accessories
+            'monitor arm', 'lamp', 'trolley', 'utility', 'accessory', 'accessories'
         ]
         
         # Product type keywords (count as 1.0 weight each)
@@ -129,7 +146,14 @@ class FilterValidator:
             # Furniture
             'chair', 'chairs', 'table', 'tables', 'desk', 'desks', 'sofa', 'sofas',
             'cabinet', 'cabinets', 'shelf', 'shelves', 'stool', 'stools',
-            'ottoman', 'recliner', 'bookcase'
+            'ottoman', 'recliner', 'bookcase', 'bookcases',
+            # Additional furniture types from catalog
+            'locker', 'lockers', 'bar stool', 'bar stools', 'filing cabinet',
+            'cupboard', 'cupboards', 'divider', 'dividers', 'pedestal', 'pedestals',
+            'monitor arm', 'lamp', 'lamps', 'trolley', 'trolleys', 'frame', 'frames',
+            # Descriptive product terms
+            'standing', 'adjustable', 'electric', 'motorised', 'motorized',
+            'executive', 'mesh', 'leather', 'corner', 'l-shape', 'l shape'
         ]
         
         # Check for category keywords
