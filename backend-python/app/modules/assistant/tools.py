@@ -261,6 +261,31 @@ TOOL_DEFINITIONS = [
                 "required": ["product_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_product_fit",
+            "description": "Check if a product fits in a given space. ALWAYS use this tool when user asks 'will it fit?', 'does it fit in X area?', 'is option X fits in Y space?'. This tool does accurate dimension comparison - DO NOT calculate fit yourself.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Product SKU or ID to check"
+                    },
+                    "space_length": {
+                        "type": "number",
+                        "description": "Available space length/width in cm (e.g., 200 for 2 meters)"
+                    },
+                    "space_width": {
+                        "type": "number",
+                        "description": "Available space width/depth in cm (e.g., 200 for 2 meters). If square area, same as space_length."
+                    }
+                },
+                "required": ["product_id", "space_length", "space_width"]
+            }
+        }
     }
 ]
 
@@ -463,6 +488,263 @@ class EasymartAssistantTools:
                 "product_id": product_id
             }
     
+    async def check_product_fit(
+        self,
+        product_id: str,
+        space_length: float,
+        space_width: float
+    ) -> Dict[str, Any]:
+        """
+        Check if a product fits in a given space using CORRECT dimension comparison.
+        
+        CRITICAL RULES:
+        1. Only use footprint dimensions (length/width × depth), NEVER height
+        2. Compare dimensions individually, NOT areas
+        3. Check both orientations (product can be rotated)
+        
+        Args:
+            product_id: Product SKU
+            space_length: Available space length in cm
+            space_width: Available space width/depth in cm
+        
+        Returns:
+            {
+                "fits": true/false,
+                "product_name": "...",
+                "product_footprint": {"length": 140, "depth": 60, "unit": "cm"},
+                "available_space": {"length": 200, "width": 200, "unit": "cm"},
+                "fit_check": {"length_fits": true, "depth_fits": true},
+                "clearance": {"length": 60, "depth": 140},
+                "message": "Formatted response"
+            }
+        """
+        import re
+        
+        try:
+            # Get product details
+            product = await self.product_searcher.get_product(product_id)
+            if not product:
+                return {
+                    "fits": None,
+                    "message": f"I couldn't find that product. Please make sure you're asking about a product from our catalog."
+                }
+            
+            product_name = product.get('name') or product.get('title') or 'Unknown Product'
+            
+            # Get specs to find dimensions
+            specs_list = await self.spec_searcher.get_specs_for_product(product_id)
+            
+            # Extract dimensions from specs
+            product_length = None  # Width of product (horizontal, left-right)
+            product_depth = None   # Depth of product (horizontal, front-back)
+            product_height = None  # Height (vertical, not used for floor space)
+            unit_is_mm = False     # Track if values are in mm to convert to cm
+            
+            # Helper function to convert value to cm
+            def to_cm(value, is_mm=False):
+                if is_mm or value > 200:  # If > 200, likely mm
+                    return value / 10
+                return value
+            
+            # FIRST PASS: Look for dedicated Dimensions section with attributes
+            for spec in specs_list:
+                section = spec.get('section', '').lower()
+                attributes = spec.get('attributes', {})
+                
+                if 'dimension' in section:
+                    if attributes:
+                        if 'length' in attributes and attributes['length']:
+                            try:
+                                product_length = float(attributes['length'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'width' in attributes and attributes['width']:
+                            try:
+                                product_depth = float(attributes['width'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'height' in attributes and attributes['height']:
+                            try:
+                                product_height = float(attributes['height'])
+                            except (ValueError, TypeError):
+                                pass
+            
+            # SECOND PASS: Search ALL sections for dimension patterns in spec_text
+            if not product_length or not product_depth:
+                for spec in specs_list:
+                    spec_text = spec.get('spec_text', '')
+                    
+                    # Pattern for "Seat Width (510mm)" or "Seat Depth (480mm)" format
+                    seat_width_match = re.search(r'(?:seat\s+)?width\s*[:\(]\s*(\d+(?:\.\d+)?)\s*(mm|cm)?', spec_text, re.IGNORECASE)
+                    seat_depth_match = re.search(r'(?:seat\s+)?depth\s*[:\(]\s*(\d+(?:\.\d+)?)\s*(mm|cm)?', spec_text, re.IGNORECASE)
+                    length_match = re.search(r'(?<!back\s)length\s*[:\(]\s*(\d+(?:\.\d+)?)\s*(mm|cm)?', spec_text, re.IGNORECASE)
+                    
+                    # Also try "Overall dimensions: NNcm x NNcm x NNcm" pattern
+                    overall_match = re.search(r'overall\s+dimensions?[:\s]*(\d+(?:\.\d+)?)\s*(cm|mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*(cm|mm)?\s*[x×]\s*(\d+(?:\.\d+)?)', spec_text, re.IGNORECASE)
+                    
+                    if overall_match:
+                        val1 = float(overall_match.group(1))
+                        unit1 = overall_match.group(2) or ''
+                        val2 = float(overall_match.group(3))
+                        # Use first two values as length x depth
+                        is_mm = 'mm' in unit1.lower() if unit1 else val1 > 200
+                        if not product_length:
+                            product_length = to_cm(val1, is_mm)
+                        if not product_depth:
+                            product_depth = to_cm(val2, is_mm)
+                    
+                    # Extract width/depth from spec text
+                    if seat_width_match and not product_length:
+                        val = float(seat_width_match.group(1))
+                        unit = seat_width_match.group(2) or ''
+                        is_mm = 'mm' in unit.lower() if unit else val > 200
+                        product_length = to_cm(val, is_mm)
+                    
+                    if length_match and not product_length:
+                        val = float(length_match.group(1))
+                        unit = length_match.group(2) or ''
+                        is_mm = 'mm' in unit.lower() if unit else val > 200
+                        product_length = to_cm(val, is_mm)
+                    
+                    if seat_depth_match and not product_depth:
+                        val = float(seat_depth_match.group(1))
+                        unit = seat_depth_match.group(2) or ''
+                        is_mm = 'mm' in unit.lower() if unit else val > 200
+                        product_depth = to_cm(val, is_mm)
+                    
+                    # Try "Width: NNcm, Depth: NNcm" format
+                    if not product_length:
+                        width_match = re.search(r'width[:\s]*(\d+(?:\.\d+)?)\s*(mm|cm)?', spec_text, re.IGNORECASE)
+                        if width_match:
+                            val = float(width_match.group(1))
+                            unit = width_match.group(2) or ''
+                            is_mm = 'mm' in unit.lower() if unit else val > 200
+                            product_length = to_cm(val, is_mm)
+                    
+                    if not product_depth:
+                        depth_match = re.search(r'depth[:\s]*(\d+(?:\.\d+)?)\s*(mm|cm)?', spec_text, re.IGNORECASE)
+                        if depth_match:
+                            val = float(depth_match.group(1))
+                            unit = depth_match.group(2) or ''
+                            is_mm = 'mm' in unit.lower() if unit else val > 200
+                            product_depth = to_cm(val, is_mm)
+                    
+                    # Try "NNcm x NNcm x NNcm" format anywhere in spec
+                    if not product_length or not product_depth:
+                        dim_pattern = r'(\d+(?:\.\d+)?)\s*(cm|mm)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*(cm|mm)?\s*[x×]\s*(\d+(?:\.\d+)?)'
+                        dim_match = re.search(dim_pattern, spec_text, re.IGNORECASE)
+                        if dim_match:
+                            val1 = float(dim_match.group(1))
+                            unit1 = dim_match.group(2) or ''
+                            val2 = float(dim_match.group(3))
+                            is_mm = 'mm' in unit1.lower() if unit1 else val1 > 200
+                            if not product_length:
+                                product_length = to_cm(val1, is_mm)
+                            if not product_depth:
+                                product_depth = to_cm(val2, is_mm)
+                    
+                    # If we found both dimensions, stop searching
+                    if product_length and product_depth:
+                        break
+            
+            if not product_length or not product_depth:
+                return {
+                    "fits": None,
+                    "product_name": product_name,
+                    "message": f"I couldn't find the floor dimensions for **{product_name}**. Please check the product specifications page for more details."
+                }
+            
+            # CORRECT FIT CHECK: Compare dimensions individually, check both orientations
+            # Orientation 1: product as-is
+            orientation1_fits = (product_length <= space_length and product_depth <= space_width)
+            # Orientation 2: product rotated 90 degrees
+            orientation2_fits = (product_depth <= space_length and product_length <= space_width)
+            
+            fits = orientation1_fits or orientation2_fits
+            
+            # Calculate clearance for the best orientation
+            if orientation1_fits:
+                clearance_length = space_length - product_length
+                clearance_depth = space_width - product_depth
+                used_orientation = "standard"
+            elif orientation2_fits:
+                clearance_length = space_length - product_depth
+                clearance_depth = space_width - product_length
+                used_orientation = "rotated 90°"
+            else:
+                clearance_length = space_length - product_length
+                clearance_depth = space_width - product_depth
+                used_orientation = "none"
+            
+            # Build response message
+            if fits:
+                message = f"""✅ Yes, the **{product_name}** fits in a {space_length}cm × {space_width}cm area!
+
+**Product Footprint:**
+• Length/Width: {product_length}cm
+• Depth: {product_depth}cm
+(Height of {product_height}cm is not relevant for floor space)
+
+**Available Space:** {space_length}cm × {space_width}cm
+
+**Fit Check:**
+• Length: {product_length}cm ≤ {space_length}cm ✔️
+• Depth: {product_depth}cm ≤ {space_width}cm ✔️
+
+**Clearance Remaining:**
+• Length side: ~{clearance_length:.0f}cm
+• Depth side: ~{clearance_depth:.0f}cm
+
+**Conclusion:** The product fits comfortably with room to spare!"""
+            else:
+                message = f"""❌ No, the **{product_name}** does NOT fit in a {space_length}cm × {space_width}cm area.
+
+**Product Footprint:**
+• Length/Width: {product_length}cm
+• Depth: {product_depth}cm
+
+**Available Space:** {space_length}cm × {space_width}cm
+
+**Fit Check:**
+• Length: {product_length}cm {"≤" if product_length <= space_length else ">"} {space_length}cm {"✔️" if product_length <= space_length else "❌"}
+• Depth: {product_depth}cm {"≤" if product_depth <= space_width else ">"} {space_width}cm {"✔️" if product_depth <= space_width else "❌"}
+
+**Recommendation:** You would need at least a {product_length}cm × {product_depth}cm space for this product."""
+            
+            return {
+                "fits": fits,
+                "product_id": product_id,
+                "product_name": product_name,
+                "product_footprint": {
+                    "length": product_length,
+                    "depth": product_depth,
+                    "height": product_height,
+                    "unit": "cm"
+                },
+                "available_space": {
+                    "length": space_length,
+                    "width": space_width,
+                    "unit": "cm"
+                },
+                "fit_check": {
+                    "length_fits": product_length <= space_length,
+                    "depth_fits": product_depth <= space_width,
+                    "orientation": used_orientation
+                },
+                "clearance": {
+                    "length": clearance_length,
+                    "depth": clearance_depth
+                },
+                "message": message
+            }
+        
+        except Exception as e:
+            logger.error(f"Error checking product fit: {e}")
+            return {
+                "fits": None,
+                "message": "Sorry, I wasn't able to check the fit for this product. Please try again or check the product specifications page for dimensions."
+            }
+
     async def check_availability(self, product_id: str) -> Dict[str, Any]:
         """
         Check product availability using real inventory data from Shopify.
@@ -1168,7 +1450,8 @@ async def execute_tool(
         "update_cart": tools_instance.update_cart,
         "get_policy_info": tools_instance.get_policy_info,
         "get_contact_info": tools_instance.get_contact_info,
-        "calculate_shipping": tools_instance.calculate_shipping
+        "calculate_shipping": tools_instance.calculate_shipping,
+        "check_product_fit": tools_instance.check_product_fit
     }
     
     tool_func = tool_map.get(tool_name)

@@ -1209,6 +1209,86 @@ class EasymartAssistantHandler:
                         else:
                             logger.warning(f"[HANDLER] Product spec Q&A but product #{product_num} not in session (only {len(session.last_shown_products)} products)")
             
+            # SAFETY CHECK: Detect "will it fit?" questions and force check_product_fit tool!
+            query_lower = request.message.lower()
+            fit_patterns = [
+                r'\b(?:will|does|can|is)\s+(?:it|this|that|option\s*\d+|product\s*\d+)?\s*fit',  # "will it fit", "does option 1 fit"
+                r'\bfit(?:s|ting)?\s+(?:in|into|inside)\b',  # "fits in", "fit into"
+                r'\b(?:option|product|item)\s*\d+\s+fit',  # "option 1 fits"
+                r'\bfit\b.*\b(?:space|area|room|meter|metre|cm|m\s*²|square)\b',  # "fit in 2m area"
+                r'\b(?:space|area)\s+(?:of\s+)?(?:\d+)\s*(?:m|meter|metre|cm)',  # "area of 2m"
+            ]
+            is_fit_question = any(re.search(p, query_lower) for p in fit_patterns)
+            
+            if is_fit_question:
+                logger.info(f"[HANDLER] Detected fit question: '{request.message}'")
+                
+                # Check if LLM called the WRONG tool or no tool
+                called_check_product_fit = llm_response.function_calls and any(fc.name == 'check_product_fit' for fc in llm_response.function_calls)
+                
+                if not called_check_product_fit:
+                    logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Fit question but LLM didn't call check_product_fit!")
+                    
+                    # Extract product reference
+                    product_num = None
+                    for pattern in self.PRODUCT_REF_PATTERNS:
+                        match = pattern.search(query_lower)
+                        if match:
+                            product_num = int(match.group(1))
+                            break
+                    
+                    if not product_num:
+                        for ordinal, num in self.ORDINAL_MAP.items():
+                            if ordinal in query_lower:
+                                product_num = num
+                                break
+                    
+                    # Default to first product if contextual reference
+                    contextual_refs = ['this', 'that', 'it', 'the chair', 'the desk', 'the table', 'the product']
+                    if not product_num and any(ref in query_lower for ref in contextual_refs) and session.last_shown_products:
+                        product_num = 1
+                    
+                    # Extract space dimensions from query
+                    space_length = 100  # Default 1m
+                    space_width = 100   # Default 1m
+                    
+                    # Pattern: "2 meter", "2m", "2 m", "200cm", "2 metre"
+                    size_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:meter|metre|m\b|cm)', query_lower)
+                    if size_match:
+                        val = float(size_match.group(1))
+                        unit = 'cm' if 'cm' in query_lower else 'm'
+                        if unit == 'm' or val < 10:  # Assume meters if small number
+                            space_length = val * 100
+                            space_width = val * 100
+                        else:
+                            space_length = val
+                            space_width = val
+                    
+                    # Check for "square" keyword - means same length and width
+                    if 'square' in query_lower:
+                        space_width = space_length
+                    
+                    if product_num and session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                        product = session.last_shown_products[product_num - 1]
+                        product_id = product.get('id')
+                        
+                        if product_id:
+                            logger.info(f"[HANDLER] SAFETY CATCH creating check_product_fit call: product_id={product_id}, space={space_length}x{space_width}cm")
+                            from .hf_llm_client import FunctionCall
+                            llm_response.function_calls = [
+                                FunctionCall(
+                                    name="check_product_fit",
+                                    arguments={
+                                        "product_id": product_id,
+                                        "space_length": space_length,
+                                        "space_width": space_width
+                                    }
+                                )
+                            ]
+                            llm_response.content = ""
+                    else:
+                        logger.warning(f"[HANDLER] Fit question but couldn't resolve product reference (product_num={product_num}, products_in_session={len(session.last_shown_products) if session.last_shown_products else 0})")
+
             # SAFETY CHECK: If cart add intent but NO tool calls → force update_cart!
             if intent == IntentType.CART_ADD and not llm_response.function_calls:
                 query_lower = request.message.lower()
