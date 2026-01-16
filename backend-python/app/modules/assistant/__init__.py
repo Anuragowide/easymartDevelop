@@ -32,10 +32,11 @@ from .session_store import (
 # LLM and tools
 from .hf_llm_client import (
     HuggingFaceLLMClient,
-    create_llm_client,
     Message,
     LLMResponse
 )
+from .llm_client import OpenAILLMClient
+from .llm_provider import create_llm_client
 
 from .tools import (
     EasymartAssistantTools,
@@ -85,6 +86,7 @@ __all__ = [
     
     # LLM
     "HuggingFaceLLMClient",
+    "OpenAILLMClient",
     "create_llm_client",
     "Message",
     "LLMResponse",

@@ -71,7 +71,7 @@ class MockLLMClient:
 @pytest.fixture(autouse=True)
 def setup_mocks():
     # Patch create_llm_client in the source module
-    with patch("app.modules.assistant.hf_llm_client.create_llm_client", new_callable=AsyncMock) as mock_create:
+    with patch("app.modules.assistant.llm_provider.create_llm_client", new_callable=AsyncMock) as mock_create:
         mock_client = MockLLMClient()
         mock_create.return_value = mock_client
         

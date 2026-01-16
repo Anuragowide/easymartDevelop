@@ -41,9 +41,18 @@ class Settings(BaseSettings):
     HUGGINGFACE_TIMEOUT: int = Field(default=30, description="HF API timeout in seconds")
     HUGGINGFACE_MAX_RETRIES: int = Field(default=3, description="HF API max retries")
     
-    # OpenAI / LLM Configuration (optional fallback)
+    # LLM Provider Selection
+    LLM_PROVIDER_PRIMARY: str = Field(default="openai", description="Primary LLM provider (openai, mistral)")
+    LLM_PROVIDER_FALLBACK: Optional[str] = Field(default="mistral", description="Fallback LLM provider (openai, mistral)")
+    
+    # OpenAI Configuration
     OPENAI_API_KEY: Optional[str] = Field(default=None, description="OpenAI API key")
-    LLM_MODEL: str = Field(default="gpt-4", description="LLM model name")
+    OPENAI_MODEL: str = Field(default="gpt-4.1", description="OpenAI model name")
+    OPENAI_BASE_URL: Optional[str] = Field(default=None, description="OpenAI API base URL (optional)")
+    OPENAI_TIMEOUT: float = Field(default=30.0, description="OpenAI API timeout in seconds")
+    
+    # LLM Configuration (shared defaults)
+    LLM_MODEL: str = Field(default="gpt-4", description="LLM model name (legacy)")
     LLM_TEMPERATURE: float = Field(default=0.7, description="LLM temperature")
     LLM_MAX_TOKENS: int = Field(default=512, description="LLM max tokens")
     

@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 
 # Import components
-from .hf_llm_client import HuggingFaceLLMClient, Message, LLMResponse
+from .hf_llm_client import Message, LLMResponse
+from .llm_provider import create_llm_client
 from .tools import EasymartAssistantTools, TOOL_DEFINITIONS, execute_tool
 from .intent_detector import IntentDetector
 from .intents import IntentType
@@ -115,14 +116,14 @@ class EasymartAssistantHandler:
 
     def __init__(
         self,
-        llm_client: Optional[HuggingFaceLLMClient] = None,
+        llm_client: Optional[Any] = None,
         session_store: Optional[SessionStore] = None
     ):
         """
         Initialize assistant handler.
         
         Args:
-            llm_client: Optional HF LLM client (creates new if not provided)
+            llm_client: Optional LLM client (creates new if not provided)
             session_store: Optional session store (uses global if not provided)
         """
         from .tools import get_assistant_tools
@@ -1106,7 +1107,6 @@ class EasymartAssistantHandler:
             if not self.llm_client:
                 logger.info(f"[HANDLER] Creating LLM client...")
                 # Lazy initialization
-                from .hf_llm_client import create_llm_client
                 self.llm_client = await create_llm_client()
                 logger.info(f"[HANDLER] LLM client created")
             

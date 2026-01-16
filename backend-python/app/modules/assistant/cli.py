@@ -28,7 +28,7 @@ async def main():
     try:
         handler = get_assistant_handler()
         # Pre-load LLM client
-        from app.modules.assistant.hf_llm_client import create_llm_client
+        from app.modules.assistant.llm_provider import create_llm_client
         handler.llm_client = await create_llm_client()
         print(f"{GREEN}Assistant ready!{RESET}")
     except Exception as e:

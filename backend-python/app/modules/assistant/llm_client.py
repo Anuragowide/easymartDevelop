@@ -1,133 +1,112 @@
 """
 LLM Client
 
-Handles communication with OpenAI/LLM APIs for response generation.
+OpenAI GPT client with function calling support.
 """
 
 from typing import List, Dict, Any, Optional
+import json
+import logging
+from openai import AsyncOpenAI
+
 from app.core.config import get_settings
+from .hf_llm_client import Message, FunctionCall, LLMResponse
 
 
-class LLMClient:
+logger = logging.getLogger(__name__)
+
+
+class OpenAILLMClient:
     """
-    LLM client for generating assistant responses.
-    
-    TODO: Implement OpenAI API integration
+    OpenAI GPT client with tool calling support.
     """
     
-    def __init__(self):
-        self.settings = get_settings()
-        self.model = self.settings.LLM_MODEL
-        self.temperature = self.settings.LLM_TEMPERATURE
-        self.max_tokens = self.settings.LLM_MAX_TOKENS
-        
-        # TODO: Initialize OpenAI client
-        # self.client = OpenAI(api_key=self.settings.OPENAI_API_KEY)
-    
-    def generate_response(
+    def __init__(
         self,
-        message: str,
-        context: Optional[Dict[str, Any]] = None,
-        system_prompt: Optional[str] = None
-    ) -> str:
-        """
-        Generate assistant response using LLM.
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_retries: int = 2
+    ):
+        settings = get_settings()
+        self.api_key = api_key or settings.OPENAI_API_KEY
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment or parameters")
         
-        Args:
-            message: User message
-            context: Additional context (search results, session data, etc.)
-            system_prompt: Custom system prompt
+        self.model = model or settings.OPENAI_MODEL or settings.LLM_MODEL
+        self.timeout = timeout or settings.OPENAI_TIMEOUT or settings.LLM_TIMEOUT
         
-        Returns:
-            Generated response text
-        
-        TODO: Implement OpenAI API call
-        """
-        
-        # Default system prompt
-        if not system_prompt:
-            system_prompt = """You are a helpful shopping assistant for Easymart.
-            You help users find products, answer questions about specifications,
-            and provide shopping recommendations. Be friendly and concise."""
-        
-        # TODO: Implement OpenAI API call
-        # messages = [
-        #     {"role": "system", "content": system_prompt},
-        #     {"role": "user", "content": message}
-        # ]
-        # 
-        # if context:
-        #     # Add context to the prompt
-        #     context_str = self._format_context(context)
-        #     messages.insert(1, {"role": "system", "content": f"Context: {context_str}"})
-        # 
-        # response = self.client.chat.completions.create(
-        #     model=self.model,
-        #     messages=messages,
-        #     temperature=self.temperature,
-        #     max_tokens=self.max_tokens
-        # )
-        # 
-        # return response.choices[0].message.content
-        
-        # Placeholder response
-        return f"This is a placeholder response for: {message}"
+        self.client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=base_url or settings.OPENAI_BASE_URL,
+            timeout=self.timeout,
+            max_retries=max_retries
+        )
     
-    def generate_with_tools(
+    async def chat(
         self,
-        message: str,
-        tools: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Generate response with tool/function calling.
+        messages: List[Message],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 512
+    ) -> LLMResponse:
+        oa_messages = []
         
-        Args:
-            message: User message
-            tools: Available tool definitions
-            context: Additional context
+        for msg in messages:
+            role = msg.role
+            content = msg.content
+            
+            # Treat tool results as user messages for compatibility with existing flow
+            if role == "tool":
+                role = "user"
+            
+            oa_messages.append({"role": role, "content": content})
         
-        Returns:
-            Dictionary with response and tool calls
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=oa_messages,
+            tools=tools or None,
+            tool_choice="auto" if tools else None,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
         
-        TODO: Implement OpenAI function calling
-        """
+        choice = response.choices[0]
+        response_message = choice.message
+        content = response_message.content or ""
+        function_calls: List[FunctionCall] = []
         
-        # TODO: Implement OpenAI function calling
-        # response = self.client.chat.completions.create(
-        #     model=self.model,
-        #     messages=[{"role": "user", "content": message}],
-        #     tools=tools,
-        #     tool_choice="auto"
-        # )
-        # 
-        # return {
-        #     "message": response.choices[0].message.content,
-        #     "tool_calls": response.choices[0].message.tool_calls
-        # }
+        if response_message.tool_calls:
+            for tool_call in response_message.tool_calls:
+                if tool_call.type != "function":
+                    continue
+                args = {}
+                if tool_call.function.arguments:
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse OpenAI tool arguments; using empty dict")
+                        args = {}
+                function_calls.append(
+                    FunctionCall(name=tool_call.function.name, arguments=args)
+                )
         
-        # Placeholder
-        return {
-            "message": f"Placeholder response for: {message}",
-            "tool_calls": []
-        }
-    
-    def _format_context(self, context: Dict[str, Any]) -> str:
-        """
-        Format context dictionary into string for prompt.
-        """
-        context_parts = []
-        
-        if "products" in context:
-            products = context["products"]
-            context_parts.append(f"Found {len(products)} products:")
-            for p in products[:3]:  # Top 3
-                context_parts.append(f"- {p.get('title', 'Unknown')}: ${p.get('price', 0)}")
-        
-        if "specs" in context:
-            specs = context["specs"]
-            context_parts.append("Product specifications:")
-            for s in specs:
-                context_parts.append(f"- {s.get('section', 'Unknown')}: {s.get('spec_text', '')}")
-        
-        return "\n".join(context_parts)
+        return LLMResponse(
+            content=content,
+            function_calls=function_calls,
+            finish_reason=choice.finish_reason or "stop"
+        )
+
+
+async def create_openai_client(
+    api_key: Optional[str] = None,
+    model: Optional[str] = None
+) -> OpenAILLMClient:
+    settings = get_settings()
+    return OpenAILLMClient(
+        api_key=api_key or settings.OPENAI_API_KEY,
+        model=model or settings.OPENAI_MODEL or settings.LLM_MODEL,
+        base_url=settings.OPENAI_BASE_URL,
+        timeout=settings.OPENAI_TIMEOUT
+    )
