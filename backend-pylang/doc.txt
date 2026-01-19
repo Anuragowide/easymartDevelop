@@ -1,0 +1,1848 @@
+================================================================================
+                    EASYMART BACKEND-PYLANG DOCUMENTATION
+                         AI Shopping Assistant Service
+                    Confluence-Ready Technical Documentation
+================================================================================
+
+Last Updated: January 19, 2026
+Version: 1.0.0
+Author: Easymart Development Team
+
+================================================================================
+                              TABLE OF CONTENTS
+================================================================================
+
+1.  EXECUTIVE SUMMARY
+2.  SYSTEM ARCHITECTURE
+    2.1  High-Level Architecture Diagram
+    2.2  Component Interaction Diagram
+    2.3  Data Flow Diagram
+3.  LANGCHAIN INTEGRATION
+    3.1  Overview
+    3.2  Tool Calling Architecture
+    3.3  Agent Loop Implementation
+    3.4  LangChain Tools Definition
+4.  DIRECTORY STRUCTURE
+5.  CORE COMPONENTS
+    5.1  FastAPI Application (main.py)
+    5.2  Configuration Management
+    5.3  API Endpoints
+    5.4  Assistant Handler
+    5.5  Session Management
+    5.6  Intent Detection
+6.  PRODUCT SEARCH SYSTEM
+    6.1  Hybrid Search Architecture
+    6.2  BM25 Keyword Search
+    6.3  Vector Semantic Search (ChromaDB)
+    6.4  Reciprocal Rank Fusion (RRF)
+7.  LANGCHAIN TOOLS REFERENCE
+8.  DATA MODELS & SCHEMAS
+9.  ENVIRONMENT CONFIGURATION
+10. INSTALLATION & SETUP
+11. DEVELOPMENT GUIDE
+12. PRODUCTION DEPLOYMENT
+13. API REFERENCE
+14. TROUBLESHOOTING
+
+================================================================================
+                          1. EXECUTIVE SUMMARY
+================================================================================
+
+Backend-PyLang is a FastAPI-based Python microservice that powers the Easymart
+AI Shopping Assistant. It leverages LangChain for LLM orchestration with 
+OpenAI's GPT models, enabling intelligent conversational commerce experiences.
+
+KEY FEATURES:
+• LangChain-powered conversational AI with tool calling
+• Hybrid search (BM25 + Vector embeddings) for product discovery
+• 10+ specialized tools for shopping assistance
+• Session-based conversation context management
+• Intent detection and clarification flow
+• Cart management with Node.js backend synchronization
+
+TECHNOLOGY STACK:
+┌────────────────────┬────────────────────────────────────────┐
+│ Component          │ Technology                             │
+├────────────────────┼────────────────────────────────────────┤
+│ Framework          │ FastAPI 0.115+                         │
+│ LLM Orchestration  │ LangChain 0.2.15+                      │
+│ LLM Provider       │ OpenAI GPT-4.1                         │
+│ Vector Database    │ ChromaDB 0.5.15+                       │
+│ Embeddings         │ sentence-transformers (all-MiniLM-L6)  │
+│ Keyword Search     │ rank-bm25                              │
+│ Session Store      │ In-memory / Redis (optional)           │
+│ Data Validation    │ Pydantic 2.10+                         │
+└────────────────────┴────────────────────────────────────────┘
+
+================================================================================
+                        2. SYSTEM ARCHITECTURE
+================================================================================
+
+-------------------------------------------------------------------------------
+2.1 HIGH-LEVEL ARCHITECTURE DIAGRAM
+-------------------------------------------------------------------------------
+
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    CLIENT LAYER                         │
+                    │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+                    │  │   Frontend   │  │   Mobile     │  │   Shopify    │  │
+                    │  │   (Next.js)  │  │   App        │  │   Storefront │  │
+                    │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
+                    └─────────┼─────────────────┼─────────────────┼──────────┘
+                              │                 │                 │
+                              ▼                 ▼                 ▼
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                   GATEWAY LAYER                         │
+                    │  ┌─────────────────────────────────────────────────┐   │
+                    │  │              Node.js Backend                     │   │
+                    │  │         (backend-node - Port 3002)               │   │
+                    │  │    • API Gateway & Request Routing               │   │
+                    │  │    • Shopify Integration                         │   │
+                    │  │    • Cart State Management                       │   │
+                    │  └──────────────────────┬──────────────────────────┘   │
+                    └─────────────────────────┼───────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           BACKEND-PYLANG (Port 8001)                            │
+│  ┌───────────────────────────────────────────────────────────────────────────┐  │
+│  │                           FastAPI Application                              │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐           │  │
+│  │  │  Health API     │  │  Assistant API  │  │  Middleware     │           │  │
+│  │  │  /health/*      │  │  /assistant/*   │  │  (CORS, GZip)   │           │  │
+│  │  └─────────────────┘  └────────┬────────┘  └─────────────────┘           │  │
+│  └────────────────────────────────┼──────────────────────────────────────────┘  │
+│                                   ▼                                             │
+│  ┌───────────────────────────────────────────────────────────────────────────┐  │
+│  │                        ASSISTANT MODULE                                    │  │
+│  │  ┌─────────────────────────────────────────────────────────────────────┐  │  │
+│  │  │                    EasymartAssistantHandler                          │  │  │
+│  │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │  │  │
+│  │  │  │   Intent     │  │   Session    │  │   LangChain  │               │  │  │
+│  │  │  │   Detector   │  │   Store      │  │   Tool LLM   │               │  │  │
+│  │  │  └──────────────┘  └──────────────┘  └──────┬───────┘               │  │  │
+│  │  └────────────────────────────────────────────┼────────────────────────┘  │  │
+│  └───────────────────────────────────────────────┼───────────────────────────┘  │
+│                                                  ▼                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                      LANGCHAIN TOOLS (10 Tools)                          │   │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐               │   │
+│  │  │search_products │ │get_product_spec│ │check_availabil │               │   │
+│  │  └────────────────┘ └────────────────┘ └────────────────┘               │   │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐               │   │
+│  │  │compare_products│ │  update_cart   │ │get_policy_info │               │   │
+│  │  └────────────────┘ └────────────────┘ └────────────────┘               │   │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐               │   │
+│  │  │get_contact_info│ │calc_shipping   │ │find_similar    │               │   │
+│  │  └────────────────┘ └────────────────┘ └────────────────┘               │   │
+│  │  ┌────────────────┐                                                      │   │
+│  │  │check_product_fi│                                                      │   │
+│  │  └────────────────┘                                                      │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                                   │                                             │
+│                                   ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                    RETRIEVAL & INDEXING MODULE                           │   │
+│  │  ┌───────────────────────────────────────────────────────────────────┐  │   │
+│  │  │                      Hybrid Search Engine                          │  │   │
+│  │  │  ┌─────────────────┐              ┌─────────────────┐             │  │   │
+│  │  │  │   BM25 Index    │──── RRF ────│   Vector Index  │             │  │   │
+│  │  │  │  (rank-bm25)    │   Fusion    │   (ChromaDB)    │             │  │   │
+│  │  │  │                 │              │                 │             │  │   │
+│  │  │  │ Keyword Match   │              │ Semantic Match  │             │  │   │
+│  │  │  └─────────────────┘              └─────────────────┘             │  │   │
+│  │  └───────────────────────────────────────────────────────────────────┘  │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           EXTERNAL SERVICES                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
+│  │   OpenAI API    │  │     Redis       │  │   SQLite DB     │                 │
+│  │   (GPT-4.1)     │  │   (Sessions)    │  │  (Product Data) │                 │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+2.2 COMPONENT INTERACTION DIAGRAM
+-------------------------------------------------------------------------------
+
+User Message Flow:
+
+┌──────────┐    POST /assistant/message    ┌──────────────────┐
+│  Client  │ ─────────────────────────────▶│   FastAPI App    │
+└──────────┘                               └────────┬─────────┘
+                                                    │
+                                                    ▼
+                                           ┌────────────────────┐
+                                           │   Rate Limiter     │
+                                           │   Check            │
+                                           └────────┬───────────┘
+                                                    │
+                                                    ▼
+                                           ┌────────────────────┐
+                                           │  Assistant Handler │
+                                           └────────┬───────────┘
+                                                    │
+                           ┌────────────────────────┼────────────────────────┐
+                           │                        │                        │
+                           ▼                        ▼                        ▼
+                  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+                  │ Intent Detector │    │ Session Store   │    │  Vague Query    │
+                  │                 │    │ get/create      │    │  Detection      │
+                  └────────┬────────┘    └─────────────────┘    └────────┬────────┘
+                           │                                              │
+                           │                                              │
+                           ▼                                              ▼
+                  ┌─────────────────────────────────────────────────────────────┐
+                  │                                                             │
+                  │              Is query vague or out-of-scope?               │
+                  │                                                             │
+                  └───────────────────────────┬─────────────────────────────────┘
+                                              │
+                        ┌─────────────────────┴─────────────────────┐
+                        │ YES                                   NO │
+                        ▼                                          ▼
+              ┌─────────────────┐                        ┌─────────────────┐
+              │ Return          │                        │  LangChain      │
+              │ Clarification   │                        │  Tool Loop      │
+              │ Response        │                        │  (Max 3 iters)  │
+              └─────────────────┘                        └────────┬────────┘
+                                                                  │
+                                                                  ▼
+                                                         ┌─────────────────┐
+                                                         │ ChatOpenAI with │
+                                                         │ bound tools     │
+                                                         └────────┬────────┘
+                                                                  │
+                                     ┌────────────────────────────┼────────────────────────────┐
+                                     │                            │                            │
+                                     ▼                            ▼                            ▼
+                            ┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
+                            │ Tool Call:      │          │ Tool Call:      │          │ No Tool Call    │
+                            │ search_products │          │ update_cart     │          │ Direct Response │
+                            └────────┬────────┘          └────────┬────────┘          └────────┬────────┘
+                                     │                            │                            │
+                                     ▼                            ▼                            │
+                            ┌─────────────────┐          ┌─────────────────┐                   │
+                            │ Hybrid Search   │          │ Cart Update     │                   │
+                            │ BM25 + Vector   │          │ + Node.js Sync  │                   │
+                            └────────┬────────┘          └────────┬────────┘                   │
+                                     │                            │                            │
+                                     └────────────────────────────┴────────────────────────────┘
+                                                                  │
+                                                                  ▼
+                                                         ┌─────────────────┐
+                                                         │ Format Response │
+                                                         │ + Update Session│
+                                                         └────────┬────────┘
+                                                                  │
+                                                                  ▼
+                                                         ┌─────────────────┐
+                                                         │ MessageResponse │
+                                                         │ to Client       │
+                                                         └─────────────────┘
+
+
+-------------------------------------------------------------------------------
+2.3 DATA FLOW DIAGRAM
+-------------------------------------------------------------------------------
+
+                              ┌─────────────────────────────────────┐
+                              │           Products CSV              │
+                              │         (data/products.csv)         │
+                              └──────────────────┬──────────────────┘
+                                                 │
+                                                 │  Load Catalog Script
+                                                 │  (load_catalog.py)
+                                                 ▼
+                    ┌────────────────────────────────────────────────────┐
+                    │                  Catalog Indexer                   │
+                    │                                                    │
+                    │   ┌────────────────────────────────────────────┐  │
+                    │   │              Index Documents               │  │
+                    │   │  • id: SKU                                 │  │
+                    │   │  • content: title + tags + description     │  │
+                    │   │  • metadata: full product data             │  │
+                    │   └────────────────────────────────────────────┘  │
+                    │                        │                          │
+                    │           ┌────────────┴────────────┐             │
+                    │           │                         │             │
+                    │           ▼                         ▼             │
+                    │   ┌──────────────────┐   ┌──────────────────┐    │
+                    │   │    BM25 Index    │   │   Vector Index   │    │
+                    │   │                  │   │                  │    │
+                    │   │ • Tokenization   │   │ • Embeddings     │    │
+                    │   │ • Term Frequency │   │ • ChromaDB       │    │
+                    │   │ • IDF Weighting  │   │ • Cosine Sim     │    │
+                    │   │                  │   │                  │    │
+                    │   │ Stored in:       │   │ Stored in:       │    │
+                    │   │ data/bm25/*.pkl  │   │ data/chromadb/   │    │
+                    │   └──────────────────┘   └──────────────────┘    │
+                    │                                                    │
+                    └────────────────────────────────────────────────────┘
+                                                 │
+                                                 │  Search Query
+                                                 ▼
+                    ┌────────────────────────────────────────────────────┐
+                    │                  Hybrid Search                     │
+                    │                                                    │
+                    │   Query: "black office chair under $300"           │
+                    │                        │                           │
+                    │           ┌────────────┴────────────┐              │
+                    │           │                         │              │
+                    │           ▼                         ▼              │
+                    │   ┌──────────────────┐   ┌──────────────────┐     │
+                    │   │  BM25 Results    │   │  Vector Results  │     │
+                    │   │  Keyword Match   │   │  Semantic Match  │     │
+                    │   │                  │   │                  │     │
+                    │   │  Score: TF-IDF   │   │  Score: Cosine   │     │
+                    │   └────────┬─────────┘   └────────┬─────────┘     │
+                    │            │                      │                │
+                    │            └──────────┬───────────┘                │
+                    │                       │                            │
+                    │                       ▼                            │
+                    │            ┌──────────────────────┐                │
+                    │            │   RRF Fusion         │                │
+                    │            │                      │                │
+                    │            │   α = 0.6 (config)   │                │
+                    │            │                      │                │
+                    │            │   Combined Score =   │                │
+                    │            │   α×BM25 + (1-α)×Vec │                │
+                    │            └──────────┬───────────┘                │
+                    │                       │                            │
+                    │                       ▼                            │
+                    │            ┌──────────────────────┐                │
+                    │            │   Post-Processing    │                │
+                    │            │   • Filter by price  │                │
+                    │            │   • Filter by color  │                │
+                    │            │   • Sort results     │                │
+                    │            └──────────────────────┘                │
+                    │                                                    │
+                    └────────────────────────────────────────────────────┘
+
+
+================================================================================
+                        3. LANGCHAIN INTEGRATION
+================================================================================
+
+-------------------------------------------------------------------------------
+3.1 OVERVIEW
+-------------------------------------------------------------------------------
+
+Backend-PyLang uses LangChain as the orchestration layer for AI-powered
+conversations. The integration follows the ReAct (Reasoning + Acting) pattern
+where the LLM can decide when to use tools and how to compose responses.
+
+LANGCHAIN COMPONENTS USED:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        LangChain Stack                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                     langchain-openai                             │   │
+│  │                                                                  │   │
+│  │  • ChatOpenAI: Primary LLM interface                            │   │
+│  │  • Supports tool calling via bind_tools()                       │   │
+│  │  • Async invocation with ainvoke()                              │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                     langchain-core                               │   │
+│  │                                                                  │   │
+│  │  Messages:                                                       │   │
+│  │  • SystemMessage: System prompt with assistant behavior          │   │
+│  │  • HumanMessage: User input messages                            │   │
+│  │  • AIMessage: Assistant responses                               │   │
+│  │  • ToolMessage: Tool execution results                          │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                     langchain.tools                              │   │
+│  │                                                                  │   │
+│  │  • @tool decorator: Creates LangChain-compatible tools          │   │
+│  │  • Pydantic schemas: Type-safe argument validation              │   │
+│  │  • Async tool support: await tool.ainvoke(args)                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+3.2 TOOL CALLING ARCHITECTURE
+-------------------------------------------------------------------------------
+
+LangChain Tool Binding Flow:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Tool Definition (tools.py)                          │
+│                                                                         │
+│   from langchain.tools import tool                                     │
+│   from pydantic import BaseModel, Field                                │
+│                                                                         │
+│   class SearchProductsArgs(BaseModel):                                  │
+│       query: str = Field(..., description="Search query")              │
+│       category: Optional[str] = Field(default=None)                    │
+│       price_max: Optional[float] = Field(default=None)                 │
+│       limit: int = Field(default=5)                                    │
+│                                                                         │
+│   @tool("search_products", args_schema=SearchProductsArgs)             │
+│   async def search_products_tool(**kwargs) -> Dict[str, Any]:          │
+│       """Search products in the Easymart catalog."""                   │
+│       return await get_assistant_tools().search_products(**kwargs)     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Handler Initialization                              │
+│                                                                         │
+│   class EasymartAssistantHandler:                                       │
+│       def __init__(self):                                               │
+│           # Get all defined tools                                       │
+│           self.tools = get_langchain_tools()  # Returns list of 10     │
+│                                                                         │
+│           # Initialize ChatOpenAI                                       │
+│           self.llm = ChatOpenAI(                                        │
+│               api_key=settings.OPENAI_API_KEY,                         │
+│               model="gpt-4.1",                                         │
+│               temperature=0.7                                          │
+│           )                                                             │
+│                                                                         │
+│           # Bind tools to LLM - enables tool calling                   │
+│           self.tool_llm = self.llm.bind_tools(self.tools)              │
+│                                                                         │
+│           # Create tool name -> tool mapping for execution             │
+│           self.tool_map = {tool.name: tool for tool in self.tools}     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+3.3 AGENT LOOP IMPLEMENTATION
+-------------------------------------------------------------------------------
+
+The core agent loop implements a ReAct-style pattern with a maximum of 3
+iterations to prevent infinite loops:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     _run_tool_loop() Method                             │
+│                                                                         │
+│   async def _run_tool_loop(self, message: str, history):               │
+│       # Build initial message list                                     │
+│       messages = [                                                      │
+│           SystemMessage(content=self.system_prompt),                   │
+│           *history,  # Previous conversation                           │
+│           HumanMessage(content=message)  # Current user message        │
+│       ]                                                                 │
+│       tool_steps = []                                                   │
+│                                                                         │
+│       for _ in range(3):  # Max 3 iterations                           │
+│           # Invoke LLM with tools                                      │
+│           ai_msg = await self.tool_llm.ainvoke(messages)               │
+│           messages.append(ai_msg)                                       │
+│                                                                         │
+│           # Check for tool calls                                       │
+│           tool_calls = getattr(ai_msg, "tool_calls", None) or []       │
+│           if not tool_calls:                                           │
+│               # No tools - return final response                       │
+│               return ai_msg.content, tool_steps                        │
+│                                                                         │
+│           # Execute each tool call                                     │
+│           for call in tool_calls:                                      │
+│               tool_name = call.get("name")                             │
+│               tool_args = call.get("args", {})                         │
+│               tool_id = call.get("id")                                 │
+│                                                                         │
+│               # Get and execute tool                                   │
+│               tool = self.tool_map.get(tool_name)                      │
+│               result = await tool.ainvoke(tool_args)                   │
+│                                                                         │
+│               # Track for response building                            │
+│               tool_steps.append((tool_name, result))                   │
+│                                                                         │
+│               # Add tool result to messages                            │
+│               messages.append(ToolMessage(                             │
+│                   content=json.dumps(result),                          │
+│                   tool_call_id=tool_id                                 │
+│               ))                                                        │
+│                                                                         │
+│       return "", tool_steps                                            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+TOOL LOOP SEQUENCE DIAGRAM:
+
+    User                Handler             LLM (GPT-4.1)           Tool
+      │                    │                     │                    │
+      │  "Show me chairs"  │                     │                    │
+      │ ──────────────────▶│                     │                    │
+      │                    │                     │                    │
+      │                    │  [System + History  │                    │
+      │                    │   + User Message]   │                    │
+      │                    │────────────────────▶│                    │
+      │                    │                     │                    │
+      │                    │    AI Response with │                    │
+      │                    │    tool_calls:      │                    │
+      │                    │    [{name: "search_ │                    │
+      │                    │      products",     │                    │
+      │                    │      args: {query:  │                    │
+      │                    │        "chairs"}}]  │                    │
+      │                    │◀────────────────────│                    │
+      │                    │                     │                    │
+      │                    │  Execute tool       │                    │
+      │                    │─────────────────────────────────────────▶│
+      │                    │                     │                    │
+      │                    │                     │     Tool Result    │
+      │                    │                     │     {products: []} │
+      │                    │◀─────────────────────────────────────────│
+      │                    │                     │                    │
+      │                    │  [Messages +        │                    │
+      │                    │   ToolMessage]      │                    │
+      │                    │────────────────────▶│                    │
+      │                    │                     │                    │
+      │                    │    Final Response   │                    │
+      │                    │    (no tool_calls)  │                    │
+      │                    │◀────────────────────│                    │
+      │                    │                     │                    │
+      │  MessageResponse   │                     │                    │
+      │◀───────────────────│                     │                    │
+      │                    │                     │                    │
+
+
+-------------------------------------------------------------------------------
+3.4 LANGCHAIN TOOLS DEFINITION
+-------------------------------------------------------------------------------
+
+All tools are defined in app/modules/assistant/tools.py using LangChain's
+@tool decorator with Pydantic schemas for type validation:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        TOOL DEFINITIONS                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. search_products                                                     │
+│     └─ Args: query, category, material, style, room_type, color,       │
+│              price_max, sort_by, limit                                  │
+│     └─ Returns: {products: [...], total: n, sort_applied: "..."}       │
+│                                                                         │
+│  2. get_product_specs                                                   │
+│     └─ Args: product_id, question (optional)                           │
+│     └─ Returns: {product_id, product_name, price, specs: {...}}        │
+│                                                                         │
+│  3. check_availability                                                  │
+│     └─ Args: product_id                                                │
+│     └─ Returns: {in_stock: bool, quantity_available: n}                │
+│                                                                         │
+│  4. compare_products                                                    │
+│     └─ Args: product_ids (list of 2-4 SKUs)                            │
+│     └─ Returns: {products: [...], comparison: {price_range: "..."}}    │
+│                                                                         │
+│  5. update_cart                                                         │
+│     └─ Args: action (add/remove/view/clear), product_id, quantity      │
+│     └─ Returns: {action, success: bool, cart: {...}}                   │
+│                                                                         │
+│  6. get_policy_info                                                     │
+│     └─ Args: policy_type (returns/shipping/payment/warranty)           │
+│     └─ Returns: {policy_type, policy_text, details: {...}}             │
+│                                                                         │
+│  7. get_contact_info                                                    │
+│     └─ Args: info_type (all/phone/email/hours/location/chat)           │
+│     └─ Returns: {info_type, phone, email, hours, location}             │
+│                                                                         │
+│  8. calculate_shipping                                                  │
+│     └─ Args: order_total, postcode (optional)                          │
+│     └─ Returns: {shipping_cost, free_shipping: bool, delivery_time}    │
+│                                                                         │
+│  9. find_similar_products                                               │
+│     └─ Args: product_id, exclude_ids, limit                            │
+│     └─ Returns: {products: [...], total: n}                            │
+│                                                                         │
+│  10. check_product_fit                                                  │
+│      └─ Args: product_id, space_length, space_width                    │
+│      └─ Returns: {fits: bool, product_dimensions_cm, space_cm}         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+TOOL REGISTRATION:
+
+    def get_langchain_tools():
+        """Returns list of all LangChain tools for binding to LLM"""
+        return [
+            search_products_tool,
+            get_product_specs_tool,
+            check_availability_tool,
+            compare_products_tool,
+            update_cart_tool,
+            get_policy_info_tool,
+            get_contact_info_tool,
+            calculate_shipping_tool,
+            find_similar_products_tool,
+            check_product_fit_tool
+        ]
+
+
+================================================================================
+                        4. DIRECTORY STRUCTURE
+================================================================================
+
+backend-pylang/
+├── .env                          # Environment variables (local)
+├── .env.example                  # Environment template
+├── requirements.txt              # Python dependencies
+├── README.md                     # Quick start guide
+├── PRODUCTION.md                 # Production deployment notes
+│
+├── app/                          # Main application package
+│   ├── __init__.py
+│   ├── main.py                   # FastAPI app entry point
+│   │
+│   ├── api/                      # API route handlers
+│   │   ├── __init__.py           # Exports routers
+│   │   ├── assistant_api.py      # /assistant/* endpoints
+│   │   └── health_api.py         # /health/* endpoints
+│   │
+│   ├── core/                     # Core application config
+│   │   ├── __init__.py
+│   │   ├── config.py             # Settings from environment
+│   │   ├── dependencies.py       # FastAPI dependencies (DI)
+│   │   ├── schemas.py            # Pydantic request/response models
+│   │   ├── exceptions.py         # Custom exception classes
+│   │   ├── error_recovery.py     # Error handling & fallbacks
+│   │   ├── rate_limiter.py       # Request rate limiting
+│   │   ├── analytics.py          # Usage tracking
+│   │   └── followups.py          # Follow-up chip generation
+│   │
+│   └── modules/                  # Feature modules
+│       ├── __init__.py
+│       │
+│       ├── assistant/            # AI Assistant module
+│       │   ├── __init__.py
+│       │   ├── handler.py        # Main assistant handler (LangChain)
+│       │   ├── tools.py          # LangChain tools (10 tools)
+│       │   ├── llm_client.py     # OpenAI client wrapper
+│       │   ├── hf_llm_client.py  # HuggingFace client (alternative)
+│       │   ├── prompts.py        # System prompts & templates
+│       │   ├── session_store.py  # Conversation session management
+│       │   ├── intent_detector.py # Intent classification
+│       │   ├── intents.py        # Intent enum definitions
+│       │   ├── categories.py     # Product category mappings
+│       │   ├── context_analyzer.py
+│       │   ├── conversation_state.py
+│       │   ├── filter_validator.py
+│       │   ├── llm_provider.py
+│       │   ├── cli.py            # CLI commands for indexing
+│       │   └── README.md
+│       │
+│       ├── catalog_index/        # Product indexing module
+│       │   ├── __init__.py
+│       │   ├── catalog.py        # Main CatalogIndexer class
+│       │   ├── config.py         # Index configuration
+│       │   ├── load_catalog.py   # CSV loading script
+│       │   ├── models/           # Index data models
+│       │   │   └── __init__.py   # IndexDocument model
+│       │   ├── indexing/         # Search implementations
+│       │   │   ├── __init__.py
+│       │   │   ├── database.py   # SQLite database manager
+│       │   │   ├── bm25_index.py # BM25 keyword search
+│       │   │   ├── vector_index.py # ChromaDB vector search
+│       │   │   └── hybrid_search.py # RRF fusion
+│       │   └── README.md
+│       │
+│       ├── retrieval/            # Search wrapper module
+│       │   ├── __init__.py
+│       │   ├── product_search.py # High-level search interface
+│       │   └── spec_search.py    # Product spec search
+│       │
+│       └── observability/        # Logging & monitoring
+│           ├── __init__.py
+│           ├── logging_config.py # Structured logging setup
+│           ├── events.py         # Event tracking
+│           └── metrics.py        # Performance metrics
+│
+├── data/                         # Persistent data storage
+│   ├── products.csv              # Product catalog source
+│   ├── bm25/                     # BM25 index files (.pkl)
+│   ├── chromadb/                 # ChromaDB vector database
+│   │   └── chroma.sqlite3
+│   └── sessions.pkl              # Session backup (optional)
+│
+├── logs/                         # Application logs
+│
+└── tests/                        # Test files
+    ├── __init__.py
+    ├── test_assistant.py
+    └── test_health.py
+
+
+================================================================================
+                         5. CORE COMPONENTS
+================================================================================
+
+-------------------------------------------------------------------------------
+5.1 FASTAPI APPLICATION (main.py)
+-------------------------------------------------------------------------------
+
+The main.py file initializes the FastAPI application with middleware and
+routing configuration:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  FastAPI Application Configuration                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  from fastapi import FastAPI                                           │
+│  from fastapi.middleware.cors import CORSMiddleware                    │
+│  from fastapi.middleware.gzip import GZipMiddleware                    │
+│                                                                         │
+│  app = FastAPI(                                                         │
+│      title="Easymart AI Assistant Backend (LangChain)",                │
+│      version="1.0.0",                                                  │
+│      description="Hybrid Search + Tool Calling",                       │
+│      docs_url="/docs",      # Swagger UI                               │
+│      redoc_url="/redoc"     # ReDoc                                    │
+│  )                                                                      │
+│                                                                         │
+│  # Middleware Stack                                                     │
+│  app.add_middleware(GZipMiddleware, minimum_size=1000)                 │
+│  app.add_middleware(                                                    │
+│      CORSMiddleware,                                                   │
+│      allow_origins=["http://localhost:3000", "http://localhost:3001"], │
+│      allow_credentials=True,                                           │
+│      allow_methods=["*"],                                              │
+│      allow_headers=["*"]                                               │
+│  )                                                                      │
+│                                                                         │
+│  # Routers                                                              │
+│  app.include_router(health_router)      # /health/*                    │
+│  app.include_router(assistant_router)   # /assistant/*                 │
+│                                                                         │
+│  # Startup Event                                                        │
+│  @app.on_event("startup")                                              │
+│  async def startup_event():                                             │
+│      # Initialize catalog indexer                                      │
+│      # Verify product count                                            │
+│      # Log startup configuration                                       │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+5.2 CONFIGURATION MANAGEMENT
+-------------------------------------------------------------------------------
+
+Configuration is managed via Pydantic Settings with environment variable
+loading:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Settings Class (core/config.py)                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  class Settings(BaseSettings):                                          │
+│      # Application                                                      │
+│      APP_NAME: str = "Easymart Assistant"                              │
+│      APP_VERSION: str = "1.0.0"                                        │
+│      DEBUG: bool = False                                               │
+│      ENVIRONMENT: str = "development"                                  │
+│                                                                         │
+│      # Server                                                           │
+│      HOST: str = "0.0.0.0"                                             │
+│      PORT: int = 8001                                                  │
+│                                                                         │
+│      # OpenAI / LangChain                                              │
+│      OPENAI_API_KEY: str                                               │
+│      OPENAI_MODEL: str = "gpt-4.1"                                     │
+│      OPENAI_BASE_URL: Optional[str] = None                             │
+│      OPENAI_TIMEOUT: float = 30.0                                      │
+│      LLM_TEMPERATURE: float = 0.7                                      │
+│      LLM_MAX_TOKENS: int = 512                                         │
+│                                                                         │
+│      # Search                                                           │
+│      EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"                         │
+│      SEARCH_HYBRID_ALPHA: float = 0.6                                  │
+│      SEARCH_LIMIT_DEFAULT: int = 5                                     │
+│                                                                         │
+│      # Backend Integration                                              │
+│      NODE_BACKEND_URL: str = "http://localhost:3002"                   │
+│                                                                         │
+│      # Session                                                          │
+│      SESSION_TIMEOUT_MINUTES: int = 30                                 │
+│      REDIS_URL: Optional[str] = None                                   │
+│                                                                         │
+│      class Config:                                                      │
+│          env_file = ".env"                                             │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+5.3 API ENDPOINTS
+-------------------------------------------------------------------------------
+
+ASSISTANT API (/assistant/*)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Endpoint                  │ Method │ Description                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ /assistant/message        │ POST   │ Main chat endpoint                      │
+│ /assistant/greeting       │ GET    │ Get welcome message                     │
+│ /assistant/session/{id}   │ GET    │ Retrieve session state                  │
+│ /assistant/session/{id}   │ DELETE │ Clear/delete session                    │
+│ /assistant/cart           │ POST   │ Cart operations (direct)                │
+│ /assistant/cart           │ GET    │ Get cart state                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+MESSAGE REQUEST SCHEMA:
+
+    {
+        "session_id": "user123_1234567890",
+        "message": "Show me black office chairs under $300",
+        "context": {
+            "user_id": "user123",
+            "cart_id": "cart_abc"
+        }
+    }
+
+MESSAGE RESPONSE SCHEMA:
+
+    {
+        "session_id": "user123_1234567890",
+        "message": "I found 5 black office chairs under $300...",
+        "intent": "product_search",
+        "products": [
+            {
+                "id": "CHAIR-001",
+                "name": "ErgoMax Office Chair",
+                "price": 249.00,
+                "description": "...",
+                "image_url": "https://...",
+                "url": "/products/CHAIR-001"
+            }
+        ],
+        "actions": [],
+        "suggested_actions": ["View details", "Add to cart"],
+        "followup_chips": ["Tell me about option 1", "Compare prices"],
+        "metadata": {
+            "processing_time_ms": 1250.5,
+            "timestamp": "2026-01-19T10:30:00.000Z",
+            "function_calls": 1
+        }
+    }
+
+
+HEALTH API (/health/*)
+━━━━━━━━━━━━━━━━━━━━━━━
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Endpoint        │ Method │ Description                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ /health/        │ GET    │ Full health check with service status            │
+│ /health/ping    │ GET    │ Simple ping/pong                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+5.4 ASSISTANT HANDLER
+-------------------------------------------------------------------------------
+
+The EasymartAssistantHandler is the core orchestration class that processes
+user messages through the LangChain agent loop:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EasymartAssistantHandler (handler.py)                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  class EasymartAssistantHandler:                                        │
+│                                                                         │
+│      INITIALIZATION:                                                    │
+│      ────────────────                                                   │
+│      • SessionStore for conversation context                           │
+│      • IntentDetector for query classification                         │
+│      • ChatOpenAI with bound tools                                     │
+│      • System prompt from prompts.py                                   │
+│                                                                         │
+│      MAIN METHOD: handle_message(request)                              │
+│      ──────────────────────────────────────                            │
+│      1. Get/create session                                             │
+│      2. Detect vague patterns → return clarification if needed         │
+│      3. Resolve pending clarifications                                 │
+│      4. Detect out-of-scope → return polite redirect                   │
+│      5. Run LangChain tool loop (max 3 iterations)                     │
+│      6. Extract products from tool results                             │
+│      7. Update session with messages                                   │
+│      8. Return AssistantResponse                                       │
+│                                                                         │
+│      OTHER METHODS:                                                     │
+│      ──────────────                                                     │
+│      • get_greeting() - Welcome message                                │
+│      • clear_session() - Delete session                                │
+│      • _run_tool_loop() - LangChain agent loop                         │
+│      • _extract_products() - Get products from tool results            │
+│      • _build_cart_summary() - Format cart state                       │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+5.5 SESSION MANAGEMENT
+-------------------------------------------------------------------------------
+
+Sessions track conversation state, shown products, and cart items:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  SessionContext (session_store.py)                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  @dataclass                                                             │
+│  class SessionContext:                                                  │
+│      session_id: str                                                    │
+│      created_at: datetime                                               │
+│      last_activity: datetime                                            │
+│                                                                         │
+│      # Conversation                                                     │
+│      messages: List[Dict]           # Chat history                     │
+│                                                                         │
+│      # Product Context                                                  │
+│      last_shown_products: List[Dict]  # Up to 10 products              │
+│      current_product: Optional[Dict]  # Currently discussing           │
+│                                                                         │
+│      # Cart State                                                       │
+│      cart_items: List[Dict]         # Local cart copy                  │
+│                                                                         │
+│      # Search Context                                                   │
+│      last_query: Optional[str]                                         │
+│      active_filters: Dict                                              │
+│                                                                         │
+│      # Clarification State                                              │
+│      pending_clarification: Optional[Dict]                             │
+│                                                                         │
+│      METHODS:                                                           │
+│      • add_message(role, content)                                      │
+│      • to_langchain_messages(limit=10)                                 │
+│      • update_shown_products(products)                                 │
+│      • resolve_product_reference(ref, type, source)                    │
+│      • add_to_cart(product_id, quantity)                               │
+│      • remove_from_cart(product_id)                                    │
+│      • clear_cart()                                                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+SESSION STORAGE OPTIONS:
+
+┌────────────────────┬────────────────────────────────────────────────────┐
+│ Storage Type       │ Description                                        │
+├────────────────────┼────────────────────────────────────────────────────┤
+│ In-Memory          │ Default. Fast but lost on restart.                 │
+│                    │ Backup to data/sessions.pkl available.             │
+├────────────────────┼────────────────────────────────────────────────────┤
+│ Redis              │ Recommended for production multi-instance.         │
+│                    │ Set REDIS_URL in environment.                      │
+└────────────────────┴────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+5.6 INTENT DETECTION
+-------------------------------------------------------------------------------
+
+Rule-based intent detection classifies user queries before LLM processing:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Intent Types (intents.py)                                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  class IntentType(Enum):                                                │
+│      PRODUCT_SEARCH    = "product_search"                              │
+│      PRODUCT_SPEC_QA   = "product_spec_qa"                             │
+│      FIND_SIMILAR      = "find_similar"                                │
+│      CART_ADD          = "cart_add"                                    │
+│      CART_REMOVE       = "cart_remove"                                 │
+│      CART_SHOW         = "cart_show"                                   │
+│      CART_CLEAR        = "cart_clear"                                  │
+│      RETURN_POLICY     = "return_policy"                               │
+│      SHIPPING_INFO     = "shipping_info"                               │
+│      PAYMENT_OPTIONS   = "payment_options"                             │
+│      PROMOTIONS        = "promotions"                                  │
+│      CONTACT_INFO      = "contact_info"                                │
+│      OUT_OF_SCOPE      = "out_of_scope"                                │
+│      GENERAL_QUERY     = "general_query"                               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+PATTERN EXAMPLES:
+
+    PRODUCT_SEARCH patterns:
+    • "show me chairs"
+    • "find black desks under $500"
+    • "looking for fitness equipment"
+
+    CART_ADD patterns:
+    • "add to cart"
+    • "buy this"
+    • "I'll take option 1"
+
+    OUT_OF_SCOPE patterns:
+    • "what's the weather?"
+    • "tell me a joke"
+    • Non-shopping queries
+
+
+================================================================================
+                       6. PRODUCT SEARCH SYSTEM
+================================================================================
+
+-------------------------------------------------------------------------------
+6.1 HYBRID SEARCH ARCHITECTURE
+-------------------------------------------------------------------------------
+
+The search system combines two complementary approaches:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      HYBRID SEARCH SYSTEM                               │
+│                                                                         │
+│   Query: "comfortable ergonomic office chair with lumbar support"       │
+│                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────┐  │
+│   │                        QUERY PREPROCESSING                       │  │
+│   │                                                                  │  │
+│   │  • Extract filters: color, material, price                      │  │
+│   │  • Detect subjective terms: "cheap" → price_max=200             │  │
+│   │  • Identify category keywords                                   │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│                              │                                          │
+│              ┌───────────────┴───────────────┐                         │
+│              │                               │                         │
+│              ▼                               ▼                         │
+│   ┌──────────────────────┐      ┌──────────────────────┐              │
+│   │     BM25 INDEX       │      │    VECTOR INDEX      │              │
+│   │                      │      │                      │              │
+│   │ Strengths:           │      │ Strengths:           │              │
+│   │ • Exact keyword      │      │ • Semantic meaning   │              │
+│   │   matching           │      │ • Synonym handling   │              │
+│   │ • SKU/model numbers  │      │ • Conceptual search  │              │
+│   │ • Precise terms      │      │ • Fuzzy matching     │              │
+│   │                      │      │                      │              │
+│   │ Algorithm:           │      │ Algorithm:           │              │
+│   │ BM25Okapi (TF-IDF)   │      │ Cosine similarity    │              │
+│   │                      │      │ on embeddings        │              │
+│   └──────────┬───────────┘      └──────────┬───────────┘              │
+│              │                               │                         │
+│              │  Results + Scores             │  Results + Scores       │
+│              │                               │                         │
+│              └───────────────┬───────────────┘                         │
+│                              │                                          │
+│                              ▼                                          │
+│   ┌─────────────────────────────────────────────────────────────────┐  │
+│   │                 RECIPROCAL RANK FUSION (RRF)                     │  │
+│   │                                                                  │  │
+│   │   Formula:                                                       │  │
+│   │   RRF_score = Σ (1 / (k + rank_i))                              │  │
+│   │                                                                  │  │
+│   │   With α weighting:                                             │  │
+│   │   final_score = α × BM25_score + (1-α) × Vector_score           │  │
+│   │                                                                  │  │
+│   │   Default α = 0.6 (favors BM25 slightly)                        │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│                              │                                          │
+│                              ▼                                          │
+│   ┌─────────────────────────────────────────────────────────────────┐  │
+│   │                    POST-PROCESSING                               │  │
+│   │                                                                  │  │
+│   │  • Apply price filters                                          │  │
+│   │  • Apply color/material filters                                 │  │
+│   │  • Sort by relevance/price                                      │  │
+│   │  • Limit results (default: 5)                                   │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+6.2 BM25 KEYWORD SEARCH
+-------------------------------------------------------------------------------
+
+BM25 (Best Matching 25) provides keyword-based search with enhanced
+tokenization:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  BM25Index (indexing/bm25_index.py)                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  TOKENIZATION FEATURES:                                                 │
+│  ─────────────────────                                                  │
+│  • Stop word filtering (common words removed)                          │
+│  • Product keyword preservation (chair, desk, etc.)                    │
+│  • Bigram extraction (gaming_chair stays together)                     │
+│  • Hyphenated word handling                                            │
+│                                                                         │
+│  STOP_WORDS = {'a', 'an', 'the', 'is', 'show', 'find', ...}           │
+│                                                                         │
+│  PRODUCT_KEYWORDS = {                                                   │
+│      'chair', 'desk', 'table', 'sofa', 'bed',                          │
+│      'ergonomic', 'leather', 'mesh', 'black', 'white', ...            │
+│  }                                                                      │
+│                                                                         │
+│  PERSISTENCE:                                                           │
+│  ────────────                                                           │
+│  • Index stored as pickle file: data/bm25/{index_name}.pkl             │
+│  • Rebuilt on catalog update                                           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+6.3 VECTOR SEMANTIC SEARCH (ChromaDB)
+-------------------------------------------------------------------------------
+
+Vector search uses sentence embeddings for semantic understanding:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  VectorIndex (indexing/vector_index.py)                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  EMBEDDING MODEL:                                                       │
+│  ────────────────                                                       │
+│  • Model: all-MiniLM-L6-v2 (sentence-transformers)                     │
+│  • Dimensions: 384                                                      │
+│  • Fast and lightweight                                                 │
+│                                                                         │
+│  CHROMADB CONFIGURATION:                                                │
+│  ───────────────────────                                                │
+│  • Persistent storage: data/chromadb/                                  │
+│  • Collection per index type (products, specs)                         │
+│  • Distance metric: Cosine similarity                                  │
+│  • HNSW index for fast approximate nearest neighbor                    │
+│                                                                         │
+│  DOCUMENT STORAGE:                                                      │
+│  ─────────────────                                                      │
+│  self.collection = chromadb.get_or_create_collection(                  │
+│      name=index_name,                                                  │
+│      metadata={"hnsw:space": "cosine"}                                 │
+│  )                                                                      │
+│                                                                         │
+│  # Each document stored with:                                          │
+│  • id: Product SKU                                                     │
+│  • embedding: 384-dim vector                                           │
+│  • document: Original text content                                     │
+│  • metadata: Full product data                                         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+6.4 RECIPROCAL RANK FUSION (RRF)
+-------------------------------------------------------------------------------
+
+RRF combines rankings from multiple search systems:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  HybridSearch (indexing/hybrid_search.py)                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  class HybridSearch:                                                    │
+│      def __init__(self, bm25_index, vector_index, alpha=0.6):          │
+│          self.bm25 = bm25_index                                        │
+│          self.vector = vector_index                                    │
+│          self.alpha = alpha  # Weight for BM25 vs Vector               │
+│                                                                         │
+│      def search(self, query: str, limit: int = 5):                     │
+│          # Get results from both indexes                               │
+│          bm25_results = self.bm25.search(query, limit * 3)             │
+│          vector_results = self.vector.search(query, limit * 3)         │
+│                                                                         │
+│          # RRF Score Calculation                                       │
+│          k = 60  # Constant to reduce impact of high ranks             │
+│                                                                         │
+│          combined = {}                                                  │
+│          for rank, (doc_id, score) in enumerate(bm25_results):         │
+│              combined[doc_id] = self.alpha / (k + rank)                │
+│                                                                         │
+│          for rank, (doc_id, score) in enumerate(vector_results):       │
+│              if doc_id in combined:                                    │
+│                  combined[doc_id] += (1 - self.alpha) / (k + rank)     │
+│              else:                                                      │
+│                  combined[doc_id] = (1 - self.alpha) / (k + rank)      │
+│                                                                         │
+│          # Sort by combined score, return top results                  │
+│          sorted_results = sorted(                                       │
+│              combined.items(),                                          │
+│              key=lambda x: x[1],                                       │
+│              reverse=True                                              │
+│          )[:limit]                                                      │
+│                                                                         │
+│          return sorted_results                                          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                      7. LANGCHAIN TOOLS REFERENCE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: search_products                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Search products in the Easymart catalog                            │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ Name         │ Type         │ Description                                  │ │
+│ ├──────────────┼──────────────┼──────────────────────────────────────────────┤ │
+│ │ query        │ str (req)    │ Search query or keywords                     │ │
+│ │ category     │ str (opt)    │ Category filter                              │ │
+│ │ material     │ str (opt)    │ Material filter (wood, metal, leather)       │ │
+│ │ style        │ str (opt)    │ Style filter (modern, rustic)                │ │
+│ │ room_type    │ str (opt)    │ Room type (office, bedroom)                  │ │
+│ │ color        │ str (opt)    │ Color filter                                 │ │
+│ │ price_max    │ float (opt)  │ Maximum price in AUD                         │ │
+│ │ sort_by      │ str (opt)    │ Sort: relevance, price_low, price_high       │ │
+│ │ limit        │ int (opt)    │ Max results (default: 5)                     │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "products": [                                                                │
+│         {"id": "SKU", "name": "...", "price": 0.00, ...}                        │
+│     ],                                                                           │
+│     "total": 5,                                                                  │
+│     "showing": 5,                                                                │
+│     "sort_applied": "relevance"                                                  │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: get_product_specs                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Fetch detailed specifications for a product                         │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ product_id   │ str (req)    │ Product SKU or ID                            │ │
+│ │ question     │ str (opt)    │ Specific question about the product          │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "product_id": "CHAIR-001",                                                   │
+│     "product_name": "ErgoMax Chair",                                            │
+│     "price": 299.00,                                                             │
+│     "specs": {                                                                   │
+│         "Dimensions": "60cm x 60cm x 120cm",                                    │
+│         "Material": "Mesh back, foam seat",                                     │
+│         "Weight Capacity": "150kg"                                              │
+│     },                                                                           │
+│     "answer": "The weight capacity is 150kg...",                                │
+│     "estimated_delivery": "5-10 business days"                                  │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: check_availability                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Check stock availability for a product                              │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ product_id   │ str (req)    │ Product SKU or ID                            │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "product_id": "CHAIR-001",                                                   │
+│     "in_stock": true,                                                            │
+│     "quantity_available": 25,                                                    │
+│     "estimated_delivery": "5-10 business days"                                  │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: compare_products                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Compare multiple products side-by-side                              │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ product_ids  │ List[str]    │ List of 2-4 product SKUs                     │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "products": [...],                                                           │
+│     "comparison": {                                                              │
+│         "price_range": "$199.00 - $399.00 AUD",                                 │
+│         "count": 3                                                               │
+│     }                                                                            │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: update_cart                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Add/remove/update items in the cart                                 │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ action       │ str (req)    │ add, remove, update_quantity, view, clear    │ │
+│ │ product_id   │ str (opt)    │ Product SKU (required for add/remove)        │ │
+│ │ quantity     │ int (opt)    │ Quantity (default: 1)                        │ │
+│ │ session_id   │ str (opt)    │ Session ID (auto-detected)                   │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "action": "add",                                                             │
+│     "success": true,                                                             │
+│     "product_id": "CHAIR-001",                                                   │
+│     "product_name": "ErgoMax Chair",                                            │
+│     "quantity": 1,                                                               │
+│     "message": "Added 1 x ErgoMax Chair to your cart.",                         │
+│     "cart": {                                                                    │
+│         "items": [...],                                                          │
+│         "item_count": 2,                                                         │
+│         "total": 548.00                                                          │
+│     }                                                                            │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: get_policy_info                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Return policy details by type                                       │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ policy_type  │ str (req)    │ returns, shipping, payment, warranty         │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "policy_type": "returns",                                                    │
+│     "policy_text": "We offer a 30 day return period...",                        │
+│     "details": {                                                                 │
+│         "period": "30 days",                                                     │
+│         "condition": "Items must be unused and in original packaging",          │
+│         "exclusions": "Custom-made items, final sale items, mattresses"         │
+│     }                                                                            │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: get_contact_info                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Return Easymart contact details                                     │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ info_type    │ str (opt)    │ all, phone, email, hours, location, chat     │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "info_type": "all",                                                          │
+│     "phone": "1300 327 962",                                                     │
+│     "email": "support@easymart.com.au",                                          │
+│     "hours": "Monday-Friday: 9:00 AM - 6:00 PM AEST...",                        │
+│     "location": "..."                                                            │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: calculate_shipping                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Calculate shipping cost for a given order total                     │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ order_total  │ float (req)  │ Order subtotal in AUD                        │ │
+│ │ postcode     │ str (opt)    │ Australian postcode                          │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "order_total": 150.00,                                                       │
+│     "shipping_cost": 15.00,                                                      │
+│     "total": 165.00,                                                             │
+│     "free_shipping": false,                                                      │
+│     "free_shipping_threshold": 199.00,                                          │
+│     "amount_to_free_shipping": 49.00,                                           │
+│     "delivery_time": "5-10 business days"                                       │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: find_similar_products                            │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Find products similar to a given product                            │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ product_id   │ str (req)    │ Product SKU or ID                            │ │
+│ │ exclude_ids  │ List[str]    │ Product IDs to exclude                       │ │
+│ │ limit        │ int (opt)    │ Max results (default: 5)                     │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "products": [...],                                                           │
+│     "total": 5                                                                   │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TOOL: check_product_fit                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Description: Check whether a product fits in a specified space                   │
+│                                                                                  │
+│ Parameters:                                                                      │
+│ ┌──────────────┬──────────────┬──────────────────────────────────────────────┐ │
+│ │ product_id   │ str (req)    │ Product SKU or ID                            │ │
+│ │ space_length │ float (req)  │ Space length in cm                           │ │
+│ │ space_width  │ float (req)  │ Space width in cm                            │ │
+│ └──────────────┴──────────────┴──────────────────────────────────────────────┘ │
+│                                                                                  │
+│ Returns:                                                                         │
+│ {                                                                                │
+│     "product_id": "DESK-001",                                                    │
+│     "fits": true,                                                                │
+│     "product_dimensions_cm": {"width": 120, "depth": 60},                       │
+│     "space_cm": {"length": 150, "width": 100},                                  │
+│     "message": "It should fit in the provided space."                           │
+│ }                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                       8. DATA MODELS & SCHEMAS
+================================================================================
+
+REQUEST SCHEMAS (core/schemas.py)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  MessageRequest                                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  session_id: str         # Required - Unique session identifier        │
+│  message: str            # Required - User message (1-1000 chars)      │
+│  context: Dict[str, Any] # Optional - Additional context               │
+│                          #   • user_id                                 │
+│                          #   • cart_id                                 │
+│                          #   • page_context                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RESPONSE SCHEMAS
+━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  MessageResponse                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  session_id: str                    # Session identifier               │
+│  message: str                       # Assistant response text          │
+│  intent: Optional[str]              # Detected intent                  │
+│  products: Optional[List[Dict]]     # Product results                  │
+│  actions: Optional[List[Dict]]      # System actions (cart updates)    │
+│  suggested_actions: Optional[List]  # Suggested next actions           │
+│  followup_chips: Optional[List]     # Quick reply chips                │
+│  metadata: Optional[Dict]           # Response metadata                │
+│                                     #   • processing_time_ms           │
+│                                     #   • timestamp                    │
+│                                     #   • function_calls               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  HealthResponse                                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  status: str                        # healthy, degraded, unhealthy     │
+│  version: str                       # App version                      │
+│  timestamp: datetime                # Response timestamp               │
+│  services: Dict[str, str]           # Service health status            │
+│                                     #   • database                     │
+│                                     #   • vector_index                 │
+│                                     #   • node_backend                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+INDEX DOCUMENT MODEL
+━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  IndexDocument (catalog_index/models/__init__.py)                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  id: str                            # Document ID (SKU)                │
+│  content: str                       # Searchable text content          │
+│  metadata: Dict[str, Any]           # Full product/spec data           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                      9. ENVIRONMENT CONFIGURATION
+================================================================================
+
+Create a .env file based on .env.example:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ENVIRONMENT VARIABLES                                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  # ─────────────── APPLICATION ───────────────                         │
+│  HOST=0.0.0.0                       # Server bind address              │
+│  PORT=8001                          # Server port                      │
+│  DEBUG=False                        # Debug mode                       │
+│  ENVIRONMENT=development            # development/staging/production   │
+│  TEST_MODE=False                    # Enable deterministic responses   │
+│                                                                         │
+│  # ─────────────── CORS ───────────────                                │
+│  ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001           │
+│                                                                         │
+│  # ─────────────── OPENAI / LANGCHAIN ───────────────                  │
+│  OPENAI_API_KEY=sk-...              # Required - OpenAI API key        │
+│  OPENAI_MODEL=gpt-4.1               # Model name                       │
+│  OPENAI_BASE_URL=                   # Optional - Custom base URL       │
+│  OPENAI_TIMEOUT=30                  # API timeout in seconds           │
+│                                                                         │
+│  # ─────────────── LLM SETTINGS ───────────────                        │
+│  LLM_TEMPERATURE=0.7                # Response creativity (0-1)        │
+│  LLM_MAX_TOKENS=512                 # Max response tokens              │
+│  LLM_TIMEOUT=30                     # LLM call timeout                 │
+│                                                                         │
+│  # ─────────────── BACKEND INTEGRATION ───────────────                 │
+│  NODE_BACKEND_URL=http://localhost:3002   # Node.js backend URL        │
+│                                                                         │
+│  # ─────────────── SEARCH ───────────────                              │
+│  EMBEDDING_MODEL=all-MiniLM-L6-v2   # Sentence transformer model       │
+│  SEARCH_HYBRID_ALPHA=0.6            # BM25 vs Vector weight (0-1)      │
+│  SEARCH_LIMIT_DEFAULT=5             # Default search results limit     │
+│                                                                         │
+│  # ─────────────── SESSION ───────────────                             │
+│  SESSION_TIMEOUT_MINUTES=30         # Session expiry                   │
+│  REDIS_URL=                         # Optional - Redis connection      │
+│                                                                         │
+│  # ─────────────── LOGGING ───────────────                             │
+│  LOG_LEVEL=INFO                     # DEBUG/INFO/WARNING/ERROR         │
+│  LOG_FORMAT=json                    # json or text                     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                       10. INSTALLATION & SETUP
+================================================================================
+
+PREREQUISITES
+━━━━━━━━━━━━━
+
+• Python 3.10 or higher
+• pip (Python package manager)
+• OpenAI API key
+• (Optional) Redis server for production sessions
+
+INSTALLATION STEPS
+━━━━━━━━━━━━━━━━━━
+
+1. Navigate to backend-pylang directory:
+
+   cd backend-pylang
+
+2. Create and activate virtual environment:
+
+   # Windows
+   python -m venv venv
+   venv\Scripts\activate
+
+   # macOS/Linux
+   python -m venv venv
+   source venv/bin/activate
+
+3. Install dependencies:
+
+   pip install -r requirements.txt
+
+4. Configure environment:
+
+   copy .env.example .env
+   # Edit .env with your OPENAI_API_KEY
+
+5. Index the product catalog (first time only):
+
+   python -m app.modules.catalog_index.load_catalog
+
+6. Run the development server:
+
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+
+7. Verify installation:
+
+   # Health check
+   curl http://localhost:8001/health/
+
+   # API documentation
+   Open http://localhost:8001/docs in browser
+
+
+================================================================================
+                        11. DEVELOPMENT GUIDE
+================================================================================
+
+PROJECT STRUCTURE CONVENTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• API routes go in app/api/
+• Business logic goes in app/modules/
+• Shared utilities go in app/core/
+• Data models use Pydantic
+• All async functions use async/await
+
+ADDING A NEW LANGCHAIN TOOL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Define Pydantic args schema in tools.py:
+
+   class MyToolArgs(BaseModel):
+       param1: str = Field(..., description="Parameter description")
+       param2: Optional[int] = Field(default=None)
+
+2. Add implementation to EasymartAssistantTools class:
+
+   async def my_tool_method(self, param1: str, param2: int = None):
+       # Implementation
+       return {"result": "..."}
+
+3. Create the @tool decorated function:
+
+   @tool("my_tool", args_schema=MyToolArgs)
+   async def my_tool_tool(**kwargs) -> Dict[str, Any]:
+       """Tool description for the LLM."""
+       return await get_assistant_tools().my_tool_method(**kwargs)
+
+4. Add to get_langchain_tools() list:
+
+   def get_langchain_tools():
+       return [
+           ...,
+           my_tool_tool  # Add here
+       ]
+
+TESTING
+━━━━━━━
+
+Run tests:
+
+   pytest tests/ -v
+
+Run with coverage:
+
+   pytest tests/ --cov=app --cov-report=html
+
+LOGGING
+━━━━━━━
+
+Use structured logging:
+
+   import logging
+   logger = logging.getLogger(__name__)
+
+   logger.info("Search completed", extra={
+       "query": query,
+       "results": len(results),
+       "time_ms": elapsed
+   })
+
+
+================================================================================
+                      12. PRODUCTION DEPLOYMENT
+================================================================================
+
+RECOMMENDED RUN COMMAND
+━━━━━━━━━━━━━━━━━━━━━━━
+
+uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8001 \
+    --workers 2 \
+    --timeout-keep-alive 5
+
+DOCKER DEPLOYMENT
+━━━━━━━━━━━━━━━━━
+
+Build image:
+
+   docker build -t easymart-pylang:latest .
+
+Run container:
+
+   docker run -d \
+       -p 8001:8001 \
+       -e OPENAI_API_KEY=sk-... \
+       -e NODE_BACKEND_URL=http://backend-node:3002 \
+       -v $(pwd)/data:/app/data \
+       easymart-pylang:latest
+
+ENVIRONMENT CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━
+
+□ OPENAI_API_KEY is set
+□ NODE_BACKEND_URL is reachable
+□ data/ directory is writable
+□ ENVIRONMENT=production
+□ DEBUG=False
+□ LOG_FORMAT=json
+
+SCALING RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━
+
+• Use Redis for session storage in multi-instance deployments
+• Add nginx reverse proxy for TLS and request buffering
+• Monitor with Prometheus/Grafana
+• Set up health check endpoints for load balancers
+
+HEALTH CHECK ENDPOINTS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Load balancer health check:
+   GET /health/ping → 200 {"status": "pong"}
+
+Deep health check:
+   GET /health/ → 200 {"status": "healthy", "services": {...}}
+
+
+================================================================================
+                          13. API REFERENCE
+================================================================================
+
+BASE URL: http://localhost:8001
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              ENDPOINTS                                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  GET  /                                                                          │
+│       Root endpoint - returns service info                                       │
+│       Response: {"name": "...", "version": "...", "status": "running"}          │
+│                                                                                  │
+│  GET  /docs                                                                      │
+│       Swagger UI documentation                                                   │
+│                                                                                  │
+│  GET  /redoc                                                                     │
+│       ReDoc documentation                                                        │
+│                                                                                  │
+│  ─────────────── HEALTH ───────────────                                         │
+│                                                                                  │
+│  GET  /health/                                                                   │
+│       Full health check with service status                                      │
+│       Response: HealthResponse                                                   │
+│                                                                                  │
+│  GET  /health/ping                                                               │
+│       Simple ping endpoint                                                       │
+│       Response: {"status": "pong", "timestamp": "..."}                          │
+│                                                                                  │
+│  ─────────────── ASSISTANT ───────────────                                      │
+│                                                                                  │
+│  POST /assistant/message                                                         │
+│       Main chat endpoint                                                         │
+│       Request: MessageRequest                                                    │
+│       Response: MessageResponse                                                  │
+│                                                                                  │
+│  GET  /assistant/greeting?session_id={id}                                        │
+│       Get welcome message                                                        │
+│       Response: MessageResponse                                                  │
+│                                                                                  │
+│  GET  /assistant/session/{session_id}                                            │
+│       Retrieve session state                                                     │
+│       Response: Session data                                                     │
+│                                                                                  │
+│  DELETE /assistant/session/{session_id}                                          │
+│       Clear/delete session                                                       │
+│       Response: {"success": true}                                               │
+│                                                                                  │
+│  POST /assistant/cart                                                            │
+│       Direct cart operations                                                     │
+│       Request: {"action": "view|add|remove", "product_id": "...", ...}          │
+│       Response: Cart state                                                       │
+│                                                                                  │
+│  GET  /assistant/cart?session_id={id}                                            │
+│       Get cart state                                                             │
+│       Response: Cart data                                                        │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                         14. TROUBLESHOOTING
+================================================================================
+
+COMMON ISSUES
+━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Issue: "OPENAI_API_KEY not found"                                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Solution:                                                               │
+│ 1. Ensure .env file exists in backend-pylang/                          │
+│ 2. Verify OPENAI_API_KEY is set correctly                              │
+│ 3. Restart the server                                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Issue: "No products indexed"                                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Solution:                                                               │
+│ Run the catalog indexer:                                               │
+│   python -m app.modules.catalog_index.load_catalog                     │
+│                                                                         │
+│ Verify products.csv exists in data/ directory                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Issue: "ChromaDB initialization failed"                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Solution:                                                               │
+│ 1. Ensure data/chromadb/ directory is writable                         │
+│ 2. Delete data/chromadb/ and re-index                                  │
+│ 3. Check sentence-transformers is installed                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Issue: "Tool calls not working"                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Solution:                                                               │
+│ 1. Verify OPENAI_MODEL supports function calling (gpt-4, gpt-4.1)      │
+│ 2. Check API key has access to the model                               │
+│ 3. Review logs for tool execution errors                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Issue: "Cart not syncing with Node.js backend"                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Solution:                                                               │
+│ 1. Verify NODE_BACKEND_URL is correct                                  │
+│ 2. Check Node.js backend is running                                    │
+│ 3. Review network connectivity                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+LOG ANALYSIS
+━━━━━━━━━━━━
+
+Enable debug logging:
+
+   LOG_LEVEL=DEBUG
+
+View structured logs:
+
+   tail -f logs/app.log | jq .
+
+Search for errors:
+
+   grep -i "error" logs/app.log
+
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================
+
+Document Version: 1.0.0
+Last Updated: January 19, 2026
+Maintained By: Easymart Development Team
+
+For questions or feedback, contact: support@easymart.com.au
