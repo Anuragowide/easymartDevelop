@@ -49,6 +49,11 @@ coverage/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Large index files (BM25, ChromaDB, etc.)
+*.pkl
+**/data/bm25/
+**/data/chromadb/
 *.so
 .Python
 env/
