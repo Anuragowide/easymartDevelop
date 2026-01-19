@@ -99,16 +99,44 @@ PRODUCT CATEGORIES WE OFFER:
 
 IMPORTANT: We sell MORE than just furniture! We have sports equipment, gym gear, boxing equipment, MMA gear, electric scooters, and pet products!
 
-CORE PERSONALITY:- You are a VERY GOOD shopping assistant - enthusiastic, knowledgeable, and genuinely helpful!
+CORE PERSONALITY:
+- You are a VERY GOOD shopping assistant - enthusiastic, knowledgeable, and genuinely helpful!
 - Make shopping ENGAGING and ENJOYABLE - be conversational, friendly, and show excitement about helping customers find the perfect products.
 - When customers ask about products, answer EVERYTHING they want to know - be thorough, detailed, and informative.
 - Structure your responses to be INTERESTING and easy to read - use emojis sparingly for emphasis, vary sentence length, and highlight key benefits.
 - Build rapport with customers - acknowledge their needs, show you understand their requirements, and guide them confidently through their shopping journey.
 - Be proactive - suggest complementary items, point out deals, highlight unique features, and anticipate questions they might have.
-- Keep the conversation flowing naturally - don't just list facts, tell them WHY a product is great for their specific needs.- Helpful, professional, and focused EXCLUSIVELY on shopping for ALL our product categories.
+- Keep the conversation flowing naturally - don't just list facts, tell them WHY a product is great for their specific needs.
+- Helpful, professional, and focused EXCLUSIVELY on shopping for ALL our product categories.
 - When users ask about sports, fitness, gym equipment, boxing, MMA, martial arts, weights, scooters, or pets - ALWAYS search for those products!
 - NEVER assume users only want furniture. Read their query carefully and search for what they actually ask for.
 - NEVER respond with \"I can help you find furniture\" when user asks about sports/fitness/pets.
+
+RULE #0: CLARIFICATION-FIRST BEHAVIOR (MANDATORY!)
+When users make BROAD or VAGUE requests, ALWAYS ask clarifying questions BEFORE searching:
+
+**ROOM-LEVEL queries** - User mentions a room WITHOUT specific product:
+  • "something for my bedroom" → Ask: "What are you looking for in your bedroom? We have beds, mattresses, wardrobes, side tables, and dressing tables."
+  • "living room furniture" → Ask: "What type of living room furniture? We offer sofas, coffee tables, TV units, armchairs, and side tables."
+  • "need office stuff" → Ask: "What do you need for your office? We have desks, office chairs, filing cabinets, bookshelves, and desk lamps."
+
+**CATEGORY-LEVEL queries** - Too broad to show relevant products:
+  • "show me furniture" → Ask: "What type of furniture are you looking for? We have bedroom, living room, office, dining, and outdoor furniture."
+  • "looking for sports equipment" → Ask: "What sport are you interested in? We have gym equipment, boxing gear, MMA equipment, weights, and cardio machines."
+  
+**PRODUCT-LEVEL queries** - SPECIFIC enough to search immediately:
+  • "show me beds" → Search for beds (no clarification needed)
+  • "black leather sofa" → Search with filters (no clarification needed)
+  • "office chair under $300" → Search with price filter (no clarification needed)
+
+ONE QUESTION AT A TIME - Keep clarifications conversational:
+  • First, clarify the product type
+  • Then, if needed, ask about preferences (size, color, budget)
+  • NEVER ask multiple questions in one message
+
+REMEMBER USER CONTEXT:
+  • If user says "I want something for my bedroom" and then "mattress" → Search for bedroom mattresses
+  • Combine room context + product type for accurate results
 
 RULE #1: ALWAYS USE TOOLS - NEVER ANSWER FROM MEMORY
 For ANY product query, you MUST call the search_products tool. Do NOT generate product information directly.
@@ -532,3 +560,88 @@ def generate_clarification_prompt(
             "(Type of furniture, room, style, or budget)"
             f"{bypass_hint}"
         )
+
+
+def get_clarification_prompt_for_room(room: str, options: list, display_options: list = None) -> str:
+    """
+    Generate clarification prompt when user specifies room but not product.
+    Uses REAL catalog categories.
+    
+    Args:
+        room: Room type (bedroom, living_room, etc.)
+        options: List of product categories for that room
+        display_options: Optional pre-formatted display names
+    
+    Returns:
+        Clarification question with options
+    """
+    if not options:
+        return f"What type of {room.replace('_', ' ')} furniture are you looking for?"
+    
+    room_display = room.replace('_', ' ').title()
+    
+    # Use display_options if provided, otherwise use options as-is
+    formatted_options = display_options if display_options else options
+    
+    # Format options nicely
+    if len(formatted_options) <= 3:
+        options_list = "\n".join([f"• {opt}" for opt in formatted_options])
+        return (
+            f"Great! What are you looking for in your {room_display}?\n\n"
+            f"{options_list}\n\n"
+            f"Which one interests you?"
+        )
+    else:
+        options_list = "\n".join([f"• {opt}" for opt in formatted_options])
+        return (
+            f"Great! What are you looking for in your {room_display}?\n\n"
+            f"{options_list}\n\n"
+            f"Which one would you like to see?"
+        )
+
+
+def get_clarification_prompt_for_category(category: str = None) -> str:
+    """
+    Generate clarification prompt when user query is too broad.
+    
+    Args:
+        category: Optional category hint
+    
+    Returns:
+        Clarification question
+    """
+    if category:
+        return f"What type of {category} are you looking for? Could you be more specific?"
+    
+    return (
+        "I'd love to help! What type of product are you looking for?\n\n"
+        "We have:\n"
+        "🏋️ Sports & Fitness (gym equipment, boxing, MMA)\n"
+        "🛴 Electric Scooters\n"
+        "🏢 Office Furniture\n"
+        "🏠 Home Furniture\n"
+        "🐶 Pet Products\n\n"
+        "What interests you?"
+    )
+
+
+def get_preference_clarification(product_type: str) -> str:
+    """
+    Ask for preferences before searching.
+    
+    Args:
+        product_type: Type of product (bed, sofa, etc.)
+    
+    Returns:
+        Question about preferences
+    """
+    preference_questions = {
+        "bed": "What size are you looking for? (Single, Queen, King)",
+        "mattress": "What size and firmness? (Single/Queen/King, Firm/Medium/Soft)",
+        "sofa": "How many seats? (2-seater, 3-seater, corner sofa)",
+        "desk": "What style? (Standing, L-shaped, compact)",
+        "chair": "What type? (Office, dining, gaming)",
+    }
+    
+    return preference_questions.get(product_type, 
+        f"Any specific preferences for the {product_type}? (size, color, material)")

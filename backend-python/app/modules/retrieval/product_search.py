@@ -217,8 +217,16 @@ class ProductSearcher:
     ) -> List[Dict[str, Any]]:
         """
         Apply filters to search results.
+        Enhanced with room-aware category filtering.
         """
         filtered = []
+        
+        # Get room-to-category mapping if room_type is specified
+        room_categories = None
+        if "room_type" in filters:
+            from app.modules.assistant.intent_detector import ROOM_CATEGORY_MAP
+            room = filters["room_type"].lower().replace(" ", "_")
+            room_categories = ROOM_CATEGORY_MAP.get(room, [])
         
         for result in results:
             # FIX: Use result directly (not nested under 'content')
@@ -241,6 +249,25 @@ class ProductSearcher:
             # Parse tags once for all tag-based filters
             prod_tags = self._parse_tags(product.get("tags", []))
             prod_tags_lower = [t.lower() for t in prod_tags]
+            
+            # ENHANCED: Room Type + Category validation
+            # If room_type specified, ensure product category is valid for that room
+            if room_categories:
+                prod_cat = (product.get("category") or "").lower()
+                prod_type = (product.get("type") or "").lower()
+                
+                # Check if product's category matches any valid room categories
+                is_valid_for_room = False
+                for valid_cat in room_categories:
+                    valid_cat_lower = valid_cat.lower()
+                    if (valid_cat_lower in prod_cat or 
+                        valid_cat_lower in prod_type or
+                        any(valid_cat_lower in tag for tag in prod_tags_lower)):
+                        is_valid_for_room = True
+                        break
+                
+                if not is_valid_for_room:
+                    continue  # Skip products not valid for specified room
             
             # Category filter (strict or loose)
             if "category" in filters:
@@ -301,19 +328,6 @@ class ProductSearcher:
                     target_style in prod_desc
                 )
                 if not found_style:
-                    continue
-            
-            # Room Type filter
-            if "room_type" in filters:
-                target_room = filters["room_type"].lower().replace("_", " ") # office_chair -> office chair
-                prod_desc = (product.get("description") or "").lower()
-                
-                found_room = (
-                    target_room in prod_tags_lower or
-                    target_room.replace(" ", "_") in prod_tags_lower or
-                    target_room in prod_desc
-                )
-                if not found_room:
                     continue
 
             # Generic Tags filter (preserved)

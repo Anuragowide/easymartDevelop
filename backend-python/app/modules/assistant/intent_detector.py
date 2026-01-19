@@ -13,8 +13,34 @@ from .intents import IntentType
 class IntentDetector:
     """
     Rule-based intent detection for Easymart furniture assistant.
-    TODO: Replace with ML-based intent classification for better accuracy.
+    Enhanced with intent granularity detection and clarification logic.
     """
+    
+    # DOMAIN CLASSIFICATION (STEP 1 - High-Level)
+    DOMAIN_MAPPING = {
+        'home_furniture': ['Home Furniture', 'Bedroom Furniture', 'Living Room Furniture', 'Dining Room Furniture', 'Kids Room Furniture', 'Bathroom Furniture'],
+        'office_furniture': ['Office Furniture', 'Desks', 'Chairs', 'Tables', 'Filing & Storage', 'Office Accessories'],
+        'fitness_sports': ['Sports & Fitness', 'Treadmills', 'Exercise Bikes', 'Dumbbells', 'Boxing & Muay Thai', 'MMA', 'Martial Arts', 'Functional Fitness', 'Weightlifting'],
+        'electronics_utilities': ['Electric Scooters', 'Scooters Accessories'],
+        'pets': ['Pet Products', 'Dog Products', 'Cats Products', 'Bird Cages & Aviaries', 'Pet Farm Supplies'],
+        'outdoor_garden': ['Outdoor Furniture', 'Garden Furniture', 'Vertical Garden', 'Trampolines'],
+        'hospitality': ['Hospitality Furniture', 'Bar Furniture', 'Lounge Furniture', 'Cafe Furniture']
+    }
+    
+    # Room-to-Category Mapping (CATALOG-ACCURATE - UPDATED FOR REAL CATALOG)
+    ROOM_CATEGORY_MAP = {
+        "bedroom": ["Mattresses", "Bedroom Furniture", "Bedside Tables", "Ottomans", "Kids Room Furniture"],
+        "living room": ["Living Room Furniture", "Sofas", "Coffee Tables", "Entertainment TV Units", "Ottomans"],
+        "living_room": ["Living Room Furniture", "Sofas", "Coffee Tables", "Entertainment TV Units", "Ottomans"],
+        "dining room": ["Dining Room Furniture", "Tables", "Bar Stools"],
+        "dining_room": ["Dining Room Furniture", "Tables", "Bar Stools"],
+        "office": ["Desks", "Chairs", "Filing & Storage", "Office Cupboards", "Bookcases & Bookshelves", "Monitor Arms"],
+        "bathroom": ["Bathroom Furniture"],
+        "kitchen": ["Bar Stools", "Tables"],
+        "gym": ["Treadmills", "Exercise Bikes", "Rowing Machines", "Dumbbells", "Kettlebell", "Gym Bench", "Bench & Gym Equipment"],
+        "home gym": ["Treadmills", "Exercise Bikes", "Rowing Machines", "Dumbbells", "Kettlebell", "Gym Bench", "Bench & Gym Equipment"],
+        "outdoor": ["Outdoor Furniture", "Garden Furniture", "Trampolines"],
+    }
     
     # Intent patterns for Easymart
     PATTERNS = {
@@ -354,6 +380,85 @@ class IntentDetector:
             return IntentType.GENERAL_HELP
         
         return IntentType.OUT_OF_SCOPE
+    
+    def detect_intent_granularity(self, message: str) -> Dict[str, Any]:
+        """
+        Detect whether user intent is:
+        - room_level: "something for bedroom" (needs clarification)
+        - category_level: "furniture" (needs clarification)
+        - product_level: "bed" (specific enough, can search)
+        - attribute_level: "wooden", "blue" (refinement)
+        
+        Returns:
+            {
+                'granularity': 'room_level' | 'category_level' | 'product_level' | 'attribute_level',
+                'room': str or None,
+                'category': str or None,
+                'needs_clarification': bool,
+                'clarification_options': list
+            }
+        """
+        message_lower = message.lower().strip()
+        result = {
+            'granularity': 'unknown',
+            'room': None,
+            'category': None,
+            'needs_clarification': False,
+            'clarification_options': []
+        }
+        
+        # Check for room-level intent
+        room_patterns = [
+            (r'\b(something|anything|furniture|items?)\s+for\s+(my|the)?\s*(bedroom|living[_\s]room|dining[_\s]room|office|kitchen|gym|home[_\s]gym|outdoor|bathroom)\b', 3),
+            (r'\b(bedroom|living[_\s]room|dining[_\s]room|office|kitchen|gym|home[_\s]gym|outdoor|bathroom)\s+(furniture|stuff|things|items?)\b', 1),
+            (r'\bfor\s+(my|the)?\s*(bedroom|living[_\s]room|dining[_\s]room|office|kitchen|gym|home[_\s]gym|outdoor|bathroom)\b', 2),
+        ]
+        
+        for pattern, group_idx in room_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                room = match.group(group_idx).replace(' ', '_')
+                categories = self.ROOM_CATEGORY_MAP.get(room, [])
+                
+                if categories:
+                    result['granularity'] = 'room_level'
+                    result['room'] = room
+                    result['needs_clarification'] = True
+                    result['clarification_options'] = categories
+                    return result
+        
+        # Check for category-level intent (too broad)
+        broad_categories = ['furniture', 'equipment', 'gear', 'supplies', 'products', 'items', 'things', 'stuff']
+        if any(cat in message_lower for cat in broad_categories) and len(message_lower.split()) <= 5:
+            result['granularity'] = 'category_level'
+            result['needs_clarification'] = True
+            return result
+        
+        # Check for specific product mentions
+        specific_products = [
+            'bed', 'mattress', 'sofa', 'couch', 'chair', 'desk', 'table',
+            'wardrobe', 'cabinet', 'bookcase', 'drawer',
+            'treadmill', 'dumbbell', 'kettlebell', 'barbell', 'bench',
+            'boxing gloves', 'punching bag', 'yoga mat',
+            'dog kennel', 'cat tree', 'bird cage', 'aquarium',
+            'electric scooter', 'scooter'
+        ]
+        
+        for product in specific_products:
+            if product in message_lower:
+                result['granularity'] = 'product_level'
+                result['category'] = product
+                result['needs_clarification'] = False
+                return result
+        
+        # Check for attribute-level (refinement)
+        attribute_keywords = ['wooden', 'metal', 'leather', 'black', 'white', 'blue', 'modern', 'small', 'large']
+        if any(attr in message_lower for attr in attribute_keywords) and len(message_lower.split()) <= 3:
+            result['granularity'] = 'attribute_level'
+            result['needs_clarification'] = False
+            return result
+        
+        return result
     
     def extract_entities(self, message: str, intent: IntentType) -> Dict[str, Any]:
         """

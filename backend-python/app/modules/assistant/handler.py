@@ -648,10 +648,106 @@ class EasymartAssistantHandler:
                     logger.info(f"[HANDLER] Intent enum converted to string: {intent_str}")
             except AttributeError as e:
                 logger.error(f"[HANDLER] Error converting intent to string. Intent type: {type(intent)}, value: {intent}")
-                logger.error(f"[HANDLER] Full traceback:", exc_info=True)
-                raise
+            
+            # CHECK FOR PENDING CLARIFICATION RESPONSE
+            # If there's a pending clarification, check if user is responding to it
+            pending_clarification = session.metadata.get('pending_clarification')
+            if pending_clarification and pending_clarification.get('type') == 'room_to_product':
+                logger.info(f"[CLARIFICATION RESPONSE] Detected pending room clarification")
+                
+                # User is responding with a product type
+                user_response = request.message.lower().strip()
+                room = pending_clarification['room']
+                options = pending_clarification['options']
+                
+                # Check if response matches one of the options
+                matched_category = None
+                for option in options:
+                    if option.lower() in user_response or user_response in option.lower():
+                        matched_category = option
+                        break
+                
+                if matched_category:
+                    logger.info(f"[CLARIFICATION RESPONSE] User chose '{matched_category}' for room '{room}'")
+                    
+                    # Clear pending clarification
+                    session.metadata.pop('pending_clarification', None)
+                    
+                    # Override the message to include room context
+                    # This ensures search includes room constraint
+                    request.message = f"{matched_category} for {room}"
+                    entities['category'] = matched_category
+                    entities['room_type'] = room
+                    
+                    logger.info(f"[CLARIFICATION RESPONSE] Updated query to: '{request.message}'")
+                    logger.info(f"[CLARIFICATION RESPONSE] Updated entities: {entities}")
+                else:
+                    logger.info(f"[CLARIFICATION RESPONSE] User response didn't match options, proceeding normally")
+                    # User didn't respond with expected option, let normal flow handle it
+                    session.metadata.pop('pending_clarification', None)
             
             logger.info(f"Detected intent: {intent_str}, entities: {entities}")
+            
+            # CLARIFICATION-FIRST: Check intent granularity BEFORE proceeding
+            if intent_str == "product_search":
+                granularity = self.intent_detector.detect_intent_granularity(request.message)
+                logger.info(f"[CLARIFICATION] Intent granularity: {granularity['granularity']}")
+                
+                if granularity['needs_clarification']:
+                    from .prompts import get_clarification_prompt_for_room, get_clarification_prompt_for_category
+                    
+                    if granularity['granularity'] == 'room_level':
+                        # Room-level: Ask which product category
+                        room = granularity['room']
+                        options = granularity['clarification_options']
+                        display_options = granularity.get('display_options', options)
+                        assistant_message = get_clarification_prompt_for_room(room, options, display_options)
+                        
+                        logger.info(f"[CLARIFICATION] Room-level intent for '{room}', asking for product type")
+                        
+                        # Store pending clarification
+                        session.metadata['pending_clarification'] = {
+                            'type': 'room_to_product',
+                            'room': room,
+                            'options': options,
+                            'timestamp': datetime.now()
+                        }
+                        
+                        session.add_message("assistant", assistant_message)
+                        
+                        return AssistantResponse(
+                            message=assistant_message,
+                            session_id=session.session_id,
+                            products=[],
+                            cart_summary=self._build_cart_summary(session),
+                            metadata={
+                                "intent": "clarification_needed",
+                                "clarification_type": "room_level",
+                                "room": room,
+                                "options": options,
+                                "context": topic_context.to_dict()
+                            }
+                        )
+                    
+                    elif granularity['granularity'] == 'category_level':
+                        # Category-level: Too broad, ask for specifics
+                        assistant_message = get_clarification_prompt_for_category()
+                        
+                        logger.info(f"[CLARIFICATION] Category-level intent, asking for product type")
+                        
+                        session.add_message("assistant", assistant_message)
+                        
+                        return AssistantResponse(
+                            message=assistant_message,
+                            session_id=session.session_id,
+                            products=[],
+                            cart_summary=self._build_cart_summary(session),
+                            metadata={
+                                "intent": "clarification_needed",
+                                "clarification_type": "category_level",
+                                "context": topic_context.to_dict()
+                            }
+                        )
             
             # SHORTCUT: Handle OUT_OF_SCOPE queries
             if intent_str == "out_of_scope":
