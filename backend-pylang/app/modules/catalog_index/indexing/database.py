@@ -22,6 +22,7 @@ class ProductDB(Base):
     handle = Column(String, unique=True, index=True)
     title = Column(String, index=True)
     price = Column(Float, index=True)  # Added index for price filters
+    compare_at_price = Column(Float)
     currency = Column(String)
     image_url = Column(String)
     product_url = Column(String)  # Full Shopify URL
@@ -30,6 +31,15 @@ class ProductDB(Base):
     description = Column(Text)
     search_content = Column(Text)
     inventory_quantity = Column(Integer, default=0)  # Stock quantity
+    category = Column(String, index=True)
+    product_type = Column(String, index=True)
+    status = Column(String, index=True)
+    options_json = Column(JSON)
+    variants_json = Column(JSON)
+    images_json = Column(JSON)
+    available = Column(Integer, default=1)
+    inventory_managed = Column(Integer, default=0)
+    barcode = Column(String)
     
     # Define composite indexes for common query patterns
     __table_args__ = (
@@ -43,13 +53,23 @@ class ProductDB(Base):
             'handle': self.handle,
             'title': self.title,
             'price': self.price,
+            'compare_at_price': self.compare_at_price,
             'currency': self.currency,
             'image_url': self.image_url,
             'product_url': self.product_url,
             'vendor': self.vendor,
             'tags': self.tags,
             'description': self.description,
-            'inventory_quantity': self.inventory_quantity
+            'inventory_quantity': self.inventory_quantity,
+            'category': self.category,
+            'product_type': self.product_type,
+            'status': self.status,
+            'options': self.options_json,
+            'variants': self.variants_json,
+            'images': self.images_json,
+            'available': self.available,
+            'inventory_managed': self.inventory_managed,
+            'barcode': self.barcode
         }
 
 
@@ -97,6 +117,7 @@ class DatabaseManager:
         
         # Setup FTS5 virtual table for full-text search
         self._setup_fts5()
+        self._ensure_product_columns()
         
         print(f"[DB] Connected to SQLite: {self.db_path}")
     
@@ -149,6 +170,30 @@ class DatabaseManager:
                 print("[DB] Created FTS5 virtual table with triggers")
             else:
                 print("[DB] FTS5 table already exists")
+
+    def _ensure_product_columns(self):
+        """Ensure new columns exist on products table (SQLite ALTER TABLE)."""
+        needed = {
+            "compare_at_price": "FLOAT",
+            "category": "TEXT",
+            "product_type": "TEXT",
+            "status": "TEXT",
+            "options_json": "TEXT",
+            "variants_json": "TEXT",
+            "images_json": "TEXT",
+            "available": "INTEGER",
+            "inventory_managed": "INTEGER",
+            "barcode": "TEXT"
+        }
+        with self.engine.connect() as conn:
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(products)")).fetchall()
+            }
+            for col, col_type in needed.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE products ADD COLUMN {col} {col_type}"))
+            conn.commit()
     
     def search_fts5(self, query: str, limit: int = 10) -> list:
         """

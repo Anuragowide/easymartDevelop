@@ -8,13 +8,22 @@ interface NormalizedProduct {
   title: string;
   description: string;
   price: number;
+  compare_at_price?: number;
   currency: string;
   category: string;
+  product_type?: string;
   tags: string[];
   image_url?: string;
   vendor: string;
   handle: string;
   product_url: string;
+  status?: string;
+  options?: any[];
+  variants?: any[];
+  images?: any[];
+  available?: boolean;
+  inventory_managed?: boolean;
+  barcode?: string;
   specs?: Record<string, any>;
   stock_status?: string;
 }
@@ -32,6 +41,7 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
   const inventoryManaged = firstVariant.inventory_management !== null;
   const inventoryQuantity = firstVariant.inventory_quantity || 0;
   const isInStock = !inventoryManaged || inventoryQuantity > 0;
+  const isAvailable = typeof firstVariant.available === "boolean" ? firstVariant.available : isInStock;
   
   // For unmanaged inventory, report as 999 (available) instead of 0
   const reportedQuantity = inventoryManaged ? inventoryQuantity : 999;
@@ -41,14 +51,23 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
     title: product.title,
     description: product.body_html?.replace(/<[^>]*>/g, "") || "", // Strip HTML for main description
     price: parseFloat(firstVariant.price || "0"),
+    compare_at_price: parseFloat(firstVariant.compare_at_price || "0") || undefined,
     currency: "AUD",
     category: product.product_type || "General",
+    product_type: product.product_type || "General",
     tags: product.tags ? product.tags.split(", ") : [],
     image_url: firstImage?.src,
     vendor: product.vendor || "EasyMart",
     handle: product.handle,
     product_url: `https://${config.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`,
     stock_status: isInStock ? "in_stock" : "out_of_stock",
+    status: product.status,
+    options: product.options || [],
+    variants: product.variants || [],
+    images: product.images || [],
+    available: isAvailable,
+    inventory_managed: inventoryManaged,
+    barcode: firstVariant.barcode,
     specs: {
       // Core dimensions
       weight: firstVariant.weight,

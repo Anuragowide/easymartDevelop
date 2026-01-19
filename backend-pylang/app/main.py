@@ -3,6 +3,7 @@ FastAPI application entry point.
 """
 
 from fastapi import FastAPI
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import get_settings
@@ -57,6 +58,7 @@ async def startup_event():
     print(f"  Host: {settings.HOST}:{settings.PORT}")
 
     from app.modules.catalog_index.catalog import CatalogIndexer
+    from app.modules.catalog_index.sync import get_catalog_sync_service
     try:
         indexer = CatalogIndexer()
         product_count = indexer.get_product_count()
@@ -66,6 +68,11 @@ async def startup_event():
             print("[Catalog] No products indexed. Run: python -m app.modules.catalog_index.load_catalog")
     except Exception as e:
         print(f"[Catalog] Error checking catalog: {e}")
+
+    if settings.CATALOG_SYNC_ENABLED:
+        sync_service = get_catalog_sync_service()
+        asyncio.create_task(sync_service.run_loop())
+        print(f"[CatalogSync] Enabled (interval: {settings.CATALOG_SYNC_INTERVAL_MINUTES} minutes)")
 
     print(f"[{settings.APP_NAME}] Ready!")
 

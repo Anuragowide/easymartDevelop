@@ -46,13 +46,36 @@ def process_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 p['specs'] = json.loads(p['specs'])
             except:
                 p['specs'] = {}
+
+        # Normalize list fields if provided as JSON strings
+        for key in ["tags", "options", "variants", "images"]:
+            if isinstance(p.get(key), str):
+                try:
+                    p[key] = json.loads(p[key])
+                except Exception:
+                    p[key] = []
         
         # Extract inventory_quantity from specs to top level
         if isinstance(p.get('specs'), dict):
             p['inventory_quantity'] = p['specs'].get('inventory_quantity', 0)
         else:
             p['inventory_quantity'] = 0
-        
+
+        if p.get("available") is None:
+            if p.get("inventory_managed") is False:
+                p["available"] = True
+            else:
+                p["available"] = (p.get("inventory_quantity") or 0) > 0
+
+        # Flatten option values for searchability
+        option_values = []
+        for opt in p.get("options", []) or []:
+            values = opt.get("values") if isinstance(opt, dict) else None
+            if values:
+                option_values.extend(values)
+        if option_values:
+            p["option_values"] = option_values
+
         # URL Construction Logic
         # If product_url is missing but handle exists, construct it
         if not p.get('product_url'):
@@ -91,13 +114,13 @@ def fetch_from_node_adapter() -> List[Dict[str, Any]]:
         
         # Log categories found
         categories = set(p.get('category', 'Unknown') for p in data)
-        print(f"[Catalog] 📊 Categories found: {', '.join(sorted(categories))}")
+        print(f"[Catalog] Categories found: {', '.join(sorted(categories))}")
         
         # Validate categories against known mappings
         invalid_categories = [cat for cat in categories if not is_valid_category(cat) and cat not in ['Unknown', 'Uncategorized']]
         if invalid_categories:
-            print(f"[Catalog] ⚠️  Warning: Found products with unmapped categories: {', '.join(invalid_categories)}")
-            print(f"[Catalog] 💡 Valid categories are: {', '.join(ALL_CATEGORIES)}")
+            print(f"[Catalog] Warning: Found products with unmapped categories: {', '.join(invalid_categories)}")
+            print(f"[Catalog] Valid categories are: {', '.join(ALL_CATEGORIES)}")
         
         # Category breakdown
         category_count = {}
@@ -105,14 +128,14 @@ def fetch_from_node_adapter() -> List[Dict[str, Any]]:
             cat = p.get('category', 'Unknown')
             category_count[cat] = category_count.get(cat, 0) + 1
         
-        print("\n[Catalog] 📊 Product Distribution by Category:")
+        print("\n[Catalog] Product Distribution by Category:")
         for cat, count in sorted(category_count.items()):
             print(f"  - {cat}: {count} products")
         print()
         
         return process_products(data)
     except requests.exceptions.RequestException as e:
-        print(f"[Catalog] ⚠️ API Fetch failed: {e}")
+        print(f"[Catalog] API Fetch failed: {e}")
         return []
 
 def load_from_csv(filepath: str = None) -> List[Dict[str, Any]]:
@@ -232,22 +255,56 @@ def extract_specs_from_products(products: List[Dict[str, Any]]) -> List[Dict[str
                     'spec_text': ' | '.join(dim_parts),
                     'attributes': {k: v for k, v in dims.items() if v and pd.notna(v)}
                 })
+
+        # Add Options section
+        options = product.get("options") or specs_data.get("options") or []
+        if options:
+            option_lines = []
+            for opt in options:
+                name = opt.get("name") if isinstance(opt, dict) else None
+                values = opt.get("values") if isinstance(opt, dict) else None
+                if name and values:
+                    option_lines.append(f"{name}: {', '.join(values)}")
+            if option_lines:
+                all_specs.append({
+                    'sku': sku,
+                    'section': 'Options',
+                    'spec_text': " | ".join(option_lines),
+                    'attributes': {"options": options}
+                })
+
+        # Add Variants summary section
+        variants = product.get("variants") or specs_data.get("variants") or []
+        if variants:
+            variant_lines = []
+            for v in variants[:10]:
+                title = v.get("title") if isinstance(v, dict) else None
+                price = v.get("price") if isinstance(v, dict) else None
+                if title and price:
+                    variant_lines.append(f"{title}: ${price}")
+            if variant_lines:
+                all_specs.append({
+                    'sku': sku,
+                    'section': 'Variants',
+                    'spec_text': " | ".join(variant_lines),
+                    'attributes': {"variants": variants}
+                })
     
     return all_specs
 
-async def load_all_products():
+async def load_all_products(allow_csv_fallback: bool = True):
     indexer = CatalogIndexer()
     
     # 1. Try API first
     products = fetch_from_node_adapter()
     
     # 2. Fallback to CSV if API returned nothing (optional, good for dev)
-    if not products:
+    if not products and allow_csv_fallback:
         print("[Catalog] Falling back to local CSV data...")
         products = load_from_csv()
         
     if not products:
-        print("[Catalog] ❌ No products found from API or CSV. Aborting.")
+        print("[Catalog] No products found from API or CSV. Aborting.")
         return
 
     # 3. Index the products
@@ -260,9 +317,9 @@ async def load_all_products():
         print(f"[Catalog] Indexing {len(specs)} specifications...")
         await asyncio.to_thread(indexer.addSpecs, specs)
     else:
-        print("[Catalog] ⚠️ No specifications found to index")
+        print("[Catalog] No specifications found to index")
     
-    print("[Catalog] ✅ Catalog loading and indexing complete.")
+    print("[Catalog] Catalog loading and indexing complete.")
 
 if __name__ == "__main__":
     asyncio.run(load_all_products())

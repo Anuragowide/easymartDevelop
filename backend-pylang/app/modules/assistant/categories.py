@@ -196,7 +196,104 @@ ALL_SUBCATEGORIES: List[str] = [
 ]
 
 # Combined list for search matching
-ALL_PRODUCT_TYPES: List[str] = ALL_CATEGORIES + ALL_SUBCATEGORIES
+ADAPTER_CATEGORIES: List[str] = [
+    "Accessories",
+    "Air Track Mat",
+    "Aquarium",
+    "Bar Stool",
+    "Basketball",
+    "Bathroom Furniture",
+    "Bed",
+    "Bench",
+    "Bikes",
+    "Bird Cages & Stands",
+    "Body Protector",
+    "Bookcase",
+    "Boxing & Muay Thai",
+    "CCTV Camera",
+    "Cat Supplies",
+    "Chairs",
+    "Desks",
+    "Desks Frame",
+    "Dining Room Furniture",
+    "Dog Supplies",
+    "Dumbbells",
+    "Electric Scooters",
+    "Electric Scooters Accessories",
+    "Exercise Bikes",
+    "Filing Cabinets",
+    "Fitness",
+    "Fitness Accessories",
+    "Flooring & Mats",
+    "Focus Pads",
+    "Functional Fitness",
+    "General",
+    "Gloves",
+    "Golf",
+    "Gym Bench",
+    "Gym Sanitizer",
+    "Home & Garden",
+    "Home Furniture",
+    "Kettlebells",
+    "Kids Furniture",
+    "Lectern",
+    "Living Room Furniture",
+    "Locker Stand",
+    "Locker Top",
+    "Lounge",
+    "MMA",
+    "Martial Arts",
+    "Mattresses",
+    "Mirror",
+    "Monitor Arm",
+    "Office Cupboards",
+    "Office Shelving",
+    "Other Pet Supplies",
+    "Ottoman",
+    "Outdoor Furniture",
+    "Pedestals",
+    "Pet Care Coops & Hutches",
+    "Pet Care Farm Supplies",
+    "Pet Carrier",
+    "Pet Feeder",
+    "Pet Fountain",
+    "Pets",
+    "Photography",
+    "Power Point",
+    "Projectors & Accessories",
+    "Rabbit Cage",
+    "Rashguard Shirts",
+    "Reception Counters",
+    "Recliners",
+    "Rowing Machine",
+    "Rugby",
+    "Safety Lock",
+    "Screens",
+    "Shelves",
+    "Snughooks",
+    "Sofa",
+    "Speakers",
+    "Storage",
+    "TV Acessories",
+    "Table & Chair Set",
+    "Table Components",
+    "Tables",
+    "Thai Pads",
+    "Training Chairs",
+    "Trampoline",
+    "Treadmills",
+    "Trolley",
+    "Vertical Garden",
+    "Weightlifting",
+    "Whiteboard",
+    "Whiteboards",
+    "Workstation",
+    "Workstation Component",
+    "Yoga Mat",
+    "lockers",
+]
+
+ALL_PRODUCT_TYPES: List[str] = ALL_CATEGORIES + ALL_SUBCATEGORIES + ADAPTER_CATEGORIES
 
 # Category aliases for better search matching
 CATEGORY_ALIASES: Dict[str, List[str]] = {
@@ -264,7 +361,7 @@ def get_category_for_subcategory(subcategory: str) -> Optional[str]:
 
 def is_valid_category(category: str) -> bool:
     """Check if a category is valid"""
-    return category in ALL_CATEGORIES
+    return category in ALL_CATEGORIES or category in ALL_SUBCATEGORIES or category in ADAPTER_CATEGORIES
 
 
 def is_valid_subcategory(subcategory: str) -> bool:
@@ -315,7 +412,11 @@ def match_subcategory_from_query(query: str) -> Optional[str]:
         for alias in aliases:
             if alias.lower() in query_lower:
                 return subcategory
-    
+
+    for category in ADAPTER_CATEGORIES:
+        if category.lower() in query_lower:
+            return category
+
     return None
 
 

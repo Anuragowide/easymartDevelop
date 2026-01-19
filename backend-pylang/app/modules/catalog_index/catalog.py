@@ -156,7 +156,22 @@ class CatalogIndexer:
                 continue
             seen_skus.add(sku)
             
-            content = f"{product.get('title', '')} {' '.join(product.get('tags', []))} {product.get('description', '')}"
+            tags = product.get('tags', [])
+            if not isinstance(tags, list):
+                tags = []
+            option_values = product.get('option_values', []) or []
+            if not isinstance(option_values, list):
+                option_values = []
+            content_parts = [
+                product.get('title', ''),
+                ' '.join(tags),
+                product.get('description', ''),
+                product.get('vendor', ''),
+                product.get('category', ''),
+                product.get('product_type', ''),
+                ' '.join(option_values)
+            ]
+            content = " ".join([part for part in content_parts if part])
             
             doc = IndexDocument(
                 id=sku,

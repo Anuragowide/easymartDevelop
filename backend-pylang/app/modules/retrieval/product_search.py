@@ -70,16 +70,17 @@ class ProductSearcher:
         self.catalog = get_catalog_indexer()
     
     async def search(
-        self, 
-        query: str, 
+        self,
+        query: str,
         limit: int = 5,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        preferences: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Search products with optional filters and caching.
         """
         # Create cache key
-        cache_key = f"{query}:{limit}:{str(filters)}"
+        cache_key = f"{query}:{limit}:{str(filters)}:{str(preferences)}"
         if cache_key in self._cache:
             logger.info(f"[SEARCH] Cache hit for: {query}")
             return self._cache[cache_key]
@@ -92,10 +93,24 @@ class ProductSearcher:
         formatted_results = []
         for result in results:
             product_data = result.get("content", {})
+            inventory_qty = product_data.get("inventory_quantity")
+            stock_status = product_data.get("stock_status")
+            if stock_status == "out_of_stock":
+                in_stock = False
+            elif stock_status == "in_stock":
+                in_stock = True
+            elif inventory_qty is None:
+                in_stock = True
+            elif inventory_qty == 0 and stock_status is None:
+                in_stock = True
+            else:
+                in_stock = inventory_qty > 0
             formatted_product = {
                 "id": product_data.get("sku", result.get("id", "")),
+                "sku": product_data.get("sku", result.get("id", "")),
                 "name": product_data.get("title", "Unknown Product"),
                 "price": product_data.get("price", 0.00),
+                "compare_at_price": product_data.get("compare_at_price"),
                 "description": product_data.get("description", ""),
                 "image_url": product_data.get("image_url", ""),
                 "handle": product_data.get("handle", ""),
@@ -104,14 +119,24 @@ class ProductSearcher:
                 "currency": product_data.get("currency", "AUD"),
                 "product_url": product_data.get("product_url", ""),
                 "category": product_data.get("category", ""),
+                "product_type": product_data.get("product_type", ""),
+                "status": product_data.get("status", ""),
+                "options": product_data.get("options", []),
+                "variants": product_data.get("variants", []),
+                "images": product_data.get("images", []),
+                "available": product_data.get("available"),
+                "inventory_managed": product_data.get("inventory_managed"),
+                "barcode": product_data.get("barcode"),
                 "score": result.get("score", 0),
                 "inventory_quantity": product_data.get("inventory_quantity", 0),
+                "in_stock": in_stock,
             }
             formatted_results.append(formatted_product)
         
         # Apply filters if provided
         if filters is None:
             filters = {}
+        filters["query_text"] = query
             
         # AUTO-DETECT FILTERS from query
         query_lower = query.lower()
@@ -176,6 +201,11 @@ class ProductSearcher:
         if filters:
             formatted_results = self._apply_filters(formatted_results, filters)
         
+        formatted_results = self._apply_query_ranking(formatted_results, query)
+
+        if preferences:
+            formatted_results = self._apply_preference_ranking(formatted_results, preferences)
+
         final_results = formatted_results[:limit]
         
         # Update cache
@@ -231,6 +261,7 @@ class ProductSearcher:
         for result in results:
             # FIX: Use result directly (not nested under 'content')
             product = result
+            query_text = (filters.get("query_text") or "").lower()
             
             # Price filter
             if "price_min" in filters:
@@ -249,12 +280,39 @@ class ProductSearcher:
             # Parse tags once for all tag-based filters
             prod_tags = self._parse_tags(product.get("tags", []))
             prod_tags_lower = [t.lower() for t in prod_tags]
+            prod_title = (product.get("name") or "").lower()
+            prod_desc = (product.get("description") or "").lower()
+
+            if query_text and not any(tok in query_text for tok in ["kid", "kids", "child", "children"]):
+                if any(tok in prod_title or tok in prod_desc for tok in ["kid", "kids", "child", "children"]):
+                    if any(tok in query_text for tok in ["office", "gaming", "desk", "table", "chair"]):
+                        continue
+
+            primary_types = [
+                "chair", "desk", "table", "sofa", "bed", "shelf", "cabinet",
+                "locker", "stool", "workstation"
+            ]
+            if query_text and any(t in query_text for t in primary_types):
+                if not any(
+                    t in prod_title or t in prod_desc or t in prod_tags_lower or t in (product.get("category") or "").lower()
+                    for t in primary_types
+                ):
+                    continue
             
             # ENHANCED: Room Type + Category validation
             # If room_type specified, ensure product category is valid for that room
             if room_categories:
                 prod_cat = (product.get("category") or "").lower()
                 prod_type = (product.get("type") or "").lower()
+                if filters.get("room_type") == "office":
+                    if (
+                        "kid" in prod_cat or
+                        "kid" in prod_type or
+                        "kid" in prod_title or
+                        "kid" in prod_desc or
+                        any("kid" in tag for tag in prod_tags_lower)
+                    ):
+                        continue
                 
                 # Check if product's category matches any valid room categories
                 is_valid_for_room = False
@@ -346,6 +404,107 @@ class ProductSearcher:
             filtered.append(result)
         
         return filtered
+
+    def _apply_query_ranking(self, results: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+        if not results:
+            return results
+
+        query_lower = query.lower()
+        stopwords = {"the", "a", "an", "and", "or", "for", "with", "to", "in", "of", "my"}
+        tokens = [t for t in re.split(r"\W+", query_lower) if t and t not in stopwords]
+
+        def score_product(product: Dict[str, Any]) -> float:
+            title = (product.get("name") or "").lower()
+            desc = (product.get("description") or "").lower()
+            tags = self._parse_tags(product.get("tags", []))
+            tags_lower = [t.lower() for t in tags]
+            category = (product.get("category") or "").lower()
+
+            score = 0.0
+            for token in tokens:
+                if token in title:
+                    score += 1.5
+                if token in category:
+                    score += 1.2
+                if token in tags_lower:
+                    score += 1.0
+                if token in desc:
+                    score += 0.4
+            return score
+
+        for product in results:
+            product["query_score"] = score_product(product)
+
+        return sorted(
+            results,
+            key=lambda p: (p.get("query_score", 0), p.get("score", 0)),
+            reverse=True
+        )
+
+    def _apply_preference_ranking(
+        self,
+        results: List[Dict[str, Any]],
+        preferences: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        if not results:
+            return results
+
+        def score_product(product: Dict[str, Any]) -> float:
+            score = float(product.get("query_score") or 0.0)
+            title = (product.get("name") or "").lower()
+            desc = (product.get("description") or "").lower()
+            tags = self._parse_tags(product.get("tags", []))
+            tags_lower = [t.lower() for t in tags]
+
+            for key in ["color", "material", "style", "descriptor"]:
+                pref = preferences.get(key)
+                if not pref:
+                    continue
+                pref_lower = str(pref).lower()
+                if pref_lower in title or pref_lower in desc or pref_lower in tags_lower:
+                    score += 1.5
+
+            room_type = preferences.get("room_type")
+            if room_type:
+                room_lower = str(room_type).lower()
+                if room_lower in title or room_lower in desc or room_lower in tags_lower:
+                    score += 1.0
+
+            size_pref = preferences.get("size")
+            if size_pref:
+                size_lower = str(size_pref).lower()
+                if size_lower in title or size_lower in desc or size_lower in tags_lower:
+                    score += 0.8
+
+            price_max = preferences.get("price_max")
+            price = product.get("price")
+            if price_max and price is not None:
+                try:
+                    price = float(price)
+                    if price <= price_max:
+                        score += 0.5 + (price / price_max) * 0.5
+                except (TypeError, ValueError):
+                    pass
+
+            liked_categories = preferences.get("liked_categories") or []
+            if liked_categories:
+                prod_category = (product.get("category") or "").lower()
+                if any(cat.lower() in prod_category for cat in liked_categories):
+                    score += 1.0
+
+            liked_vendors = preferences.get("liked_vendors") or []
+            if liked_vendors:
+                prod_vendor = (product.get("vendor") or "").lower()
+                if any(v.lower() == prod_vendor for v in liked_vendors):
+                    score += 0.5
+
+            return score
+
+        return sorted(
+            results,
+            key=lambda p: (score_product(p), p.get("score", 0)),
+            reverse=True
+        )
     
     async def get_product(self, sku: str) -> Optional[Dict[str, Any]]:
         """

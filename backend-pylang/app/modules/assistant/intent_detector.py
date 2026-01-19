@@ -34,7 +34,7 @@ class IntentDetector:
         "living_room": ["Living Room Furniture", "Sofas", "Coffee Tables", "Entertainment TV Units", "Ottomans"],
         "dining room": ["Dining Room Furniture", "Tables", "Bar Stools"],
         "dining_room": ["Dining Room Furniture", "Tables", "Bar Stools"],
-        "office": ["Desks", "Chairs", "Filing & Storage", "Office Cupboards", "Bookcases & Bookshelves", "Monitor Arms"],
+        "office": ["Desks", "Chairs", "Tables", "Workstations", "Office Furniture", "Filing & Storage", "Office Cupboards", "Bookcases & Bookshelves", "Monitor Arms"],
         "bathroom": ["Bathroom Furniture"],
         "kitchen": ["Bar Stools", "Tables"],
         "gym": ["Treadmills", "Exercise Bikes", "Rowing Machines", "Dumbbells", "Kettlebell", "Gym Bench", "Bench & Gym Equipment"],
@@ -526,6 +526,12 @@ class IntentDetector:
                 if any(kw in message_lower for kw in keywords):
                     entities["category"] = cat
                     break
+
+            if "category" not in entities:
+                from app.modules.assistant.categories import match_subcategory_from_query
+                subcategory = match_subcategory_from_query(message)
+                if subcategory:
+                    entities["category"] = subcategory
             
             # Extract price range
             price_under = re.search(r'under\s*\$?(\d+)', message_lower)
@@ -581,11 +587,30 @@ class IntentDetector:
                     break
             
             # Extract descriptive attributes (horizontal, vertical, adjustable, etc.)
-            descriptors = ["horizontal", "vertical", "adjustable", "stackable", "foldable", 
-                          "portable", "wall-mounted", "standing", "sitting", "reclining"]
+            descriptors = [
+                "horizontal", "vertical", "adjustable", "stackable", "foldable",
+                "portable", "wall-mounted", "standing", "sitting", "reclining",
+                "l shape", "l-shape", "corner"
+            ]
             for descriptor in descriptors:
                 if descriptor in message_lower:
-                    entities["descriptor"] = descriptor
+                    entities["descriptor"] = descriptor.replace("-", " ")
+                    break
+
+            # Extract space dimensions (cm)
+            dim_match = re.search(
+                r'(\d+(?:\.\d+)?)\s*(?:cm)?\s*(?:x|by)\s*(\d+(?:\.\d+)?)\s*cm',
+                message_lower
+            )
+            if dim_match:
+                entities["space_length"] = float(dim_match.group(1))
+                entities["space_width"] = float(dim_match.group(2))
+
+            # Extract size preference
+            size_terms = ["small", "compact", "large", "spacious", "tiny", "huge"]
+            for size_term in size_terms:
+                if re.search(r'\b' + size_term + r'\b', message_lower):
+                    entities["size"] = size_term
                     break
         
         elif intent == IntentType.PRODUCT_SPEC_QA:
@@ -845,6 +870,10 @@ class IntentDetector:
         for pattern in multi_product_patterns:
             match = re.search(pattern, message_lower)
             if match:
+                has_quantity = re.search(r'\b\d+\b', message_lower) is not None
+                has_budget = re.search(r'\b(under|budget|total|max|maximum)\b', message_lower) is not None
+                if has_quantity or has_budget:
+                    return None
                 product1 = match.group(1).rstrip('s')
                 product2 = match.group(3).rstrip('s')
                 partial_entities['requested_products'] = [product1, product2]

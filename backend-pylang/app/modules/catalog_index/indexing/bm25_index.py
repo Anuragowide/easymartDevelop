@@ -115,6 +115,7 @@ class BM25Index:
                         handle=doc.metadata.get('handle', ''),
                         title=doc.metadata.get('title', ''),
                         price=doc.metadata.get('price', 0.0),
+                        compare_at_price=doc.metadata.get('compare_at_price'),
                         currency=doc.metadata.get('currency', 'USD'),
                         image_url=doc.metadata.get('image_url', ''),
                         product_url=doc.metadata.get('product_url', ''),
@@ -122,7 +123,16 @@ class BM25Index:
                         tags=doc.metadata.get('tags', []),
                         description=doc.metadata.get('description', ''),
                         search_content=doc.content,
-                        inventory_quantity=doc.metadata.get('inventory_quantity', 0)
+                        inventory_quantity=doc.metadata.get('inventory_quantity', 0),
+                        category=doc.metadata.get('category'),
+                        product_type=doc.metadata.get('product_type'),
+                        status=doc.metadata.get('status'),
+                        options_json=doc.metadata.get('options'),
+                        variants_json=doc.metadata.get('variants'),
+                        images_json=doc.metadata.get('images'),
+                        available=int(bool(doc.metadata.get('available', True))),
+                        inventory_managed=int(bool(doc.metadata.get('inventory_managed', False))),
+                        barcode=doc.metadata.get('barcode')
                     )
                     session.merge(product)
                 

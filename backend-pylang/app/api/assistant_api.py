@@ -320,6 +320,30 @@ async def get_analytics_dashboard():
         raise HTTPException(status_code=500, detail=f"Error getting analytics: {str(e)}")
 
 
+@router.post("/catalog/sync")
+async def sync_catalog(request: Request):
+    """
+    Trigger catalog sync from Node.js adapter.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    try:
+        from app.modules.catalog_index.sync import get_catalog_sync_service
+        sync_service = get_catalog_sync_service()
+        allow_csv_fallback = bool(body.get("allow_csv_fallback", False))
+        success = await sync_service.run_once(allow_csv_fallback=allow_csv_fallback)
+        return {
+            "success": success,
+            "last_sync": sync_service.last_sync.isoformat() if sync_service.last_sync else None
+        }
+    except Exception as e:
+        logger.error(f"Catalog sync error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Catalog sync failed: {str(e)}")
+
+
 @router.post("/cart")
 async def update_cart_endpoint(request: Request):
     """

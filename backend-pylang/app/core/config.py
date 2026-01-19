@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     # Search Configuration
     SEARCH_LIMIT_DEFAULT: int = Field(default=5, description="Default search result limit")
     SEARCH_HYBRID_ALPHA: float = Field(default=0.5, description="Hybrid search weight (0-1)")
+
+    # Catalog sync
+    CATALOG_SYNC_ENABLED: bool = Field(default=False, description="Enable scheduled catalog sync")
+    CATALOG_SYNC_INTERVAL_MINUTES: int = Field(default=60, description="Catalog sync interval in minutes")
+    CATALOG_SYNC_ALLOW_CSV_FALLBACK: bool = Field(default=False, description="Allow CSV fallback during scheduled sync")
+
+    # Bundle confirmation
+    BUNDLE_CONFIRM_THRESHOLD: float = Field(default=1000.0, description="Require confirmation above this bundle total")
     
     # Session Management
     SESSION_TIMEOUT_MINUTES: int = Field(default=30, description="Session timeout in minutes")

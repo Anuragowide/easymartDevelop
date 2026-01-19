@@ -17,6 +17,7 @@ from app.modules.assistant.session_store import get_session_store
 from app.modules.retrieval.product_search import ProductSearcher
 from app.modules.retrieval.spec_search import SpecSearcher
 from app.modules.assistant.prompts import POLICIES, STORE_INFO, get_policy_text, get_contact_text
+from app.modules.assistant.bundle_planner import BundlePlanner
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class CompareProductsArgs(BaseModel):
 
 
 class UpdateCartArgs(BaseModel):
-    action: str = Field(..., description="Cart action: add, remove, update_quantity, view, clear")
+    action: str = Field(..., description="Cart action: add, remove, set, update_quantity, view, clear")
     product_id: Optional[str] = Field(default=None, description="Product SKU")
     quantity: Optional[int] = Field(default=1, description="Quantity to add")
     session_id: Optional[str] = Field(default=None, description="Session ID")
@@ -80,11 +81,44 @@ class ProductFitArgs(BaseModel):
     space_width: float = Field(..., description="Space width in cm")
 
 
+class BundleItemArgs(BaseModel):
+    type: str = Field(..., description="Item type (chair, table, desk, etc.)")
+    quantity: int = Field(..., description="Quantity requested")
+
+
+class BuildBundleArgs(BaseModel):
+    request: str = Field(..., description="Bundle request text (e.g., '5 tables and 6 chairs under 2000')")
+    items: Optional[List[BundleItemArgs]] = Field(default=None, description="Structured item list")
+    budget_total: Optional[float] = Field(default=None, description="Total budget in AUD")
+    color: Optional[str] = Field(default=None, description="Color preference")
+    material: Optional[str] = Field(default=None, description="Material preference")
+    room_type: Optional[str] = Field(default=None, description="Room context")
+    descriptor: Optional[str] = Field(default=None, description="Descriptor like 'l shape', 'corner'")
+    strategy: Optional[str] = Field(default="closest_to_budget", description="cheapest | closest_to_budget")
+
+
+class CheapestBundleArgs(BaseModel):
+    request: str = Field(..., description="Bundle request text")
+    items: Optional[List[BundleItemArgs]] = Field(default=None, description="Structured item list")
+    color: Optional[str] = Field(default=None, description="Color preference")
+    material: Optional[str] = Field(default=None, description="Material preference")
+    room_type: Optional[str] = Field(default=None, description="Room context")
+    descriptor: Optional[str] = Field(default=None, description="Descriptor like 'l shape', 'corner'")
+
+
+class SmallSpaceSearchArgs(BaseModel):
+    category: str = Field(default="table", description="Product type to search (table, desk, etc.)")
+    space_length: float = Field(..., description="Available length in cm")
+    space_width: float = Field(..., description="Available width in cm")
+    limit: int = Field(default=5, description="Maximum results to return")
+
+
 class EasymartAssistantTools:
     def __init__(self):
         self.product_searcher = ProductSearcher()
         self.spec_searcher = SpecSearcher()
         self.settings = get_settings()
+        self.bundle_planner = BundlePlanner(self.product_searcher)
 
     async def search_products(
         self,
@@ -111,8 +145,50 @@ class EasymartAssistantTools:
             filters["color"] = color
         if price_max:
             filters["price_max"] = price_max
+        if "in_stock" not in filters:
+            filters["in_stock"] = True
 
-        results = await self.product_searcher.search(query=query, filters=filters, limit=min(limit, 10))
+        session_store = get_session_store()
+        session_id = CURRENT_SESSION_ID.get()
+        session = session_store.get_or_create_session(session_id) if session_id else None
+        brief = session.metadata.get("shopping_brief") if session else None
+
+        if brief:
+            for key in ["category", "material", "style", "room_type", "color", "price_max", "descriptor", "size"]:
+                if key not in filters and brief.get(key):
+                    filters[key] = brief[key]
+
+        preferences = dict(brief) if brief else {}
+        if session:
+            preferences["liked_categories"] = session.metadata.get("liked_categories", [])
+            preferences["liked_vendors"] = session.metadata.get("liked_vendors", [])
+
+        results = await self.product_searcher.search(
+            query=query,
+            filters=filters,
+            limit=min(limit, 10),
+            preferences=preferences
+        )
+
+        if not results and filters.get("in_stock"):
+            relaxed = dict(filters)
+            relaxed.pop("in_stock", None)
+            results = await self.product_searcher.search(
+                query=query,
+                filters=relaxed,
+                limit=min(limit, 10),
+                preferences=preferences
+            )
+
+        if results and isinstance(results, list) and len(results) < limit and "category" in filters:
+            relaxed = dict(filters)
+            relaxed.pop("category", None)
+            results = await self.product_searcher.search(
+                query=query,
+                filters=relaxed,
+                limit=min(limit, 10),
+                preferences=preferences
+            )
 
         if isinstance(results, dict) and results.get("no_color_match"):
             return results
@@ -130,11 +206,9 @@ class EasymartAssistantTools:
             product["price"] = product.get("price", 0.0)
             formatted.append(product)
 
-        session_store = get_session_store()
-        session_id = CURRENT_SESSION_ID.get()
-        if session_id:
-            session = session_store.get_or_create_session(session_id)
+        if session:
             session.update_shown_products(formatted)
+            session.metadata["last_search_filters"] = filters
 
         return {
             "products": formatted,
@@ -156,13 +230,45 @@ class EasymartAssistantTools:
         if question and specs_list:
             answer = await self.spec_searcher.answer_question(question=question, sku=product_id)
 
+        # Extract color options from tags if present
+        available_colors = []
+        tags = product.get("tags", [])
+        if isinstance(tags, str):
+            try:
+                import json
+                tags = json.loads(tags)
+            except Exception:
+                tags = []
+        for tag in tags:
+            tag_lower = str(tag).lower()
+            if tag_lower.startswith("color_") or tag_lower.startswith("colour_"):
+                available_colors.append(tag_lower.split("_", 1)[1].title())
+        available_colors = sorted(list(set(available_colors)))
+
+        options = product.get("options") or []
+        if isinstance(options, str):
+            try:
+                import json
+                options = json.loads(options)
+            except Exception:
+                options = []
+        for opt in options:
+            if not isinstance(opt, dict):
+                continue
+            opt_name = str(opt.get("name", "")).lower()
+            opt_values = opt.get("values") or []
+            if opt_name in ["color", "colour"] and opt_values:
+                available_colors.extend([str(v).title() for v in opt_values])
+        available_colors = sorted(list(set(available_colors)))
+
         if not specs_list:
             return {
                 "product_id": product_id,
                 "product_name": product["name"],
                 "price": product.get("price"),
                 "description": product.get("description", ""),
-                "specs": {},
+                "specs": {"Available Colors": ", ".join(available_colors)} if available_colors else {},
+                "available_colors": available_colors if available_colors else None,
                 "message": "Detailed specifications not available. Basic product information provided above.",
                 "answer": answer
             }
@@ -172,11 +278,15 @@ class EasymartAssistantTools:
             section = spec.get("section", "General")
             formatted_specs[section] = spec.get("spec_text", "")
 
+        if available_colors:
+            formatted_specs.setdefault("Available Colors", ", ".join(available_colors))
+
         return {
             "product_id": product_id,
             "product_name": product["name"],
             "price": product.get("price"),
             "specs": formatted_specs,
+            "available_colors": available_colors if available_colors else None,
             "answer": answer,
             "estimated_delivery": "5-10 business days"
         }
@@ -216,8 +326,11 @@ class EasymartAssistantTools:
         product_id: Optional[str] = None,
         quantity: Optional[int] = None,
         session_id: Optional[str] = None,
-        skip_sync: bool = False
+        skip_sync: bool = False,
+        product_snapshot: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        action = (action or "").lower()
+        normalized_action = "set" if action in ["update_quantity", "set"] else action
         session_store = get_session_store()
         session_id = session_id or CURRENT_SESSION_ID.get()
         session = session_store.get_or_create_session(session_id)
@@ -254,13 +367,15 @@ class EasymartAssistantTools:
                         "added_at": item.get("added_at")
                     })
                 else:
+                    price = float(item.get("price") or 0.0)
+                    qty = item.get("quantity", 1)
                     cart_details.append({
                         "product_id": pid,
                         "id": pid,
-                        "title": pid or "Unknown Product",
-                        "quantity": item.get("quantity", 1),
-                        "price": 0.0,
-                        "item_total": 0.0
+                        "title": item.get("name") or pid or "Unknown Product",
+                        "quantity": qty,
+                        "price": price,
+                        "item_total": price * qty
                     })
 
             return {
@@ -286,7 +401,7 @@ class EasymartAssistantTools:
                     response = await client.post(
                         f"{self.settings.NODE_BACKEND_URL}/api/cart/add",
                         json=payload,
-                        timeout=5.0
+                        timeout=self.settings.API_TIMEOUT
                     )
                     if response.status_code == 200:
                         return response.json()
@@ -294,7 +409,7 @@ class EasymartAssistantTools:
                 logger.error(f"Cart sync failed: {sync_e}")
             return None
 
-        if action == "view":
+        if normalized_action == "view":
             cart_state = await _get_cart_state()
             return {
                 "action": "view",
@@ -303,7 +418,7 @@ class EasymartAssistantTools:
                 "message": f"Your cart has {cart_state['item_count']} items totaling ${cart_state['total']:.2f}" if cart_state["items"] else "Your cart is currently empty."
             }
 
-        if action == "clear":
+        if normalized_action == "clear":
             session.clear_cart()
             if not skip_sync:
                 await _sync_with_node("clear")
@@ -319,11 +434,31 @@ class EasymartAssistantTools:
             return {"error": "product_id required for this action", "success": False}
 
         product_info = await self.product_searcher.get_product(product_id)
+        if not product_info and product_snapshot:
+            product_info = product_snapshot
         product_name = product_info.get("title", product_id) if product_info else product_id
+        product_category = product_info.get("category") if product_info else None
+        product_vendor = product_info.get("vendor") if product_info else None
 
-        if action == "add":
+        if normalized_action == "add":
             quantity = quantity or 1
-            session.add_to_cart(product_id, quantity)
+            session.add_to_cart(
+                product_id,
+                quantity,
+                price=product_info.get("price") if product_info else None,
+                name=product_name,
+                image_url=product_info.get("image_url") if product_info else None
+            )
+            if product_category:
+                liked = session.metadata.get("liked_categories", [])
+                if product_category not in liked:
+                    liked.append(product_category)
+                session.metadata["liked_categories"] = liked
+            if product_vendor:
+                liked = session.metadata.get("liked_vendors", [])
+                if product_vendor not in liked:
+                    liked.append(product_vendor)
+                session.metadata["liked_vendors"] = liked
             if not skip_sync:
                 await _sync_with_node("add", product_id, quantity)
             session.metadata["last_cart_action"] = {
@@ -343,7 +478,7 @@ class EasymartAssistantTools:
                 "cart": cart_state
             }
 
-        if action == "remove":
+        if normalized_action == "remove":
             session.remove_from_cart(product_id)
             if not skip_sync:
                 await _sync_with_node("remove", product_id)
@@ -361,12 +496,18 @@ class EasymartAssistantTools:
                 "cart": cart_state
             }
 
-        if action in ["set", "update_quantity"]:
+        if normalized_action == "set":
             if quantity is None:
                 return {"error": "quantity required for set action", "success": False}
             session.remove_from_cart(product_id)
             if quantity > 0:
-                session.add_to_cart(product_id, quantity)
+                session.add_to_cart(
+                    product_id,
+                    quantity,
+                    price=product_info.get("price") if product_info else None,
+                    name=product_name,
+                    image_url=product_info.get("image_url") if product_info else None
+                )
             if not skip_sync:
                 await _sync_with_node("set", product_id, quantity)
             session.metadata["last_cart_action"] = {
@@ -520,6 +661,111 @@ class EasymartAssistantTools:
             "message": "It should fit in the provided space." if fits else "It may not fit in the provided space."
         }
 
+    async def search_small_space(
+        self,
+        category: str,
+        space_length: float,
+        space_width: float,
+        limit: int = 5
+    ) -> Dict[str, Any]:
+        search_query = category
+        results = await self.product_searcher.search(
+            query=search_query,
+            limit=min(limit * 3, 30),
+            filters={"in_stock": True, "category": category}
+        )
+
+        if isinstance(results, dict) and results.get("no_color_match"):
+            results = []
+
+        matching = []
+        for product in results:
+            sku = product.get("sku") or product.get("id")
+            if not sku:
+                continue
+
+            specs = await self.spec_searcher.get_specs_for_product(sku)
+            if not specs:
+                continue
+
+            text = " ".join([s.get("spec_text", "") for s in specs]).lower()
+            dim_match = re.search(r'(\d+(?:\.\d+)?)\s*cm\s*[xX]\s*(\d+(?:\.\d+)?)\s*cm', text)
+            if not dim_match:
+                dim_match = re.search(r'(\d+(?:\.\d+)?)\s*cm\s*[xX]\s*(\d+(?:\.\d+)?)\s*cm\s*[xX]\s*(\d+(?:\.\d+)?)\s*cm', text)
+
+            if not dim_match:
+                continue
+
+            width = float(dim_match.group(1))
+            depth = float(dim_match.group(2))
+            fits = width <= space_width and depth <= space_length
+            if not fits:
+                continue
+
+            product["product_dimensions_cm"] = {"width": width, "depth": depth}
+            matching.append(product)
+
+            if len(matching) >= limit:
+                break
+
+        return {
+            "products": matching,
+            "total": len(matching),
+            "space_cm": {"length": space_length, "width": space_width},
+            "category": category
+        }
+
+    async def build_bundle(
+        self,
+        request: str,
+        items: Optional[List[Dict[str, Any]]] = None,
+        budget_total: Optional[float] = None,
+        color: Optional[str] = None,
+        material: Optional[str] = None,
+        room_type: Optional[str] = None,
+        descriptor: Optional[str] = None,
+        strategy: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        result = await self.bundle_planner.build_bundle(
+            request=request,
+            items=items,
+            budget_total=budget_total,
+            color=color,
+            material=material,
+            room_type=room_type,
+            descriptor=descriptor,
+            strategy=strategy,
+        )
+        session_id = CURRENT_SESSION_ID.get()
+        if session_id:
+            session_store = get_session_store()
+            session = session_store.get_or_create_session(session_id)
+            session.metadata["last_bundle_request"] = {
+                "request": request,
+                "items": items,
+                "budget_total": budget_total,
+                "color": color,
+                "material": material,
+                "room_type": room_type,
+                "descriptor": descriptor,
+                "strategy": strategy
+            }
+            bundle_items = result.get("bundle", {}).get("items", [])
+            session.metadata["last_bundle_items"] = [
+                {
+                    "product_id": item.get("product_id"),
+                    "quantity": item.get("quantity", 1),
+                    "name": item.get("name"),
+                    "price": item.get("unit_price"),
+                    "product_url": item.get("product_url"),
+                    "image_url": item.get("image_url")
+                }
+                for item in bundle_items
+                if item.get("product_id")
+            ]
+            session.metadata["last_bundle_total"] = result.get("bundle", {}).get("total_estimate")
+        return result
+
 
 _assistant_tools: Optional[EasymartAssistantTools] = None
 
@@ -591,6 +837,25 @@ async def check_product_fit_tool(**kwargs) -> Dict[str, Any]:
     return await get_assistant_tools().check_product_fit(**kwargs)
 
 
+@tool("build_bundle", args_schema=BuildBundleArgs)
+async def build_bundle_tool(**kwargs) -> Dict[str, Any]:
+    """Build a multi-item bundle within a total budget."""
+    return await get_assistant_tools().build_bundle(**kwargs)
+
+
+@tool("build_cheapest_bundle", args_schema=CheapestBundleArgs)
+async def build_cheapest_bundle_tool(**kwargs) -> Dict[str, Any]:
+    """Build the cheapest multi-item bundle that matches the request."""
+    kwargs["strategy"] = "cheapest"
+    return await get_assistant_tools().build_bundle(**kwargs)
+
+
+@tool("search_small_space", args_schema=SmallSpaceSearchArgs)
+async def search_small_space_tool(**kwargs) -> Dict[str, Any]:
+    """Search for products that fit within a given space."""
+    return await get_assistant_tools().search_small_space(**kwargs)
+
+
 def get_langchain_tools():
     return [
         search_products_tool,
@@ -602,5 +867,8 @@ def get_langchain_tools():
         get_contact_info_tool,
         calculate_shipping_tool,
         find_similar_products_tool,
-        check_product_fit_tool
+        check_product_fit_tool,
+        build_bundle_tool,
+        build_cheapest_bundle_tool,
+        search_small_space_tool
     ]

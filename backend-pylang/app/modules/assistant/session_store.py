@@ -185,7 +185,15 @@ class SessionContext:
         
         return None
     
-    def add_to_cart(self, product_id: str, quantity: int = 1, source: str = "unknown"):
+    def add_to_cart(
+        self,
+        product_id: str,
+        quantity: int = 1,
+        source: str = "unknown",
+        price: Optional[float] = None,
+        name: Optional[str] = None,
+        image_url: Optional[str] = None
+    ):
         """Add item to cart (local state)
         
         Args:
@@ -221,6 +229,12 @@ class SessionContext:
                 # Add to existing quantity
                 logger.info(f"[SESSION.ADD_TO_CART] Found existing item, adding {quantity} to current {item['quantity']}")
                 item["quantity"] += quantity
+                if price is not None:
+                    item["price"] = price
+                if name:
+                    item["name"] = name
+                if image_url:
+                    item["image_url"] = image_url
                 item["added_at"] = datetime.now().isoformat()  # Update timestamp
                 self.last_activity = datetime.now()
                 logger.info(f"[SESSION.ADD_TO_CART] Updated cart AFTER add: {self.cart_items}")
@@ -233,6 +247,9 @@ class SessionContext:
             "product_id": product_id,
             "id": product_id, # Store both for consistency
             "quantity": quantity,
+            "price": price,
+            "name": name,
+            "image_url": image_url,
             "added_at": datetime.now().isoformat()
         })
         self.last_activity = datetime.now()
