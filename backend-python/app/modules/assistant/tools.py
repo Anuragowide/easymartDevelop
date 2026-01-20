@@ -24,6 +24,9 @@ from .prompts import POLICIES, STORE_INFO, get_policy_text, get_contact_text
 # Import category mapping
 from .categories import ALL_CATEGORIES, ALL_SUBCATEGORIES, CATEGORY_MAPPING
 
+# Import smart bundle planner
+from .smart_bundle_planner import get_smart_bundle_planner
+
 logger = logging.getLogger(__name__)
 
 # Node.js backend URL for cart synchronization
@@ -286,6 +289,35 @@ TOOL_DEFINITIONS = [
                 "required": ["product_id", "space_length", "space_width"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "plan_smart_bundle",
+            "description": "Advanced tool for vague room setup requests. Uses AI planning to decompose vague intents like 'I want a small office' into specific product searches, then creates a cohesive bundle. Use when user describes a room/space to setup, not specific products.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_request": {
+                        "type": "string",
+                        "description": "User's vague room setup request (e.g., 'I want a small office in my home', 'help me setup a gaming corner', 'I need furniture for a tiny studio')"
+                    },
+                    "budget": {
+                        "type": "number",
+                        "description": "Optional budget constraint in AUD (e.g., 500.0)"
+                    },
+                    "style_preference": {
+                        "type": "string",
+                        "description": "Optional style preference (e.g., 'modern', 'minimalist', 'cozy')"
+                    },
+                    "space_constraint": {
+                        "type": "string",
+                        "description": "Optional space constraint (e.g., 'small room', 'corner', 'compact')"
+                    }
+                },
+                "required": ["user_request"]
+            }
+        }
     }
 ]
 
@@ -312,6 +344,7 @@ class EasymartAssistantTools:
         """Initialize tools with dependencies"""
         self.product_searcher = ProductSearcher()
         self.spec_searcher = SpecSearcher()
+        self.smart_planner = get_smart_bundle_planner()
     
     async def search_products(
         self,
@@ -939,7 +972,7 @@ class EasymartAssistantTools:
     
     async def compare_products(self, product_ids: List[str], position_labels: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Compare multiple products side-by-side.
+        Compare multiple products side-by-side with Markdown table.
         
         Args:
             product_ids: List of product SKUs to compare
@@ -947,19 +980,12 @@ class EasymartAssistantTools:
         
         Returns:
             {
-                "products": [
-                    {
-                        "id": "CHR-001",
-                        "name": "...",
-                        "price": 199.00,
-                        "specs": {...}
-                    }
-                ],
+                "products": [...],
                 "position_labels": ["Option 2", "Option 3"],
+                "comparison_table": "| Feature | Product 1 | Product 2 |\n...",
                 "comparison": {
                     "price_range": "199.00 - 349.00 AUD",
-                    "common_features": [...],
-                    "differences": [...]
+                    "count": 2
                 }
             }
         """
@@ -967,17 +993,17 @@ class EasymartAssistantTools:
             return {"error": "Can only compare 2-4 products"}
         
         try:
-            # Get all products
+            # Get all products with full details
             products = []
             for pid in product_ids:
                 product = await self.product_searcher.get_product(pid)
                 if product:
-                    # FIX: Ensure product has 'name' field (map from 'title' if needed)
+                    # Ensure product has 'name' field
                     if 'name' not in product or not product.get('name'):
                         product['name'] = product.get('title') or product.get('handle', '').replace('-', ' ').title() or 'Unknown Product'
                     
+                    # Get specs
                     specs_list = await self.spec_searcher.get_specs_for_product(pid)
-                    # Convert list to dict
                     specs_dict = {}
                     if specs_list:
                         for spec in specs_list:
@@ -988,18 +1014,26 @@ class EasymartAssistantTools:
                         "id": pid,
                         "name": product['name'],
                         "price": product.get("price"),
-                        "specs": specs_dict
+                        "stock": product.get("inventory_quantity", 0),
+                        "brand": product.get("brand", "N/A"),
+                        "category": product.get("category", "N/A"),
+                        "specs": specs_dict,
+                        "full_product": product  # Keep full product for spec extraction
                     })
             
             if not products:
                 return {"error": "No valid products found for comparison"}
             
-            # Basic comparison
+            # Build Markdown comparison table
+            comparison_table = self._build_comparison_table(products)
+            
+            # Basic comparison summary
             prices = [p["price"] for p in products if p.get("price")]
             price_range = f"${min(prices):.2f} - ${max(prices):.2f} AUD" if prices else "N/A"
             
             result = {
                 "products": products,
+                "comparison_table": comparison_table,
                 "comparison": {
                     "price_range": price_range,
                     "count": len(products)
@@ -1013,7 +1047,114 @@ class EasymartAssistantTools:
             return result
         
         except Exception as e:
+            logger.error(f"Comparison failed: {e}", exc_info=True)
             return {"error": f"Comparison failed: {str(e)}"}
+    
+    def _build_comparison_table(self, products: List[Dict[str, Any]]) -> str:
+        """
+        Build Markdown comparison table for products.
+        
+        Returns table like:
+        | Feature | **Product 1** | **Product 2** |
+        |---------|---------------|---------------|
+        | **Price** | $199.00 | $349.00 |
+        | **Stock** | In Stock (5) | In Stock (12) |
+        ...
+        """
+        if not products:
+            return "No products to compare"
+        
+        # Build header row
+        header = ["Feature"]
+        for p in products:
+            header.append(f"**{p['name']}**")
+        
+        # Build separator row
+        separator = ["-" * max(10, len(cell)) for cell in header]
+        
+        # Build data rows
+        rows = []
+        
+        # Row 1: Price
+        price_row = ["**Price**"]
+        for p in products:
+            price = p.get("price")
+            price_row.append(f"${price:.2f}" if price else "N/A")
+        rows.append(price_row)
+        
+        # Row 2: Stock
+        stock_row = ["**Stock**"]
+        for p in products:
+            stock = p.get("stock", 0)
+            if stock > 0:
+                stock_row.append(f"In Stock ({stock})")
+            else:
+                stock_row.append("Out of Stock")
+        rows.append(stock_row)
+        
+        # Row 3: Brand
+        brand_row = ["**Brand**"]
+        for p in products:
+            brand_row.append(p.get("brand", "N/A"))
+        rows.append(brand_row)
+        
+        # Additional spec rows from product data
+        # Extract common spec fields
+        spec_fields = set()
+        for p in products:
+            full_product = p.get("full_product", {})
+            for key in full_product.keys():
+                if key not in ["name", "title", "price", "inventory_quantity", "brand", "category", "sku", "id", "handle", "description"]:
+                    spec_fields.add(key)
+        
+        # Add spec rows
+        for field in sorted(spec_fields):
+            field_name = self._normalize_spec_key(field)
+            spec_row = [f"**{field_name}**"]
+            for p in products:
+                full_product = p.get("full_product", {})
+                value = full_product.get(field, "N/A")
+                # Format value
+                if isinstance(value, (int, float)):
+                    spec_row.append(str(value))
+                elif isinstance(value, str):
+                    spec_row.append(value[:50])  # Truncate long values
+                else:
+                    spec_row.append(str(value)[:50])
+            rows.append(spec_row)
+        
+        # Build table
+        lines = []
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("| " + " | ".join(separator) + " |")
+        for row in rows:
+            lines.append("| " + " | ".join(row) + " |")
+        
+        return "\n".join(lines)
+    
+    def _normalize_spec_key(self, key: str) -> str:
+        """
+        Normalize spec field names for display.
+        
+        Examples:
+            "product_weight" -> "Weight"
+            "max_load_capacity" -> "Max Load"
+            "assembly_required" -> "Assembly Required"
+        """
+        # Remove common prefixes
+        key = key.replace("product_", "").replace("item_", "")
+        
+        # Split by underscore and capitalize
+        words = key.split("_")
+        words = [w.capitalize() for w in words]
+        
+        # Join and apply common abbreviations
+        result = " ".join(words)
+        result = result.replace("Maximum", "Max")
+        result = result.replace("Minimum", "Min")
+        result = result.replace("Capacity", "Cap.")
+        
+        return result
     
     async def update_cart(
         self,
@@ -1412,6 +1553,45 @@ class EasymartAssistantTools:
             "express_cost": shipping_policy["express_cost"],
             "express_time": shipping_policy["express_time"]
         }
+    
+    async def plan_smart_bundle(
+        self,
+        user_request: str,
+        budget: Optional[float] = None,
+        style_preference: Optional[str] = None,
+        space_constraint: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Plan and create a smart bundle for vague room setup requests.
+        Uses 3-phase Planner-Executor Pattern:
+        1. Decompose: LLM creates detailed shopping plan with keyword injection
+        2. Execute: Parallel product searches
+        3. Synthesize: Score and select cohesive products
+        
+        Args:
+            user_request: Vague intent like "I want a small office"
+            budget: Optional budget (e.g., 500.0)
+            style_preference: Optional style (e.g., "modern", "minimalist")
+            space_constraint: Optional constraint (e.g., "small room", "corner")
+        
+        Returns:
+            {
+                "success": bool,
+                "message": str,
+                "bundle": {
+                    "theme": str,
+                    "items": [{"sku": str, "name": str, "price": float, "reasoning": str}, ...],
+                    "total": float
+                },
+                "plan": dict
+            }
+        """
+        return await self.smart_planner.plan_and_create_bundle(
+            user_request=user_request,
+            budget=budget,
+            style_preference=style_preference,
+            space_constraint=space_constraint
+        )
 
 
 async def execute_tool(
@@ -1451,7 +1631,8 @@ async def execute_tool(
         "get_policy_info": tools_instance.get_policy_info,
         "get_contact_info": tools_instance.get_contact_info,
         "calculate_shipping": tools_instance.calculate_shipping,
-        "check_product_fit": tools_instance.check_product_fit
+        "check_product_fit": tools_instance.check_product_fit,
+        "plan_smart_bundle": tools_instance.plan_smart_bundle
     }
     
     tool_func = tool_map.get(tool_name)
