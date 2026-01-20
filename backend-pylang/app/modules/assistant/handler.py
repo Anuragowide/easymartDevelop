@@ -342,9 +342,37 @@ class EasymartAssistantHandler:
         self.session_store.delete_session(session_id)
 
     def _extract_products(self, steps, session) -> List[Dict[str, Any]]:
+        # Special handling for single-product detail tools FIRST
+        # When user asks about a specific product, return ONLY that product
+        for name, observation in reversed(steps or []):
+            if name == "get_product_specs" and isinstance(observation, dict):
+                product_id = observation.get("product_id")
+                if product_id and session.last_shown_products:
+                    # Find and return only the specific product being asked about
+                    for product in session.last_shown_products:
+                        if product.get("sku") == product_id or product.get("id") == product_id:
+                            return [product]  # Return ONLY this product
+                # If not in last_shown, don't return any product cards
+                return []
+            
+            # For compare_products, return only the products being compared
+            if name == "compare_products" and isinstance(observation, dict):
+                compared_products = observation.get("products", [])
+                if compared_products:
+                    return compared_products
+                # Fall back to finding them in session
+                product_ids = observation.get("product_ids", [])
+                if product_ids and session.last_shown_products:
+                    return [p for p in session.last_shown_products 
+                           if p.get("sku") in product_ids or p.get("id") in product_ids]
+                return []
+        
+        # Check for products in tool responses (search, similar, bundle, etc.)
         for name, observation in reversed(steps or []):
             if isinstance(observation, dict) and observation.get("products"):
                 return observation.get("products")
+        
+        # For other cases, return all shown products
         return session.last_shown_products or []
 
     def _build_cart_summary(self, session) -> Optional[Dict[str, Any]]:

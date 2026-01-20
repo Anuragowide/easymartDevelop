@@ -170,6 +170,10 @@ class EasymartAssistantTools:
             preferences=preferences
         )
 
+        # Track if we're showing out-of-stock items
+        showing_out_of_stock = False
+        
+        # Only relax in_stock filter if we got ZERO results
         if not results and filters.get("in_stock"):
             relaxed = dict(filters)
             relaxed.pop("in_stock", None)
@@ -179,7 +183,22 @@ class EasymartAssistantTools:
                 limit=min(limit, 10),
                 preferences=preferences
             )
+            if results:
+                # We're now showing out-of-stock items
+                showing_out_of_stock = True
 
+        # If still no results and category filter was applied, try without category
+        if not results and "category" in filters:
+            relaxed = dict(filters)
+            relaxed.pop("category", None)
+            results = await self.product_searcher.search(
+                query=query,
+                filters=relaxed,
+                limit=min(limit, 10),
+                preferences=preferences
+            )
+
+        # If we have results but fewer than requested, try relaxing category to get more
         if results and isinstance(results, list) and len(results) < limit and "category" in filters:
             relaxed = dict(filters)
             relaxed.pop("category", None)
@@ -206,16 +225,35 @@ class EasymartAssistantTools:
             product["price"] = product.get("price", 0.0)
             formatted.append(product)
 
+        # If in_stock filter was requested, filter out out-of-stock items from results
+        # (The catalog search may return mixed results even with in_stock=True)
+        if filters.get("in_stock") and not showing_out_of_stock:
+            in_stock_products = [p for p in formatted if p.get("inventory_quantity", 0) > 0]
+            if in_stock_products:
+                # We have in-stock items, so only show those
+                formatted = in_stock_products
+            # Otherwise keep all results (even if out of stock)
+
         if session:
             session.update_shown_products(formatted)
             session.metadata["last_search_filters"] = filters
 
-        return {
+        result = {
             "products": formatted,
             "total": len(formatted),
             "showing": len(formatted),
             "sort_applied": sort_by
         }
+        
+        # Add message based on what we're showing
+        if showing_out_of_stock and formatted:
+            result["message"] = "Note: These items may be out of stock."
+            result["showing_out_of_stock"] = True
+        elif formatted and filters.get("in_stock"):
+            # Explicitly state we found in-stock items
+            result["message"] = f"Found {len(formatted)} in-stock items matching your search."
+        
+        return result
 
     async def get_product_specs(self, product_id: str, question: Optional[str] = None) -> Dict[str, Any]:
         product = await self.product_searcher.get_product(product_id)
