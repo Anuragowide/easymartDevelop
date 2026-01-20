@@ -79,7 +79,11 @@ class Settings(BaseSettings):
     
     # Search Configuration
     SEARCH_LIMIT_DEFAULT: int = Field(default=5, description="Default search result limit")
-    SEARCH_HYBRID_ALPHA: float = Field(default=0.5, description="Hybrid search weight (0-1)")
+    SEARCH_HYBRID_ALPHA: float = Field(default=0.6, description="Hybrid search RRF alpha weight (0-1): BM25 vs Vector")
+    SEARCH_MMR_ENABLED: bool = Field(default=True, description="Enable MMR diversification")
+    SEARCH_MMR_LAMBDA: float = Field(default=0.7, description="MMR lambda parameter (0-1): Relevance vs Diversity")
+    SEARCH_MMR_FETCH_K: int = Field(default=50, description="Fetch K candidates before MMR")
+    SEARCH_RRF_K: int = Field(default=60, description="RRF constant k (typically 60)")
 
     # Catalog sync
     CATALOG_SYNC_ENABLED: bool = Field(default=False, description="Enable scheduled catalog sync")

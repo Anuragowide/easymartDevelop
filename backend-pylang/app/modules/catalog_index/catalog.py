@@ -1,20 +1,23 @@
 """
 Catalog Module - Main API Interface
 
-Provides product search and retrieval capabilities using hybrid BM25 + vector search.
+Provides product search and retrieval capabilities using advanced hybrid BM25 + vector search with MMR.
 """
 
 from typing import List, Optional, Dict, Any
 
-from .indexing import DatabaseManager, BM25Index, VectorIndex, HybridSearch, ProductDB, ProductSpecDB
+from .indexing import DatabaseManager, BM25Index, VectorIndex, HybridSearch, AdvancedHybridSearch, ProductDB, ProductSpecDB
 from .models import IndexDocument
 from .config import index_config
+from app.core.config import get_settings
 
 
 class CatalogIndexer:
-    """Main catalog search interface"""
+    """Main catalog search interface with advanced RRF + MMR support"""
     
     def __init__(self):
+        settings = get_settings()
+        
         # Initialize database
         self.db_manager = DatabaseManager()
         
@@ -26,17 +29,32 @@ class CatalogIndexer:
         self.products_vector = VectorIndex("products_index", index_config.embedding_model)
         self.specs_vector = VectorIndex("product_specs_index", index_config.embedding_model)
         
-        # Initialize hybrid searchers
+        # Initialize ADVANCED hybrid searchers with MMR
+        self.products_search_advanced = AdvancedHybridSearch(
+            self.products_bm25,
+            self.products_vector,
+            embedding_model=index_config.embedding_model,
+            alpha=settings.SEARCH_HYBRID_ALPHA,
+            lambda_param=settings.SEARCH_MMR_LAMBDA,
+            k=settings.SEARCH_RRF_K
+        )
+        
+        # Keep legacy hybrid search for backward compatibility
         self.products_search = HybridSearch(
             self.products_bm25,
             self.products_vector,
             index_config.hybrid_alpha
         )
+        
         self.specs_search = HybridSearch(
             self.specs_bm25,
             self.specs_vector,
             index_config.hybrid_alpha
         )
+        
+        # Configuration
+        self.mmr_enabled = settings.SEARCH_MMR_ENABLED
+        self.mmr_fetch_k = settings.SEARCH_MMR_FETCH_K
         
         # Load existing indexes
         self.products_bm25.load()
@@ -48,6 +66,7 @@ class CatalogIndexer:
         
         if product_count > 0:
             print(f"[Catalog] Initialized successfully with {product_count} products")
+            print(f"[Catalog] Advanced search: MMR={'enabled' if self.mmr_enabled else 'disabled'}, α={settings.SEARCH_HYBRID_ALPHA}, λ={settings.SEARCH_MMR_LAMBDA}")
         else:
             print("[Catalog] WARNING: No products in index. Run 'python -m app.modules.assistant.cli index-catalog' to index products")
         
@@ -55,18 +74,29 @@ class CatalogIndexer:
     
     # Public API Methods
     
-    def searchProducts(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def searchProducts(self, query: str, limit: int = 5, use_advanced: bool = True) -> List[Dict[str, Any]]:
         """
-        Search products using hybrid search
+        Search products using hybrid search (with optional MMR)
         
         Args:
             query: Search query string
             limit: Maximum number of results
+            use_advanced: Use advanced RRF+MMR search (default: True)
             
         Returns:
             List of product results with scores
         """
-        return self.products_search.search(query, limit)
+        if use_advanced:
+            # Use advanced search with RRF + optional MMR
+            return self.products_search_advanced.search(
+                query=query,
+                limit=limit,
+                use_mmr=self.mmr_enabled,
+                fetch_k=self.mmr_fetch_k
+            )
+        else:
+            # Use legacy hybrid search (RRF only, no MMR)
+            return self.products_search.search(query, limit)
     
     def searchSpecs(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """

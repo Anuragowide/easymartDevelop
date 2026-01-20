@@ -99,6 +99,11 @@ class EasymartAssistantHandler:
 
         self._maybe_apply_bundle_context(session, request)
         self._update_shopping_brief(session, request.message)
+        
+        # RESOLVE PRODUCT REFERENCES (option 1, first one, etc.)
+        resolved_message = self._resolve_product_references(session, request.message)
+        if resolved_message != request.message:
+            request.message = resolved_message
 
         last_bundle = session.metadata.get("last_bundle_request")
         if last_bundle:
@@ -495,6 +500,8 @@ class EasymartAssistantHandler:
         added = []
         failed = []
         for item in bundle_items:
+            # Fix: bundle items store 'unit_price', not 'price'
+            price = item.get("price") or item.get("unit_price")
             result = await tools.update_cart(
                 action="add",
                 product_id=item.get("product_id"),
@@ -503,7 +510,7 @@ class EasymartAssistantHandler:
                 skip_sync=False,
                 product_snapshot={
                     "title": item.get("name"),
-                    "price": item.get("price"),
+                    "price": price,
                     "image_url": item.get("image_url"),
                 }
             )
@@ -601,6 +608,63 @@ class EasymartAssistantHandler:
         if isinstance(result, dict) and result.get("products"):
             return result.get("products")
         return []
+    
+    def _resolve_product_references(self, session, message: str) -> str:
+        """
+        Resolve product references like "option 1", "first one", "the second chair" 
+        to actual product SKUs before sending to LLM.
+        
+        Examples:
+        - "tell me about option 1" -> "tell me about product 'Artiss Office Chair' (SKU: SKU-CHAIR-001)"
+        - "add the first one to cart" -> "add product 'Artiss Office Chair' (SKU: SKU-CHAIR-001) to cart"
+        """
+        if not session.last_shown_products:
+            return message
+        
+        # Patterns to detect product references (in priority order)
+        patterns = [
+            (r'\b(?:option|choice|item|product|number)\s+(\d+)', 'index'),
+            (r'\b(first|second|third|fourth|fifth)\s+(?:one|option|choice|item|chair|table|desk|product)', 'index'),
+            (r'\b(1st|2nd|3rd|4th|5th)\s+(?:one|option|choice|item|chair|table|desk|product)', 'index'),
+            (r'\b(?:the\s+)?(\d+)(?:st|nd|rd|th)\s+(?:one|option|chair|table|desk|product)', 'index'),
+        ]
+        
+        # Find all matches with their positions and resolved values
+        replacements = []
+        
+        for pattern, ref_type in patterns:
+            for match in re.finditer(pattern, message, re.IGNORECASE):
+                reference = match.group(1)
+                
+                # Skip if this span overlaps with an existing match
+                if any(match.start() < r[1] and match.end() > r[0] for r in replacements):
+                    continue
+                
+                # Resolve the reference
+                product_id = session.resolve_product_reference(reference, ref_type)
+                
+                if product_id:
+                    # Find the product details
+                    product = next(
+                        (p for p in session.last_shown_products 
+                         if p.get('id') == product_id or p.get('sku') == product_id),
+                        None
+                    )
+                    
+                    if product:
+                        product_name = product.get('name') or product.get('title', '')
+                        replacement_text = f"product '{product_name}' (SKU: {product_id})"
+                        replacements.append((match.start(), match.end(), replacement_text))
+        
+        # Sort by position (reverse order) to replace from end to start
+        replacements.sort(reverse=True)
+        
+        # Apply replacements
+        resolved_message = message
+        for start, end, replacement_text in replacements:
+            resolved_message = resolved_message[:start] + replacement_text + resolved_message[end:]
+        
+        return resolved_message
 
 
 _handler: Optional[EasymartAssistantHandler] = None

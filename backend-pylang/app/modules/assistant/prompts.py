@@ -28,7 +28,13 @@ STORE_INFO: Dict = {
             "Sunday: Closed"
         ),
         "response_time": "24-48 hours for email inquiries",
+        "live_chat": "Available during business hours via website"
     },
+    "location": {
+        "warehouse": "Sydney, NSW, Australia",
+        "showroom": "Visit our showroom by appointment",
+        "pickup": "Click & Collect available at our warehouse"
+    }
 }
 
 
@@ -47,6 +53,7 @@ POLICIES: Dict = {
         "free_threshold": 199.00,
         "standard_cost": 15.00,
         "delivery_time": "5-10 business days (metro), 10-15 (regional)",
+        "express_available": True,
         "express_cost": 35.00,
         "express_time": "2-5 business days",
         "international": "Australia only",

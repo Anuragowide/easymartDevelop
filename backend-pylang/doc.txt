@@ -4,7 +4,7 @@
                     Confluence-Ready Technical Documentation
 ================================================================================
 
-Last Updated: January 19, 2026
+Last Updated: January 20, 2026
 Version: 1.0.0
 Author: Easymart Development Team
 
@@ -1838,11 +1838,248 @@ Search for errors:
 
 
 ================================================================================
+                         15. RECENT UPDATES & ENHANCEMENTS
+================================================================================
+
+UPDATE SUMMARY (January 20, 2026):
+
+DIRECTORY STRUCTURE:
+┌────────────────────────────────────────────────────────────────────────┐
+│ backend-pylang/                                                         │
+│ ├── app/                          # Main application package           │
+│ │   ├── main.py                   # FastAPI entry point                │
+│ │   ├── api/                      # API route handlers                 │
+│ │   │   ├── assistant_api.py      # Assistant endpoints                │
+│ │   │   └── health_api.py         # Health check endpoint              │
+│ │   ├── core/                     # Core utilities & config            │
+│ │   │   ├── config.py             # Settings management                │
+│ │   │   ├── schemas.py            # Pydantic models                    │
+│ │   │   ├── analytics.py          # Analytics tracking                 │
+│ │   │   ├── error_recovery.py     # Error handling                     │
+│ │   │   ├── exceptions.py         # Custom exceptions                  │
+│ │   │   ├── followups.py          # Follow-up suggestions              │
+│ │   │   ├── rate_limiter.py       # Rate limiting                      │
+│ │   │   └── dependencies.py       # Dependency injection               │
+│ │   └── modules/                  # Feature modules                    │
+│ │       ├── assistant/             # AI assistant logic                │
+│ │       │   ├── handler.py         # Main assistant handler            │
+│ │       │   ├── tools.py           # LangChain tools (13 tools)        │
+│ │       │   ├── prompts.py         # System prompts                    │
+│ │       │   ├── session_store.py   # Session management                │
+│ │       │   ├── intent_detector.py # Intent classification             │
+│ │       │   ├── intents.py         # Intent types                      │
+│ │       │   ├── filter_validator.py# Filter validation                 │
+│ │       │   ├── bundle_planner.py  # Bundle creation logic             │
+│ │       │   ├── context_analyzer.py# Context analysis                  │
+│ │       │   ├── conversation_state.py # Conversation tracking          │
+│ │       │   ├── categories.py      # Category management               │
+│ │       │   ├── llm_client.py      # OpenAI client wrapper             │
+│ │       │   ├── llm_provider.py    # LLM provider interface            │
+│ │       │   ├── hf_llm_client.py   # Hugging Face client               │
+│ │       │   ├── cli.py             # Command-line interface            │
+│ │       │   └── README.md          # Module documentation              │
+│ │       ├── catalog_index/         # Product catalog indexing          │
+│ │       │   ├── catalog.py         # Catalog operations                │
+│ │       │   ├── config.py          # Indexing configuration            │
+│ │       │   ├── load_catalog.py    # CSV loading utilities             │
+│ │       │   ├── sync.py            # Catalog synchronization           │
+│ │       │   ├── indexing/          # Indexing implementations          │
+│ │       │   ├── models/            # Data models                       │
+│ │       │   └── README.md          # Module documentation              │
+│ │       ├── retrieval/             # Search implementations            │
+│ │       │   ├── product_search.py  # Hybrid product search             │
+│ │       │   └── spec_search.py     # Specification search              │
+│ │       └── observability/         # Logging & monitoring              │
+│ ├── data/                          # Application data                  │
+│ │   ├── products.csv               # Product catalog                   │
+│ │   ├── easymart.db                # SQLite database                   │
+│ │   ├── sessions.pkl               # Session persistence               │
+│ │   ├── bm25/                      # BM25 index storage                │
+│ │   └── chromadb/                  # Vector embeddings                 │
+│ ├── tests/                         # Test suite                        │
+│ │   ├── test_assistant.py          # Assistant tests                   │
+│ │   └── test_health.py             # Health check tests                │
+│ ├── logs/                          # Application logs                  │
+│ ├── requirements.txt               # Python dependencies               │
+│ ├── README.md                      # Project overview                  │
+│ ├── PRODUCTION.md                  # Production deployment guide       │
+│ ├── doc.txt                        # This documentation file           │
+│ ├── .env.example                   # Environment template              │
+│ └── .env                           # Local environment config          │
+└────────────────────────────────────────────────────────────────────────┘
+
+LANGCHAIN TOOLS IMPLEMENTED (13 Total):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. search_products                 - Hybrid BM25+vector product search
+2. get_product_specs               - Retrieve detailed product specifications
+3. check_availability              - Check stock availability
+4. compare_products                - Compare 2-4 products side-by-side
+5. update_cart                     - Add/remove/update cart items
+6. get_policy_info                 - Returns/shipping/payment policies
+7. get_contact_info                - Customer support contact info
+8. calculate_shipping              - Shipping cost estimation
+9. find_similar_products           - Find similar products to a given item
+10. check_product_fit              - Verify product dimensions for space
+11. build_bundle                   - Create optimized product bundles
+12. build_cheapest_bundle          - Create budget-optimized bundles
+13. search_small_space             - Search for compact furniture
+
+API ENDPOINTS:
+━━━━━━━━━━━━━
+
+GET    /                           - Root endpoint (service info)
+GET    /health/                    - Health check
+GET    /docs                       - OpenAPI documentation (Swagger)
+GET    /redoc                      - ReDoc documentation
+POST   /assistant/message          - Send message to assistant
+GET    /assistant/greeting         - Get greeting message
+GET    /assistant/session/{id}     - Get session details
+DELETE /assistant/session/{id}     - Delete session
+POST   /assistant/cart             - Manage cart
+GET    /assistant/cart             - View cart
+
+KEY FEATURES:
+━━━━━━━━━━━━
+
+✓ LangChain Integration           - Full LangChain orchestration with tool calling
+✓ OpenAI GPT-4.1 Support          - Primary LLM with function calling
+✓ Hugging Face Support            - Optional Mistral-7B integration
+✓ Hybrid Search                   - BM25 keyword + ChromaDB vector search
+✓ Reciprocal Rank Fusion (RRF)   - Advanced result merging
+✓ Intent Detection                - Pre-LLM intent classification
+✓ Bundle Planning                 - Multi-product bundle optimization
+✓ Filter Validation               - Schema-based filter validation
+✓ Session Management              - In-memory + Redis support
+✓ Cart Synchronization            - Sync with Node.js backend
+✓ Error Recovery                  - Automatic retry & fallback
+✓ Rate Limiting                   - Request throttling
+✓ Analytics Tracking              - Conversation metrics
+✓ Structured Logging              - JSON logs for production
+✓ CORS Support                    - Multi-origin support
+✓ GZip Compression                - Response compression
+
+TECHNOLOGY DEPENDENCIES:
+━━━━━━━━━━━━━━━━━━━━━━━
+
+Core Framework:
+• FastAPI >= 0.115.0             - Web framework
+• Uvicorn >= 0.32.0              - ASGI server
+• Pydantic >= 2.10.0             - Data validation
+• Pydantic-settings >= 2.6.0     - Settings management
+
+LLM & LangChain:
+• langchain >= 0.2.15            - LLM orchestration
+• langchain-core >= 0.2.38       - Core functionality
+• langchain-openai >= 0.1.25     - OpenAI integration
+• openai >= 1.0.0                - OpenAI API client
+
+Search & Retrieval:
+• sentence-transformers >= 2.2.0 - Text embeddings
+• chromadb >= 0.5.15             - Vector database
+• rank-bm25 == 0.2.2             - BM25 search
+
+Data & Storage:
+• sqlalchemy >= 2.0.0            - Database ORM
+• pandas >= 2.0.0                - Data processing
+• redis >= 5.0.0                 - Session store
+
+HTTP & Networking:
+• httpx == 0.27.0                - Async HTTP client
+• aiohttp >= 3.9.0               - Alternative HTTP client
+
+Development & Testing:
+• pytest >= 7.4.0                - Testing framework
+• pytest-cov >= 4.1.0            - Coverage reporting
+• pytest-asyncio == 0.21.1       - Async test support
+
+Utilities:
+• python-dotenv == 1.0.0         - Environment variables
+• python-multipart >= 0.0.6      - Multipart form data
+
+CONFIGURATION SETTINGS:
+━━━━━━━━━━━━━━━━━━━━━
+
+Required Environment Variables:
+• OPENAI_API_KEY                 - OpenAI API key (required)
+• NODE_BACKEND_URL               - Node.js backend URL (default: http://localhost:3002)
+
+Optional Environment Variables:
+• APP_NAME                       - Application name (default: "Easymart Assistant")
+• APP_VERSION                    - Version (default: "1.0.0")
+• DEBUG                          - Debug mode (default: False)
+• ENVIRONMENT                    - Environment name (default: "development")
+• HOST                           - Server host (default: "0.0.0.0")
+• PORT                           - Server port (default: 8001)
+• ALLOWED_ORIGINS                - CORS origins (comma-separated)
+• OPENAI_MODEL                   - OpenAI model (default: "gpt-4.1")
+• OPENAI_BASE_URL                - Custom OpenAI endpoint
+• OPENAI_TIMEOUT                 - API timeout in seconds (default: 30.0)
+• LLM_TEMPERATURE                - LLM temperature (default: 0.7)
+• LLM_MAX_TOKENS                 - Max tokens per response (default: 1024)
+• HUGGINGFACE_API_KEY            - Hugging Face API key
+• HUGGINGFACE_MODEL              - HF model (default: "mistralai/Mistral-7B-Instruct-v0.2")
+• LOG_LEVEL                      - Logging level (default: "INFO")
+• LOG_FORMAT                     - Log format: "json" or "text" (default: "text")
+• TEST_MODE                      - Enable test mode (default: False)
+• BUNDLE_CONFIRM_THRESHOLD       - Bundle confirmation threshold (default: 1000.0)
+
+QUICK START COMMANDS:
+━━━━━━━━━━━━━━━━━━━
+
+Installation:
+```bash
+cd backend-pylang
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your OPENAI_API_KEY
+```
+
+Development Mode:
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+```
+
+Production Mode:
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2 --timeout-keep-alive 5
+```
+
+Testing:
+```bash
+pytest tests/ -v
+pytest tests/ --cov=app --cov-report=html
+```
+
+PRODUCTION READINESS:
+━━━━━━━━━━━━━━━━━━━
+
+Checklist:
+✓ OPENAI_API_KEY configured
+✓ NODE_BACKEND_URL reachable
+✓ data/ directory writable for session persistence
+✓ LOG_FORMAT=json for structured logs
+✓ Redis configured for multi-instance deployments
+✓ Reverse proxy (nginx) for TLS and buffering
+✓ Health monitoring on /health endpoint
+✓ Rate limiting configured
+✓ CORS origins restricted to production domains
+
+Scaling Recommendations:
+• Use Redis for session storage in multi-instance deployments
+• Deploy behind nginx or similar reverse proxy
+• Enable horizontal scaling with load balancer
+• Monitor /health endpoint for uptime
+• Set up centralized log aggregation
+• Configure auto-scaling based on CPU/memory usage
+
+
+================================================================================
                               END OF DOCUMENT
 ================================================================================
 
 Document Version: 1.0.0
-Last Updated: January 19, 2026
+Last Updated: January 20, 2026
 Maintained By: Easymart Development Team
 
 For questions or feedback, contact: support@easymart.com.au
