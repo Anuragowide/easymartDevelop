@@ -224,9 +224,13 @@ class ProductSearcher:
         # Get room-to-category mapping if room_type is specified
         room_categories = None
         if "room_type" in filters:
-            from app.modules.assistant.intent_detector import ROOM_CATEGORY_MAP
-            room = filters["room_type"].lower().replace(" ", "_")
-            room_categories = ROOM_CATEGORY_MAP.get(room, [])
+            try:
+                from app.modules.assistant.intent_detector import IntentDetector
+                room = filters["room_type"].lower().replace(" ", "_")
+                room_categories = IntentDetector.ROOM_CATEGORY_MAP.get(room, [])
+            except (ImportError, AttributeError) as e:
+                logger.warning(f"Could not import ROOM_CATEGORY_MAP: {e}")
+                room_categories = None
         
         for result in results:
             # FIX: Use result directly (not nested under 'content')

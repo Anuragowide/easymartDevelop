@@ -1830,7 +1830,23 @@ class EasymartAssistantHandler:
                 # Determine post-tool instruction based on which tool was called
                 tool_names = list(tool_results.keys())
                 
-                if 'search_products' in tool_names:
+                if 'plan_smart_bundle' in tool_names:
+                    # Smart Bundle Planner - use the message from the tool directly
+                    bundle_result = tool_results.get('plan_smart_bundle', {})
+                    if bundle_result.get('success') and bundle_result.get('message'):
+                        post_tool_instruction = (
+                            "CRITICAL: The Smart Bundle Planner has already designed a complete room setup. "
+                            "Use the EXACT message from the tool result - it contains the designer narrative. "
+                            "DO NOT ask clarifying questions. DO NOT ignore the plan. "
+                            "Present the bundle with enthusiasm and confidence. "
+                            "The products are already selected and explained in the tool's message."
+                        )
+                    else:
+                        post_tool_instruction = (
+                            "The Smart Bundle Planner couldn't find suitable products. "
+                            "Apologize and suggest the user adjust their budget or be more specific about their needs."
+                        )
+                elif 'search_products' in tool_names:
                     post_tool_instruction = (
                         "Now respond to the user with ONLY a brief, professional 1-2 sentence intro. "
                         "DO NOT list products - they will be displayed below your message as cards. "
@@ -2790,6 +2806,28 @@ class EasymartAssistantHandler:
                         logger.info(f"[EXECUTE_TOOLS] Session products: {[p.get('name', 'NO NAME') for p in session.last_shown_products[:3]]}")
                 else:
                     logger.error(f"[EXECUTE_TOOLS] ❌ No products to store in session")
+            
+            # NEW: Handle Smart Bundle Planner results
+            if tool_name == "plan_smart_bundle" and result.get("success"):
+                bundle = result.get("bundle", {})
+                items = bundle.get("items", [])
+                if items:
+                    # Convert bundle items to product format for display
+                    products_to_show = []
+                    for item in items:
+                        products_to_show.append({
+                            "id": item.get("sku"),
+                            "product_id": item.get("sku"),
+                            "sku": item.get("sku"),
+                            "name": item.get("name"),
+                            "title": item.get("name"),
+                            "price": item.get("price"),
+                            "inventory_quantity": item.get("stock", 0),
+                            "reasoning": item.get("reasoning", "")  # Include the reasoning for UI
+                        })
+                    logger.info(f"[EXECUTE_TOOLS] Storing {len(products_to_show)} bundle items in session")
+                    session.update_shown_products(products_to_show)
+                    logger.info(f"[EXECUTE_TOOLS] ✅ Bundle items: {[p.get('name', 'NO NAME') for p in products_to_show]}")
             
             # NEW: Also update shown products when getting specs for a single product
             # This allows "add it to cart" to work after asking about a specific product

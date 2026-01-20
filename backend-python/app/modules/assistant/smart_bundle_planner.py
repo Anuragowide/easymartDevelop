@@ -161,31 +161,70 @@ class SmartBundlePlanner:
 
 Your task: Decompose vague room setup requests into specific product searches with smart keyword injection.
 
-Guidelines:
-1. KEYWORD INJECTION: Add specific keywords the user didn't say
-   - "small office" → search for "compact desk small home office", "space-saving chair"
-   - "gaming corner" → search for "gaming desk RGB", "gaming chair ergonomic"
-   - "reading nook" → search for "reading chair comfortable", "floor lamp adjustable"
+CRITICAL ROOM-SPECIFIC RULES:
+1. HOME OFFICE / WORK SPACE:
+   - item_type: "desk" → search_query MUST contain "desk" OR "workstation" OR "work table" (NOT just "table")
+   - item_type: "chair" → search_query MUST contain "office chair" OR "task chair" OR "ergonomic chair" (NOT just "chair" or "ergonomic")
+   - FORBIDDEN: coffee table, dining table, visitor chair, cantilever chair, stacking chair, reception chair
+   - Example queries:
+     * desk: "compact desk home office workstation"
+     * chair: "ergonomic office chair adjustable"
+     * lamp: "desk lamp adjustable home office"
 
-2. BUDGET ALLOCATION: Distribute budget intelligently
-   - Office: 50% desk, 35% chair, 15% accessories (lamp, storage)
-   - Gaming: 45% desk, 40% chair, 15% accessories (monitor stand, headset holder)
-   - Bedroom: 60% bed, 25% nightstand, 15% lighting
+2. GAMING SETUP:
+   - item_type: "desk" → search_query MUST contain "gaming desk" OR "computer desk"
+   - item_type: "chair" → search_query MUST contain "gaming chair" OR "ergonomic office chair"
+   - Example queries:
+     * desk: "gaming desk RGB modern"
+     * chair: "gaming chair ergonomic adjustable"
 
-3. SIZE CONSTRAINTS: Add size constraints for small spaces
-   - "small" → width < 120cm, depth < 60cm
-   - "tiny" → width < 100cm, compact design
-   - "corner" → L-shaped or corner-specific
+3. BEDROOM:
+   - item_type: "bed" → search_query MUST contain "bed" OR "bed frame"
+   - item_type: "nightstand" → search_query MUST contain "nightstand" OR "bedside table"
 
-4. STYLE COHESION: Choose consistent style keywords
-   - Modern office → "modern", "black", "minimalist"
-   - Cozy reading → "comfortable", "warm", "soft"
-   - Gaming → "RGB", "gaming", "black", "ergonomic"
+4. LIVING ROOM / LOUNGE:
+   - item_type: "sofa" → search_query MUST contain "sofa" OR "couch"
+   - item_type: "coffee table" → search_query MUST contain "coffee table" (coffee table is OK here)
+   
+5. READING NOOK:
+   - item_type: "chair" → search_query MUST contain "armchair" OR "lounge chair" OR "reading chair" (NOT office chair)
+   - item_type: "lamp" → search_query MUST contain "floor lamp" OR "reading lamp"
 
-5. ESSENTIALS FIRST: Include only essential items (2-4 items max)
-   - Office: desk, chair, lamp
-   - Gaming: desk, chair, headset holder
-   - Bedroom: bed, nightstand, lamp
+SEARCH QUERY CONSTRUCTION RULES (CRITICAL):
+1. ALWAYS include the core product type in search_query
+   - For desk: MUST say "desk" or "workstation"
+   - For office chair: MUST say "office chair" or "task chair"
+   - For lamp: MUST say "lamp" or "light"
+   - DO NOT use ambiguous terms like "table", "chair", or "ergonomic" alone
+
+2. Add descriptive keywords AFTER the core product type
+   - Good: "compact desk home office" (has "desk")
+   - Bad: "compact home office" (missing "desk")
+   - Good: "ergonomic office chair adjustable" (has "office chair")
+   - Bad: "ergonomic adjustable" (missing "office chair")
+
+3. For small spaces, add size keywords
+   - "compact", "small", "space-saving", "narrow"
+
+4. For style, add style keywords
+   - "modern", "minimalist", "black", "white"
+
+BUDGET ALLOCATION:
+- Office: 50% desk, 35% chair, 15% accessories
+- Gaming: 45% desk, 40% chair, 15% accessories
+- Bedroom: 60% bed, 25% nightstand, 15% lighting
+- Living: 55% sofa, 30% coffee table, 15% accessories
+
+ESSENTIALS FIRST (2-4 items max):
+- Office: desk + chair [+ lamp optional]
+- Gaming: desk + chair [+ monitor stand optional]
+- Bedroom: bed + nightstand [+ lamp optional]
+- Reading: armchair + side table [+ floor lamp optional]
+
+VALIDATION BEFORE RETURNING:
+- Check that every search_query contains the actual product type
+- For office setups, verify desk query has "desk" and chair query has "office chair"
+- Reject any search_query that is too vague (e.g., "ergonomic", "compact", "table" alone)
 
 Return a BundlePlan with theme, items (with search_query containing injected keywords), budget estimate, and style keywords."""
 
