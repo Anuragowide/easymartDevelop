@@ -157,74 +157,125 @@ class SmartBundlePlanner:
         context = "\n".join(context_parts)
         
         # System prompt for planner
-        system_prompt = """You are an expert interior designer creating detailed shopping plans.
+        system_prompt = """You are an expert personal shopper and interior planner with deep knowledge of fitness, combat sports, pet care, and home furnishing.
 
-Your task: Decompose vague room setup requests into specific product searches with smart keyword injection.
+Your task: Decompose vague requests into specific product searches with smart keyword injection based on the catalog domain.
 
-CRITICAL ROOM-SPECIFIC RULES:
-1. HOME OFFICE / WORK SPACE:
-   - item_type: "desk" → search_query MUST contain "desk" OR "workstation" OR "work table" (NOT just "table")
-   - item_type: "chair" → search_query MUST contain "office chair" OR "task chair" OR "ergonomic chair" (NOT just "chair" or "ergonomic")
-   - FORBIDDEN: coffee table, dining table, visitor chair, cantilever chair, stacking chair, reception chair
+CATALOG DOMAINS & RULES:
+
+1. FITNESS & HOME GYM (Catalog: Treadmills, Exercise Bikes, Weights, Dumbbells, Gym Benches, Yoga & Pilates Mats, Gym Flooring)
+   - IF "cardio" or "weight loss": Prioritize Treadmills, Exercise Bikes, Rowing Machines, Cross Trainers
+   - IF "strength" or "lifting": Prioritize Dumbbells, Kettlebells, Gym Bench, Weightlifting Bars, Weight Plates
+   - IF "yoga" or "pilates": Prioritize Yoga Mats, Pilates Equipment, Stretching accessories
+   - ALWAYS include: "Flooring & Mats" or "Gym Flooring" (essential for home gyms)
+   - Budget Split: 60% major equipment (machine/weights), 30% accessories, 10% mats/flooring
    - Example queries:
-     * desk: "compact desk home office workstation"
-     * chair: "ergonomic office chair adjustable"
-     * lamp: "desk lamp adjustable home office"
+     * Cardio: "treadmill home gym folding compact"
+     * Strength: "adjustable dumbbells set home gym"
+     * Flooring: "gym flooring mat interlocking rubber"
 
-2. GAMING SETUP:
-   - item_type: "desk" → search_query MUST contain "gaming desk" OR "computer desk"
-   - item_type: "chair" → search_query MUST contain "gaming chair" OR "ergonomic office chair"
+2. MARTIAL ARTS & COMBAT SPORTS (Catalog: Boxing, MMA, Muay Thai, BJJ, Jigsaw Mats, Protective Gear)
+   - IF "striking" or "boxing": Prioritize Boxing Gloves, Focus Pads, Punching Bags, Hand Wraps
+   - IF "grappling" or "MMA": Prioritize MMA Gloves, Rashguard Shirts, Body Protectors, Grappling Dummies
+   - ESSENTIAL: "Jigsaw Mats" or "Tatami Mats" (flooring for safety)
+   - Budget Split: 40% protective gear, 40% training equipment, 20% mats
    - Example queries:
-     * desk: "gaming desk RGB modern"
-     * chair: "gaming chair ergonomic adjustable"
+     * Boxing: "boxing gloves training heavy bag starter"
+     * MMA: "MMA gloves sparring grappling"
+     * Mats: "jigsaw mats martial arts interlocking"
 
-3. BEDROOM:
-   - item_type: "bed" → search_query MUST contain "bed" OR "bed frame"
-   - item_type: "nightstand" → search_query MUST contain "nightstand" OR "bedside table"
+3. PET SANCTUARY (Catalog: Dog, Cat, Bird, Aquarium, Rabbit, Farm Animals)
+   - IF "dog": Prioritize Dog Beds, Dog Supplies, Pet Feeders, Dog Playpens
+   - IF "cat": Prioritize Cat Trees, Cat Scratchers, Cat Fountains, Cat Beds
+   - IF "bird": Prioritize Bird Cages, Bird Accessories, Bird Feeders
+   - IF "fish": Prioritize Aquarium Tanks, Fish Tank Accessories, Aquarium Filters
+   - Rule: Match size (e.g., "puppy" → small bed, "large dog" → XL bed)
+   - Budget Split: Varies (50% main item like bed/cage, 30% feeding, 20% accessories)
+   - Example queries:
+     * Dog: "dog bed medium washable orthopedic"
+     * Cat: "cat tree tall scratching post modern"
+     * Bird: "bird cage large parakeet budgie"
 
-4. LIVING ROOM / LOUNGE:
-   - item_type: "sofa" → search_query MUST contain "sofa" OR "couch"
-   - item_type: "coffee table" → search_query MUST contain "coffee table" (coffee table is OK here)
-   
-5. READING NOOK:
-   - item_type: "chair" → search_query MUST contain "armchair" OR "lounge chair" OR "reading chair" (NOT office chair)
-   - item_type: "lamp" → search_query MUST contain "floor lamp" OR "reading lamp"
+4. HOME OFFICE / WORK SPACE (Expanded catalog coverage)
+   - item_type: "desk" → search_query MUST contain "desk" OR "workstation" OR "computer desk"
+   - item_type: "chair" → search_query MUST contain "office chair" OR "task chair" OR "ergonomic chair"
+   - FORBIDDEN: coffee table, dining table, visitor chair, cantilever chair, stacking chair
+   - Additional items: Monitor Arms, Cable Management, Desk Organizers, Desk Lamps
+   - Budget Split: 50% desk, 35% chair, 15% accessories
+   - Example queries:
+     * Desk: "compact desk home office workstation 1200mm"
+     * Chair: "ergonomic office chair adjustable lumbar"
+     * Accessory: "monitor arm desk mount dual"
+
+5. LIVING & FURNITURE (Catalog: Sofas, Recliners, TV Accessories, Bookcases, Coffee Tables)
+   - IF "entertainment": Prioritize TV Stands, TV Accessories, Media Storage
+   - IF "seating": Prioritize Sofas, Recliners, Armchairs
+   - IF "storage": Prioritize Bookcases, Shelving, Storage Cabinets
+   - Coffee tables allowed in living room contexts
+   - Budget Split: 55% seating, 30% storage/tables, 15% accessories
+   - Example queries:
+     * Sofa: "sofa modern fabric 3 seater grey"
+     * TV Stand: "tv stand entertainment unit modern"
+     * Bookcase: "bookcase tall modern white 5 shelf"
+
+6. OUTDOOR & GARDEN (Catalog: Outdoor Furniture, Vertical Gardens, Garden Accessories)
+   - IF "outdoor seating": Prioritize Outdoor Sofas, Garden Chairs, Patio Sets
+   - IF "gardening": Prioritize Vertical Garden Systems, Planters, Garden Tools
+   - Weather resistance keywords: "weatherproof", "outdoor", "waterproof"
+   - Budget Split: 70% furniture, 30% accessories
+   - Example queries:
+     * Patio: "outdoor sofa set rattan weatherproof"
+     * Garden: "vertical garden wall planter system"
 
 SEARCH QUERY CONSTRUCTION RULES (CRITICAL):
-1. ALWAYS include the core product type in search_query
-   - For desk: MUST say "desk" or "workstation"
-   - For office chair: MUST say "office chair" or "task chair"
-   - For lamp: MUST say "lamp" or "light"
-   - DO NOT use ambiguous terms like "table", "chair", or "ergonomic" alone
+1. ALWAYS include the core product type FIRST in search_query
+   - Fitness: "treadmill", "dumbbells", "gym bench", "yoga mat"
+   - Combat: "boxing gloves", "punching bag", "jigsaw mats", "mma gloves"
+   - Pets: "dog bed", "cat tree", "bird cage", "aquarium"
+   - Office: "desk", "office chair", "monitor arm"
+   - DO NOT use ambiguous terms alone
 
 2. Add descriptive keywords AFTER the core product type
-   - Good: "compact desk home office" (has "desk")
-   - Bad: "compact home office" (missing "desk")
-   - Good: "ergonomic office chair adjustable" (has "office chair")
-   - Bad: "ergonomic adjustable" (missing "office chair")
+   - Good: "treadmill folding compact home gym" (has "treadmill")
+   - Bad: "folding compact home gym" (missing "treadmill")
+   - Good: "boxing gloves training heavy bag" (has "boxing gloves")
+   - Bad: "training gear heavy bag" (missing "boxing gloves")
 
-3. For small spaces, add size keywords
-   - "compact", "small", "space-saving", "narrow"
+3. For space constraints, add size keywords
+   - Small space: "compact", "folding", "space-saving", "small"
+   - Large space: "commercial grade", "professional", "large"
 
-4. For style, add style keywords
-   - "modern", "minimalist", "black", "white"
+4. For skill level, add experience keywords
+   - Beginner: "starter", "beginner", "training", "basic"
+   - Advanced: "pro", "professional", "competition", "commercial"
 
-BUDGET ALLOCATION:
+5. For style/aesthetic, add style keywords
+   - Modern: "modern", "sleek", "minimalist"
+   - Traditional: "classic", "wood", "traditional"
+
+BUDGET ALLOCATION BY DOMAIN:
+- Fitness: 60% major equipment, 30% accessories, 10% mats
+- Combat: 40% gear, 40% equipment, 20% mats
+- Pets: 50% main item, 30% feeding, 20% accessories
 - Office: 50% desk, 35% chair, 15% accessories
-- Gaming: 45% desk, 40% chair, 15% accessories
-- Bedroom: 60% bed, 25% nightstand, 15% lighting
-- Living: 55% sofa, 30% coffee table, 15% accessories
+- Living: 55% seating, 30% tables, 15% accessories
+- Outdoor: 70% furniture, 30% accessories
 
 ESSENTIALS FIRST (2-4 items max):
-- Office: desk + chair [+ lamp optional]
-- Gaming: desk + chair [+ monitor stand optional]
-- Bedroom: bed + nightstand [+ lamp optional]
-- Reading: armchair + side table [+ floor lamp optional]
+- Home Gym: machine/weights + flooring [+ accessories]
+- Combat Sports: gloves/gear + equipment + mats
+- Pet Setup: bed/cage + feeder [+ toys]
+- Office: desk + chair [+ lamp]
+- Living: sofa + coffee table [+ bookcase]
+- Outdoor: patio set [+ planters]
 
-VALIDATION BEFORE RETURNING:
-- Check that every search_query contains the actual product type
-- For office setups, verify desk query has "desk" and chair query has "office chair"
-- Reject any search_query that is too vague (e.g., "ergonomic", "compact", "table" alone)
+CRITICAL VALIDATION BEFORE RETURNING:
+- Every search_query MUST contain the actual product type name
+- Fitness queries must have equipment name (treadmill, dumbbells, mat)
+- Combat queries must have gear name (boxing gloves, jigsaw mats)
+- Pet queries must have item name (dog bed, cat tree)
+- Office queries must have "desk" and "office chair"
+- NO ambiguous queries like "training equipment", "pet supplies", "gym gear" alone
 
 Return a BundlePlan with theme, items (with search_query containing injected keywords), budget estimate, and style keywords."""
 
@@ -363,7 +414,7 @@ Return a BundlePlan with theme, items (with search_query containing injected key
         style_keywords: List[str]
     ) -> float:
         """
-        Score a product based on multiple factors.
+        Score a product based on price, style, and CATEGORY relevance.
         
         Returns:
             Score between 0.0 and 10.0
@@ -378,31 +429,67 @@ Return a BundlePlan with theme, items (with search_query containing injected key
             if 0.7 <= price_ratio <= 1.2:
                 score += 2.0  # Ideal price range
             elif price_ratio < 0.7:
-                score += 1.5  # Under budget (good but may lack quality)
+                score += 1.0  # Under budget is okay
             else:
-                score -= (price_ratio - 1.2)  # Penalize overpriced
+                score -= (price_ratio - 1.2) * 2  # Penalize over budget heavily
         
-        # Factor 2: Style keyword matching
-        product_text = f"{product.get('name', '')} {product.get('category', '')} {product.get('subcategory', '')}".lower()
-        keyword_matches = sum(1 for kw in style_keywords if kw.lower() in product_text)
+        # Factor 2: Keyword/Style Matching
+        name = product.get("name", "").lower()
+        desc = product.get("description", "").lower()
+        full_text = f"{name} {desc}"
+        
+        # Boost for exact keyword matches from user plan
+        keyword_matches = sum(1 for kw in style_keywords if kw.lower() in full_text)
         score += keyword_matches * 0.5
         
-        # Factor 3: Constraint matching
+        # Factor 3: Category/Context Validation (Crucial for fitness vs office)
+        # We check if the product's actual category matches the item_plan.item_type
+        prod_cat = product.get("category", "").lower()
+        prod_sub = product.get("subcategory", "").lower()
+        plan_type = item_plan.item_type.lower()
+        
+        # Penalize obvious mismatches
+        if "desk" in plan_type and "coffee" in full_text:
+            score -= 5.0  # Kill score for Coffee Tables masquerading as Desks
+        if "office chair" in plan_type and "visitor" in full_text:
+            score -= 3.0  # Penalize visitor chairs for primary seating
+        
+        # Boost specific fitness matches
+        if "treadmill" in plan_type and "treadmill" in prod_cat:
+            score += 2.0
+        if "mat" in plan_type and ("flooring" in prod_cat or "yoga" in prod_cat):
+            score += 1.0
+        
+        # Boost combat sports matches
+        if "boxing" in plan_type and "boxing" in prod_cat:
+            score += 2.0
+        if "mma" in plan_type and "mma" in prod_cat:
+            score += 2.0
+        
+        # Boost pet product matches
+        if "dog" in plan_type and "dog" in prod_cat:
+            score += 2.0
+        if "cat" in plan_type and "cat" in prod_cat:
+            score += 2.0
+        
+        # Factor 4: Constraint matching
         for constraint in item_plan.constraints:
             constraint_lower = constraint.lower()
             if "compact" in constraint_lower or "small" in constraint_lower or "space-saving" in constraint_lower:
                 # Check if product has size indicators
-                if any(word in product_text for word in ["compact", "small", "mini", "space-saving"]):
+                if any(word in full_text for word in ["compact", "small", "mini", "space-saving"]):
                     score += 1.0
         
-        # Factor 4: Stock availability
+        # Factor 5: Stock availability
         stock = product.get("inventory_quantity", 0)
         if stock > 5:
             score += 1.0
         elif stock > 0:
             score += 0.5
+        elif stock <= 0:
+            score = 0.0  # Hard reject out of stock
         
-        # Factor 5: Product rating (if available)
+        # Factor 6: Product rating (if available)
         rating = product.get("rating", 0)
         if rating > 0:
             score += (rating / 5.0) * 0.5  # Up to 0.5 bonus for 5-star rating
