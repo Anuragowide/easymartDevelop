@@ -1412,61 +1412,102 @@ class EasymartAssistantHandler:
             if intent == IntentType.CART_ADD and not llm_response.function_calls:
                 query_lower = request.message.lower()
                 
-                # Look for product reference (number, ordinal, or contextual)
-                product_num = None
-                for pattern in self.PRODUCT_REF_PATTERNS:
-                    match = pattern.search(query_lower)
-                    if match:
-                        product_num = int(match.group(1))
-                        break
+                # Check for BUNDLE/MULTIPLE addition first (e.g., "add bundle", "add all", "add these")
+                bundle_refs = ['bundle', 'all of them', 'all these', 'all items', 'these items', 
+                               'the bundle', 'this bundle', 'all products', 'these products',
+                               'add all', 'add these', 'add them all', 'add everything']
+                is_bundle_add = any(ref in query_lower for ref in bundle_refs)
                 
-                if not product_num:
-                    for ordinal, num in self.ORDINAL_MAP.items():
-                        if ordinal in query_lower:
-                            product_num = num
-                            break
+                # Also check for "first X" pattern (e.g., "add first 3", "only first 2")
+                first_n_match = re.search(r'(?:first|top)\s+(\d+)', query_lower)
+                items_to_add = None
+                if first_n_match:
+                    items_to_add = int(first_n_match.group(1))
+                    is_bundle_add = True
                 
-                # If only one product shown, assume "add it" refers to that
-                if not product_num and session.last_shown_products and len(session.last_shown_products) == 1:
-                    context_refs = ['this', 'it', 'the product', 'that', 'chair', 'table', 'desk', 
-                                   'this one', 'buy', 'purchase', 'want to buy', 'want this', 'get this']
-                    if any(ref in query_lower for ref in context_refs):
-                        product_num = 1
-                
-                if product_num and session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
-                    product = session.last_shown_products[product_num - 1]
-                    product_id = product.get('id') or product.get('product_id')
+                if is_bundle_add and session.last_shown_products:
+                    # Add all or first N products from last_shown_products
+                    from .hf_llm_client import FunctionCall
                     
-                    if product_id:
-                        logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart add intent but LLM didn't call tool!")
-                        from .hf_llm_client import FunctionCall
-                        
-                        # Extract quantity if mentioned (e.g., "add 2 of this", "add 3 units")
-                        # CRITICAL: Don't match product references like "option 1", "product 2", "add option 2"
-                        qty = 1
-                        # Match patterns like: "2 of", "3 units", "5 items", "4x", but NOT "option 1" or "product 2"
-                        # IMPORTANT: Exclude patterns that look like product selection (e.g., "add option 2", "add product 2")
-                        qty_match = re.search(r'\b(\d+)\s*(?:x|units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))', query_lower)
-                        
-                        # Ensure we didn't capture a product reference number
-                        if qty_match:
-                            potential_qty = int(qty_match.group(1))
-                            # Check if this number is preceded by "option", "product", "item", "number"
-                            product_ref_check = re.search(r'\b(option|product|item|number|choice)\s+' + str(potential_qty), query_lower)
-                            if not product_ref_check:
-                                qty = potential_qty
-                                logger.info(f"[HANDLER] Extracted quantity: {qty} from query: {query_lower}")
-                            else:
-                                logger.info(f"[HANDLER] Number {potential_qty} detected but appears to be a product reference, not quantity. Using qty=1")
-                        
-                        logger.info(f"[HANDLER] SAFETY CATCH creating update_cart call: product_id={product_id}, quantity={qty}")
-                        llm_response.function_calls = [
-                            FunctionCall(
-                                name="update_cart",
-                                arguments={"action": "add", "product_id": product_id, "quantity": qty}
+                    products_to_add = session.last_shown_products
+                    if items_to_add:
+                        products_to_add = session.last_shown_products[:items_to_add]
+                    
+                    logger.warning(f"[HANDLER] ⚠️ BUNDLE SAFETY CATCH: Adding {len(products_to_add)} items to cart")
+                    
+                    function_calls = []
+                    for product in products_to_add:
+                        product_id = product.get('id') or product.get('product_id')
+                        if product_id:
+                            function_calls.append(
+                                FunctionCall(
+                                    name="update_cart",
+                                    arguments={"action": "add", "product_id": product_id, "quantity": 1}
+                                )
                             )
-                        ]
+                    
+                    if function_calls:
+                        llm_response.function_calls = function_calls
                         llm_response.content = ""
+                        logger.info(f"[HANDLER] Created {len(function_calls)} cart calls for bundle")
+                
+                # Otherwise, handle single product addition
+                elif not is_bundle_add:
+                    # Look for product reference (number, ordinal, or contextual)
+                    product_num = None
+                    for pattern in self.PRODUCT_REF_PATTERNS:
+                        match = pattern.search(query_lower)
+                        if match:
+                            product_num = int(match.group(1))
+                            break
+                    
+                    if not product_num:
+                        for ordinal, num in self.ORDINAL_MAP.items():
+                            if ordinal in query_lower:
+                                product_num = num
+                                break
+                    
+                    # If only one product shown, assume "add it" refers to that
+                    if not product_num and session.last_shown_products and len(session.last_shown_products) == 1:
+                        context_refs = ['this', 'it', 'the product', 'that', 'chair', 'table', 'desk', 
+                                       'this one', 'buy', 'purchase', 'want to buy', 'want this', 'get this']
+                        if any(ref in query_lower for ref in context_refs):
+                            product_num = 1
+                    
+                    if product_num and session.last_shown_products and 0 < product_num <= len(session.last_shown_products):
+                        product = session.last_shown_products[product_num - 1]
+                        product_id = product.get('id') or product.get('product_id')
+                        
+                        if product_id:
+                            logger.warning(f"[HANDLER] ⚠️ SAFETY CATCH: Cart add intent but LLM didn't call tool!")
+                            from .hf_llm_client import FunctionCall
+                            
+                            # Extract quantity if mentioned (e.g., "add 2 of this", "add 3 units")
+                            # CRITICAL: Don't match product references like "option 1", "product 2", "add option 2"
+                            qty = 1
+                            # Match patterns like: "2 of", "3 units", "5 items", "4x", but NOT "option 1" or "product 2"
+                            # IMPORTANT: Exclude patterns that look like product selection (e.g., "add option 2", "add product 2")
+                            qty_match = re.search(r'\b(\d+)\s*(?:x|units?|items?|pcs?|pieces?|of\s+(?:these|them|this|it))', query_lower)
+                            
+                            # Ensure we didn't capture a product reference number
+                            if qty_match:
+                                potential_qty = int(qty_match.group(1))
+                                # Check if this number is preceded by "option", "product", "item", "number"
+                                product_ref_check = re.search(r'\b(option|product|item|number|choice)\s+' + str(potential_qty), query_lower)
+                                if not product_ref_check:
+                                    qty = potential_qty
+                                    logger.info(f"[HANDLER] Extracted quantity: {qty} from query: {query_lower}")
+                                else:
+                                    logger.info(f"[HANDLER] Number {potential_qty} detected but appears to be a product reference, not quantity. Using qty=1")
+                            
+                            logger.info(f"[HANDLER] SAFETY CATCH creating update_cart call: product_id={product_id}, quantity={qty}")
+                            llm_response.function_calls = [
+                                FunctionCall(
+                                    name="update_cart",
+                                    arguments={"action": "add", "product_id": product_id, "quantity": qty}
+                                )
+                            ]
+                            llm_response.content = ""
             
             # SAFETY CHECK: If cart clear intent but NO tool calls → force update_cart(clear)!
             if intent == IntentType.CART_CLEAR and not llm_response.function_calls:
@@ -1834,12 +1875,18 @@ class EasymartAssistantHandler:
                     # Smart Bundle Planner - use the message from the tool directly
                     bundle_result = tool_results.get('plan_smart_bundle', {})
                     if bundle_result.get('success') and bundle_result.get('message'):
+                        # FORCE the LLM to output ONLY the tool message, no modifications
+                        tool_message = bundle_result.get('message')
                         post_tool_instruction = (
-                            "CRITICAL: The Smart Bundle Planner has already designed a complete room setup. "
-                            "Use the EXACT message from the tool result - it contains the designer narrative. "
-                            "DO NOT ask clarifying questions. DO NOT ignore the plan. "
-                            "Present the bundle with enthusiasm and confidence. "
-                            "The products are already selected and explained in the tool's message."
+                            f"YOUR RESPONSE MUST BE EXACTLY THIS (copy verbatim, no changes):\n\n"
+                            f"{tool_message}\n\n"
+                            f"CRITICAL RULES:\n"
+                            f"- Output ONLY the text above (the bundle plan message)\n"
+                            f"- DO NOT add 'Let me know', 'Would you like', or any clarifying questions\n"
+                            f"- DO NOT rephrase or modify the message\n"
+                            f"- DO NOT add suggestions or alternatives\n"
+                            f"- The bundle is complete and final - present it with confidence\n"
+                            f"- Products are already displayed as cards below your message"
                         )
                     else:
                         post_tool_instruction = (

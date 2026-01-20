@@ -276,6 +276,10 @@ CRITICAL VALIDATION BEFORE RETURNING:
 - Pet queries must have item name (dog bed, cat tree)
 - Office queries must have "desk" and "office chair"
 - NO ambiguous queries like "training equipment", "pet supplies", "gym gear" alone
+- **NO DUPLICATE item_type VALUES**: Each item_type must be UNIQUE in the items list
+  * BAD: items = [{item_type: "punching bag", ...}, {item_type: "punching bag", ...}]
+  * GOOD: items = [{item_type: "punching bag", ...}, {item_type: "boxing gloves", ...}]
+  * If multiple products of same type are needed, use item_type like "punching bag", "heavy bag stand" (different types)
 
 Return a BundlePlan with theme, items (with search_query containing injected keywords), budget estimate, and style keywords."""
 
@@ -366,8 +370,16 @@ Return a BundlePlan with theme, items (with search_query containing injected key
         total_cost = 0.0
         budget = budget or plan.total_budget_estimate
         
+        # Track selected item types to avoid duplicates
+        selected_types = set()
+        
         # Process each item type in plan order
         for item_plan in plan.items:
+            # Skip if we already selected a product for this item type
+            if item_plan.item_type in selected_types:
+                logger.info(f"Skipping duplicate item_type: {item_plan.item_type}")
+                continue
+            
             products = search_results.get(item_plan.item_type, [])
             if not products:
                 logger.warning(f"No products found for {item_plan.item_type}")
@@ -382,7 +394,7 @@ Return a BundlePlan with theme, items (with search_query containing injected key
             # Sort by score (highest first)
             scored_products.sort(key=lambda x: x[0], reverse=True)
             
-            # Select best product that fits remaining budget
+            # Select ONLY ONE best product that fits remaining budget
             remaining_budget = budget - total_cost
             for score, product in scored_products:
                 price = product.get("price", 0)
@@ -396,8 +408,9 @@ Return a BundlePlan with theme, items (with search_query containing injected key
                         "score": score
                     })
                     total_cost += price
+                    selected_types.add(item_plan.item_type)  # Mark this type as selected
                     logger.info(f"Selected {product['name']} for {item_plan.item_type} (score: {score:.2f})")
-                    break
+                    break  # CRITICAL: Only select ONE product per item_type
         
         return {
             "theme": plan.theme,
