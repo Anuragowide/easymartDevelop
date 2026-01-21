@@ -61,6 +61,16 @@ def test_clarification_detection():
             False,
             "Product information"
         ),
+        (
+            "Here are some in-stock office chairs:\n\n1. Chair A – $402\n2. Chair B – $275\n\nWould you like more details?",
+            False,
+            "Product listing with numbered list (NOT clarification)"
+        ),
+        (
+            "Here's a bundle for your cat:\n\n1. Cat Bed – $57\n2. Litter Box – $13\n\nTotal: $70. Add to cart?",
+            False,
+            "Bundle with numbered list (NOT clarification)"
+        ),
     ]
     
     passed = 0

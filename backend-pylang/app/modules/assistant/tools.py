@@ -496,7 +496,7 @@ class EasymartAssistantTools:
                         "title": name,
                         "name": name,
                         "price": price,
-                        "image_url": product.get("image_url", ""),
+                        "image": product.get("image_url", ""),
                         "quantity": qty,
                         "item_total": item_total,
                         "added_at": item.get("added_at")
@@ -510,6 +510,7 @@ class EasymartAssistantTools:
                         "title": item.get("name") or pid or "Unknown Product",
                         "quantity": qty,
                         "price": price,
+                        "image": "",
                         "item_total": price * qty
                     })
 

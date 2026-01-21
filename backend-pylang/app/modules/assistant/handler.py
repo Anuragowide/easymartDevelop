@@ -23,6 +23,7 @@ from app.modules.assistant.filter_validator import FilterValidator
 from app.modules.assistant.prompts import get_system_prompt, get_greeting_message
 from app.modules.assistant.tools import get_langchain_tools, CURRENT_SESSION_ID, get_assistant_tools
 from app.modules.assistant.bundle_planner import parse_bundle_request
+from app.modules.assistant.intelligent_context import get_intelligent_context_handler
 
 
 class AssistantRequest(BaseModel):
@@ -48,6 +49,7 @@ class EasymartAssistantHandler:
         self.filter_validator = FilterValidator()
         self.tools = get_langchain_tools()
         self.system_prompt = get_system_prompt()
+        self.intelligent_context = get_intelligent_context_handler()
 
         self.llm = ChatOpenAI(
             api_key=self.settings.OPENAI_API_KEY,
@@ -99,6 +101,9 @@ class EasymartAssistantHandler:
 
         self._maybe_apply_bundle_context(session, request)
         self._update_shopping_brief(session, request.message)
+        
+        # INTELLIGENT CONTEXT RECOVERY: Use LLM to understand if this is a follow-up query
+        request.message = await self._intelligent_context_recovery(session, request.message)
         
         # RESOLVE PRODUCT REFERENCES (option 1, first one, etc.)
         resolved_message = self._resolve_product_references(session, request.message)
@@ -281,15 +286,20 @@ class EasymartAssistantHandler:
             session.add_message("user", request.message)
             session.add_message("assistant", response_text)
 
-            # CRITICAL FIX: Don't show products when asking clarification questions
-            # This prevents the "ask vs tell" conflict where LLM asks a question but also shows products
-            is_clarification = self._is_clarification_response(response_text)
+            # INTELLIGENT CLARIFICATION DETECTION: Use LLM to understand if response is asking for clarification
+            clarification_analysis = await self.intelligent_context.analyze_response_type(
+                response_text, request.message
+            )
             
-            if is_clarification:
+            if clarification_analysis["is_clarification"] and not clarification_analysis["is_showing_products"]:
                 # Don't extract or show products for clarification responses
                 products = []
+                # Save shopping context for follow-up recovery
+                self._save_shopping_context(session, request.message)
             else:
                 products = self._extract_products(tool_steps, session)
+                # Clear shopping context when we have a successful non-clarification response
+                self._clear_shopping_context(session)
                 if intent == "product_search" and not products:
                     fallback_products = await self._fallback_search(request.message, session)
                     if fallback_products:
@@ -602,6 +612,13 @@ class EasymartAssistantHandler:
         
         response_lower = response_text.lower()
         
+        # Check if response has a numbered/bulleted product list (indicates it's showing products, not asking for clarification)
+        has_product_listing = any(marker in response_text for marker in ["\n1.", "\n2.", "\n3."])
+        
+        # If it has a product listing, it's NOT a clarification
+        if has_product_listing:
+            return False
+        
         # Common clarification question patterns
         clarification_patterns = [
             "could you specify",
@@ -637,10 +654,157 @@ class EasymartAssistantHandler:
         has_question = "?" in response_text
         has_clarification_phrase = any(pattern in response_lower for pattern in clarification_patterns)
         
-        # Also check for bullet lists that suggest options (clarification)
-        has_bullet_list = any(marker in response_text for marker in ["\n-", "\n•", "\n*", "\n1.", "\n2."])
+        # CRITICAL FIX: Only treat as clarification if it has BOTH a question mark AND a clarification phrase
+        # Product listings with numbered lists (1. Product A, 2. Product B) should NOT be treated as clarifications
+        # even if they have a follow-up question like "Would you like to see more?"
+        #
+        # True clarifications: "Which items do you need? \n- Cat bed\n- Litter box"
+        # NOT clarifications: "Here are some chairs:\n1. Chair A\n2. Chair B\nWould you like more?"
+        return has_question and has_clarification_phrase
+    
+    def _save_shopping_context(self, session, user_message: str) -> None:
+        """
+        Save the user's shopping request as context for follow-up responses.
+        Called when the assistant asks a clarification question.
+        """
+        # Don't overwrite if we already have context from this conversation
+        existing_context = session.metadata.get("shopping_context")
+        if existing_context:
+            return
         
-        return has_question and (has_clarification_phrase or has_bullet_list)
+        # Store the original query that triggered clarification
+        session.metadata["shopping_context"] = {
+            "original_query": user_message,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    def _clear_shopping_context(self, session) -> None:
+        """Clear shopping context after successful response."""
+        if "shopping_context" in session.metadata:
+            del session.metadata["shopping_context"]
+    
+    async def _intelligent_context_recovery(self, session, user_message: str) -> str:
+        """
+        Use LLM to intelligently determine if user message needs previous shopping context.
+        This replaces hardcoded pattern matching with intelligent understanding.
+        
+        Examples:
+        - "give me bundle" after "puppy supplies $250" → combines them
+        - "show me office chairs" after "puppy supplies" → independent query, no combination
+        - "yes" after asking which items → combines with previous context
+        """
+        shopping_context = session.metadata.get("shopping_context")
+        if not shopping_context:
+            return user_message
+        
+        original_query = shopping_context.get("original_query", "")
+        if not original_query:
+            return user_message
+        
+        # Get recent conversation for context
+        recent_conversation = []
+        if hasattr(session, 'messages'):
+            recent_conversation = [
+                {"role": msg.get("role"), "content": msg.get("content")}
+                for msg in session.messages[-6:]  # Last 3 exchanges
+            ]
+        
+        # Use intelligent context handler to analyze
+        analysis = await self.intelligent_context.should_apply_previous_context(
+            current_message=user_message,
+            previous_shopping_context=original_query,
+            recent_conversation=recent_conversation
+        )
+        
+        if analysis.get("needs_context"):
+            # Clear context after using it
+            self._clear_shopping_context(session)
+            return analysis.get("combined_query", user_message)
+        
+        return user_message
+    
+    def _recover_shopping_context(self, session, user_message: str) -> str:
+        """
+        DEPRECATED: Old hardcoded pattern-based context recovery.
+        Kept for backward compatibility. Use _intelligent_context_recovery instead.
+        
+        Check if the user's message is a short follow-up response and recover
+        the original shopping context if present.
+        
+        Examples of short follow-ups:
+        - "give me bundle" → "puppy supplies $250, give me bundle"
+        - "just pick for me" → "puppy supplies $250, just pick for me"
+        - "you choose" → "puppy supplies $250, you choose"
+        """
+        shopping_context = session.metadata.get("shopping_context")
+        if not shopping_context:
+            return user_message
+        
+        original_query = shopping_context.get("original_query", "")
+        if not original_query:
+            return user_message
+        
+        # Check if current message is a short follow-up response
+        message_lower = user_message.lower().strip()
+        
+        # Short follow-up patterns that indicate user wants to proceed with previous context
+        follow_up_patterns = [
+            "give me bundle",
+            "give me a bundle", 
+            "make me a bundle",
+            "create a bundle",
+            "build a bundle",
+            "bundle please",
+            "just bundle",
+            "bundle it",
+            "just pick",
+            "pick for me",
+            "just pick for me",
+            "you pick",
+            "you choose",
+            "choose for me",
+            "just choose",
+            "surprise me",
+            "your choice",
+            "go ahead",
+            "yes please",
+            "yes",
+            "yes bundle",
+            "ok",
+            "okay",
+            "sure",
+            "sounds good",
+            "let's do it",
+            "do it",
+            "proceed",
+            "all of them",
+            "all of it",
+            "everything",
+            "the works",
+            "whatever you think",
+            "what you recommend",
+            "your recommendation",
+        ]
+        
+        # Check if current message matches any follow-up pattern
+        is_follow_up = any(pattern in message_lower for pattern in follow_up_patterns)
+        
+        # Also check if it's a very short message (3 words or less) that could be a follow-up
+        word_count = len(message_lower.split())
+        is_short = word_count <= 4
+        
+        # Check for bundle-related keywords in short messages
+        bundle_keywords = ["bundle", "pick", "choose", "yes", "ok", "sure", "go", "proceed"]
+        has_bundle_keyword = any(kw in message_lower for kw in bundle_keywords)
+        
+        if is_follow_up or (is_short and has_bundle_keyword):
+            # Combine original context with the follow-up response
+            combined_message = f"{original_query}, {user_message}"
+            # Clear context after using it
+            self._clear_shopping_context(session)
+            return combined_message
+        
+        return user_message
     
     def _deduplicate_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
