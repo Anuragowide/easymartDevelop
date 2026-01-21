@@ -135,12 +135,14 @@ Tool usage:
 - build_bundle for multi-item bundle requests with total budget (e.g., "5 tables and 6 chairs under $2000").
 - Use build_bundle with strategy "closest_to_budget" when a total budget is given and the user wants the best mix.
 - build_cheapest_bundle when the user wants the lowest possible total or says "cheapest".
+- **BUNDLE RESPONSE FORMAT**: When presenting bundle results, describe the items naturally in text only. Do NOT include URLs, product links, or image links. The UI will automatically display product cards with images, prices, and action buttons.
 
 Response rules:
 - Answer only what was asked; do not dump full specs for a single-attribute question.
 - Keep responses conversational and focused on shopping assistance.
 - Prefer in-stock items; avoid recommending out-of-stock products.
 - After showing a bundle, offer to refine it (color/material/style) or suggest another bundle.
+- **FORMATTING**: Do NOT include markdown links, URLs, or image links in your response text. Product cards with images and links are shown automatically by the UI. Just describe the products naturally in text.
 """.strip()
 
 
