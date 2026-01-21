@@ -281,15 +281,26 @@ class EasymartAssistantHandler:
             session.add_message("user", request.message)
             session.add_message("assistant", response_text)
 
-            products = self._extract_products(tool_steps, session)
-            if intent == "product_search" and not products:
-                fallback_products = await self._fallback_search(request.message, session)
-                if fallback_products:
-                    products = fallback_products
-                    lower_text = response_text.lower()
-                    if "trouble" in lower_text or ("no" in lower_text and "found" in lower_text):
-                        response_text = "Here are some options I found."
-                        session.add_message("assistant", response_text)
+            # CRITICAL FIX: Don't show products when asking clarification questions
+            # This prevents the "ask vs tell" conflict where LLM asks a question but also shows products
+            is_clarification = self._is_clarification_response(response_text)
+            
+            if is_clarification:
+                # Don't extract or show products for clarification responses
+                products = []
+            else:
+                products = self._extract_products(tool_steps, session)
+                if intent == "product_search" and not products:
+                    fallback_products = await self._fallback_search(request.message, session)
+                    if fallback_products:
+                        products = fallback_products
+                        lower_text = response_text.lower()
+                        if "trouble" in lower_text or ("no" in lower_text and "found" in lower_text):
+                            response_text = "Here are some options I found."
+                            session.add_message("assistant", response_text)
+                
+                # Deduplicate products to avoid showing similar items
+                products = self._deduplicate_products(products)
 
             response_time_ms = (time.time() - start_time) * 1000
 
@@ -581,6 +592,117 @@ class EasymartAssistantHandler:
         ]
         return any(phrase in message_lower for phrase in refine_phrases)
 
+    def _is_clarification_response(self, response_text: str) -> bool:
+        """
+        Detect if the LLM response is asking a clarification question.
+        If so, we should NOT show products alongside the question.
+        """
+        if not response_text:
+            return False
+        
+        response_lower = response_text.lower()
+        
+        # Common clarification question patterns
+        clarification_patterns = [
+            "could you specify",
+            "could you tell me",
+            "could you clarify",
+            "which items",
+            "which ones",
+            "what type",
+            "what kind",
+            "what size",
+            "what color",
+            "what material",
+            "what style",
+            "let me know which",
+            "please specify",
+            "please tell me",
+            "which essential items",
+            "which of these",
+            "do you want",
+            "would you like",
+            "do you prefer",
+            "do you need",
+            "are you looking for",
+            "what are you looking for",
+            "can you tell me more",
+            "help me understand",
+            "common starter supplies",
+            "common items include",
+            "things like",
+        ]
+        
+        # Check for question mark + clarification patterns
+        has_question = "?" in response_text
+        has_clarification_phrase = any(pattern in response_lower for pattern in clarification_patterns)
+        
+        # Also check for bullet lists that suggest options (clarification)
+        has_bullet_list = any(marker in response_text for marker in ["\n-", "\n•", "\n*", "\n1.", "\n2."])
+        
+        return has_question and (has_clarification_phrase or has_bullet_list)
+    
+    def _deduplicate_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Remove duplicate/similar products to avoid showing essentially the same item multiple times.
+        Products are considered duplicates if they have:
+        - Same base name (ignoring quantity/size variations like '200pcs' vs '400pcs')
+        - Same category
+        """
+        if not products:
+            return []
+        
+        seen_base_names = set()
+        unique_products = []
+        
+        for product in products:
+            name = product.get("name") or product.get("title") or ""
+            
+            # Normalize the name: remove quantities, sizes, and common variations
+            base_name = self._get_base_product_name(name)
+            
+            if base_name and base_name not in seen_base_names:
+                seen_base_names.add(base_name)
+                unique_products.append(product)
+        
+        return unique_products
+    
+    def _get_base_product_name(self, name: str) -> str:
+        """
+        Extract the base product name by removing quantity/size/variant variations.
+        E.g., '200pcs Puppy Dog Pet Training Pads' -> 'puppy dog pet training pads'
+        E.g., 'Dog Bed Large Orthopedic' -> 'dog bed orthopedic'
+        E.g., 'Dog Bed Small Washable' -> 'dog bed washable' 
+        Then further normalize to catch 'dog bed' as the core type.
+        """
+        import re
+        
+        name_lower = name.lower()
+        
+        # Remove quantity patterns like "200pcs", "400 pcs", "1 x", "2x", etc.
+        name_lower = re.sub(r'\b\d+\s*(?:pcs?|pieces?|pack|count|x|units?)\b', '', name_lower)
+        
+        # Remove size patterns like "small", "medium", "large", "xl", "xxl", etc.
+        name_lower = re.sub(r'\b(?:x?x?small|x?x?large|medium|mini|big|huge|tiny|xl|xxl|xs|xxs)\b', '', name_lower)
+        
+        # Remove standalone size letters only when they appear as size indicators
+        name_lower = re.sub(r'\b[sml]\b', '', name_lower)
+        
+        # Remove dimension patterns like "60x90cm", "100cm", etc.
+        name_lower = re.sub(r'\b\d+\s*x\s*\d+\s*(?:cm|mm|m|inch|in|ft)?\b', '', name_lower)
+        name_lower = re.sub(r'\b\d+\s*(?:cm|mm|m|inch|in|ft)\b', '', name_lower)
+        
+        # Remove variant descriptors that don't change the core product type
+        name_lower = re.sub(r'\b(?:orthopedic|washable|waterproof|foldable|portable|deluxe|premium|basic|standard|pro|plus)\b', '', name_lower)
+        
+        # Remove color patterns
+        name_lower = re.sub(r'\b(?:black|white|red|blue|green|yellow|pink|purple|grey|gray|brown|beige|orange|navy|cream)\b', '', name_lower)
+        
+        # Remove leading/trailing whitespace and normalize spaces
+        name_lower = re.sub(r'\s+', ' ', name_lower).strip()
+        
+        return name_lower
+
     async def _run_tool_loop(self, message: str, history):
         messages = [SystemMessage(content=self.system_prompt)] + history + [HumanMessage(content=message)]
         tool_steps = []
@@ -645,16 +767,27 @@ class EasymartAssistantHandler:
         Examples:
         - "tell me about option 1" -> "tell me about product 'Artiss Office Chair' (SKU: SKU-CHAIR-001)"
         - "add the first one to cart" -> "add product 'Artiss Office Chair' (SKU: SKU-CHAIR-001) to cart"
+        - "add 2 and 3 to cart" -> "add product 'X' (SKU: SKU-X) and product 'Y' (SKU: SKU-Y) to cart"
         """
         if not session.last_shown_products:
             return message
         
         # Patterns to detect product references (in priority order)
         patterns = [
+            # "option 1", "item 2", "product 3"
             (r'\b(?:option|choice|item|product|number)\s+(\d+)', 'index'),
-            (r'\b(first|second|third|fourth|fifth)\s+(?:one|option|choice|item|chair|table|desk|product)', 'index'),
-            (r'\b(1st|2nd|3rd|4th|5th)\s+(?:one|option|choice|item|chair|table|desk|product)', 'index'),
-            (r'\b(?:the\s+)?(\d+)(?:st|nd|rd|th)\s+(?:one|option|chair|table|desk|product)', 'index'),
+            # "first one", "second chair"
+            (r'\b(first|second|third|fourth|fifth)\s+(?:one|option|choice|item|chair|table|desk|product)?', 'index'),
+            # "1st one", "2nd option"
+            (r'\b(1st|2nd|3rd|4th|5th)\s+(?:one|option|choice|item|chair|table|desk|product)?', 'index'),
+            # "the 2nd one"
+            (r'\b(?:the\s+)?(\d+)(?:st|nd|rd|th)\s+(?:one|option|chair|table|desk|product)?', 'index'),
+            # Standalone numbers in cart/add context: "add 2 and 3", "2 and 3 to cart"
+            # Match numbers that appear to be product references (not prices or quantities)
+            (r'\badd\s+(\d+)\b(?!\s*(?:to|x|items?|of))', 'index'),
+            (r'\b(\d+)\s+(?:and|,)\s*(\d+)\s+(?:option|to\s+cart|to\s+my\s+cart)', 'multi_index'),
+            # "2 option" (number before option)
+            (r'\b(\d+)\s+option', 'index'),
         ]
         
         # Find all matches with their positions and resolved values
@@ -662,27 +795,48 @@ class EasymartAssistantHandler:
         
         for pattern, ref_type in patterns:
             for match in re.finditer(pattern, message, re.IGNORECASE):
-                reference = match.group(1)
-                
-                # Skip if this span overlaps with an existing match
-                if any(match.start() < r[1] and match.end() > r[0] for r in replacements):
-                    continue
-                
-                # Resolve the reference
-                product_id = session.resolve_product_reference(reference, ref_type)
-                
-                if product_id:
-                    # Find the product details
-                    product = next(
-                        (p for p in session.last_shown_products 
-                         if p.get('id') == product_id or p.get('sku') == product_id),
-                        None
-                    )
+                if ref_type == 'multi_index':
+                    # Handle "2 and 3" pattern - resolve both numbers
+                    ref1, ref2 = match.group(1), match.group(2)
                     
-                    if product:
-                        product_name = product.get('name') or product.get('title', '')
-                        replacement_text = f"product '{product_name}' (SKU: {product_id})"
-                        replacements.append((match.start(), match.end(), replacement_text))
+                    # Skip if this span overlaps with an existing match
+                    if any(match.start() < r[1] and match.end() > r[0] for r in replacements):
+                        continue
+                    
+                    product_id1 = session.resolve_product_reference(ref1, 'index')
+                    product_id2 = session.resolve_product_reference(ref2, 'index')
+                    
+                    if product_id1 and product_id2:
+                        product1 = next((p for p in session.last_shown_products if p.get('id') == product_id1 or p.get('sku') == product_id1), None)
+                        product2 = next((p for p in session.last_shown_products if p.get('id') == product_id2 or p.get('sku') == product_id2), None)
+                        
+                        if product1 and product2:
+                            name1 = product1.get('name') or product1.get('title', '')
+                            name2 = product2.get('name') or product2.get('title', '')
+                            replacement_text = f"product '{name1}' (SKU: {product_id1}) and product '{name2}' (SKU: {product_id2}) option"
+                            replacements.append((match.start(), match.end(), replacement_text))
+                else:
+                    reference = match.group(1)
+                    
+                    # Skip if this span overlaps with an existing match
+                    if any(match.start() < r[1] and match.end() > r[0] for r in replacements):
+                        continue
+                    
+                    # Resolve the reference
+                    product_id = session.resolve_product_reference(reference, 'index')
+                    
+                    if product_id:
+                        # Find the product details
+                        product = next(
+                            (p for p in session.last_shown_products 
+                             if p.get('id') == product_id or p.get('sku') == product_id),
+                            None
+                        )
+                        
+                        if product:
+                            product_name = product.get('name') or product.get('title', '')
+                            replacement_text = f"product '{product_name}' (SKU: {product_id})"
+                            replacements.append((match.start(), match.end(), replacement_text))
         
         # Sort by position (reverse order) to replace from end to start
         replacements.sort(reverse=True)

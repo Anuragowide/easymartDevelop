@@ -120,6 +120,87 @@ class EasymartAssistantTools:
         self.settings = get_settings()
         self.bundle_planner = BundlePlanner(self.product_searcher)
 
+    def _get_base_product_name(self, name: str) -> str:
+        """
+        Extract base product name by removing quantity/size/variant variations.
+        E.g., '200pcs Puppy Dog Training Pads' -> 'puppy dog training pads'
+        E.g., 'Dog Bed Large Orthopedic' -> 'dog bed'
+        Used for deduplicating similar products in search results.
+        """
+        name_lower = name.lower()
+        
+        # Remove quantity patterns like "200pcs", "400 pcs", "1 x", "2x", etc.
+        name_lower = re.sub(r'\b\d+\s*(?:pcs?|pieces?|pack|count|x|units?)\b', '', name_lower)
+        
+        # Remove size patterns like "small", "medium", "large", "xl", "xxl", etc.
+        name_lower = re.sub(r'\b(?:x?x?small|x?x?large|medium|mini|big|huge|tiny|xl|xxl|xs|xxs)\b', '', name_lower)
+        
+        # Remove standalone size letters only when they appear as size indicators
+        name_lower = re.sub(r'\b[sml]\b', '', name_lower)
+        
+        # Remove dimension patterns like "60x90cm", "100cm", etc.
+        name_lower = re.sub(r'\b\d+\s*x\s*\d+\s*(?:cm|mm|m|inch|in|ft)?\b', '', name_lower)
+        name_lower = re.sub(r'\b\d+\s*(?:cm|mm|m|inch|in|ft)\b', '', name_lower)
+        
+        # Remove variant descriptors that don't change the core product type
+        name_lower = re.sub(r'\b(?:orthopedic|washable|waterproof|foldable|portable|deluxe|premium|basic|standard|pro|plus)\b', '', name_lower)
+        
+        # Remove color patterns
+        name_lower = re.sub(r'\b(?:black|white|red|blue|green|yellow|pink|purple|grey|gray|brown|beige|orange|navy|cream)\b', '', name_lower)
+        
+        # Normalize whitespace
+        name_lower = re.sub(r'\s+', ' ', name_lower).strip()
+        
+        return name_lower
+
+    def _resolve_product_id_reference(self, session, product_id: str) -> Optional[str]:
+        """
+        Resolve a product_id that might be a reference (like "2", "3", "option 1") 
+        to an actual product SKU from the session's last shown products.
+        
+        This is CRITICAL for cart operations where the LLM might pass numeric
+        references instead of actual SKUs.
+        
+        Args:
+            session: The user's session containing last_shown_products
+            product_id: The product_id passed by the LLM (could be "2", "option 1", or actual SKU)
+        
+        Returns:
+            Resolved product SKU if found, otherwise the original product_id
+        """
+        if not product_id:
+            return product_id
+        
+        product_id_str = str(product_id).strip()
+        
+        # Check if this looks like a product reference (numeric or "option X")
+        is_numeric_ref = product_id_str.isdigit()
+        is_option_ref = re.match(r'^(?:option|item|product|choice|number)\s*(\d+)$', product_id_str, re.IGNORECASE)
+        is_ordinal_ref = product_id_str.lower() in ['first', 'second', 'third', 'fourth', 'fifth', '1st', '2nd', '3rd', '4th', '5th']
+        
+        if not (is_numeric_ref or is_option_ref or is_ordinal_ref):
+            # Doesn't look like a reference, return as-is (it's probably a real SKU)
+            return product_id
+        
+        # Try to resolve using session's last shown products
+        if not session or not session.last_shown_products:
+            logger.warning(f"Cannot resolve product reference '{product_id}': No products in session")
+            return product_id
+        
+        # Resolve the reference
+        resolved = session.resolve_product_reference(product_id_str, "index")
+        
+        if resolved:
+            # Double-check: find the product to get its details
+            for product in session.last_shown_products:
+                pid = product.get("id") or product.get("sku") or product.get("product_id")
+                if pid == resolved:
+                    logger.info(f"Resolved product reference '{product_id}' to SKU '{resolved}' ({product.get('name', 'Unknown')})")
+                    return resolved
+        
+        logger.warning(f"Could not resolve product reference '{product_id}' to a valid SKU")
+        return product_id
+
     async def search_products(
         self,
         query: str,
@@ -218,11 +299,19 @@ class EasymartAssistantTools:
             results.sort(key=lambda x: x.get("price", 0), reverse=True)
 
         formatted = []
+        seen_base_names = set()
         for idx, product in enumerate(results):
             if not product.get("name") or product.get("name").startswith("product_"):
                 product["name"] = product.get("title") or product.get("description", f"Product {idx + 1}")
             product["id"] = product.get("sku") or product.get("id")
             product["price"] = product.get("price", 0.0)
+            
+            # Deduplicate: Skip products with very similar names (e.g., 200pcs vs 400pcs of same item)
+            base_name = self._get_base_product_name(product.get("name", ""))
+            if base_name in seen_base_names:
+                continue  # Skip duplicate
+            seen_base_names.add(base_name)
+            
             formatted.append(product)
 
         # If in_stock filter was requested, filter out out-of-stock items from results
@@ -372,6 +461,14 @@ class EasymartAssistantTools:
         session_store = get_session_store()
         session_id = session_id or CURRENT_SESSION_ID.get()
         session = session_store.get_or_create_session(session_id)
+
+        # CRITICAL FIX: Resolve product references like "2", "3", "option 1" to actual SKUs
+        # This handles cases where LLM passes numeric references instead of real product IDs
+        if product_id:
+            resolved_product_id = self._resolve_product_id_reference(session, product_id)
+            if resolved_product_id and resolved_product_id != product_id:
+                logger.info(f"Resolved product reference '{product_id}' -> '{resolved_product_id}'")
+                product_id = resolved_product_id
 
         async def _get_cart_state():
             cart_details = []
