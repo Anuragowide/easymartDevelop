@@ -330,6 +330,7 @@ class EasymartAssistantHandler:
 
         except EasymartException as e:
             analytics.track_error("easymart_exception", str(e))
+            print(f"[ERROR] EasymartException: {e}")
             recovery = error_recovery.handle_error("tool_failure", {"query": request.message})
             return AssistantResponse(
                 session_id=session.session_id,
@@ -340,6 +341,9 @@ class EasymartAssistantHandler:
             )
         except Exception as e:
             analytics.track_error("internal_error", str(e))
+            import traceback
+            print(f"[ERROR] Exception in handler: {type(e).__name__}: {e}")
+            traceback.print_exc()
             recovery = error_recovery.handle_error("tool_failure", {"query": request.message})
             return AssistantResponse(
                 session_id=session.session_id,

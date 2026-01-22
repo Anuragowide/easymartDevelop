@@ -118,22 +118,28 @@ class IntelligentContextHandler:
         """
         response_lower = assistant_response.lower()
         
-        # Check for product listings - numbered items (with or without prices)
+        # Check for product listings - numbered items OR bullet points
+        # Use Unicode code points for bullet characters to avoid encoding issues
+        bullet_chars = [chr(8226), chr(9679), chr(9642), chr(8259), chr(8227)]  # •, ●, ▪, ‣, ‣
         has_numbered_list = any(marker in assistant_response for marker in ["\n1.", "\n2.", "\n3.", "1. ", "2. "])
+        has_bullet_list = any(c in assistant_response for c in bullet_chars) or any(marker in assistant_response for marker in ["\n- ", "\n* ", "- ", "* "])
+        has_list = has_numbered_list or has_bullet_list
         has_price_symbols = "$" in assistant_response
         
-        # Check for product name patterns (capitalized product names after numbers)
+        # Check for product name patterns (capitalized product names)
         import re
-        has_product_names = bool(re.search(r'\d\.\s+[A-Z][a-zA-Z]+.*(?:–|-|:)', assistant_response))
+        has_product_names = bool(re.search(r'[A-Z][a-zA-Z]+\s+(?:External|Canister|Filter|Pump|Chair|Sofa|Desk|Bed|Table|Recliner|Aquarium|Tank)', assistant_response))
         
-        # Check for product structure patterns
+        # Check for product structure patterns - indicating products are being shown
         has_product_structure = any(pattern in response_lower for pattern in [
             "here are", "here's what", "found these", "options for you",
             "i found", "showing you", "take a look", "check out these",
-            "available now", "available:", "options:"
+            "available now", "available:", "options:", "selection of",
+            "bundle together", "can bundle", "here's a selection",
+            "this unit", "suitable for", "provides", "features"
         ])
         
-        # Check for clarification-ONLY patterns (questions without products)
+        # Check for clarification-ONLY patterns (questions WITHOUT any product list)
         clarification_only_patterns = [
             "what type", "which type", "what kind", "which kind",
             "what are you looking for", "can you tell me more",
@@ -143,17 +149,25 @@ class IntelligentContextHandler:
             "we have a wide range", "we have a nice selection",
             "are you looking for something specific"
         ]
-        is_pure_clarification = any(pattern in response_lower for pattern in clarification_only_patterns) and not has_numbered_list
+        is_pure_clarification = any(pattern in response_lower for pattern in clarification_only_patterns) and not has_list and not has_product_names
         
-        # If has numbered list with product names OR product structure, it's showing products
-        if has_numbered_list and (has_price_symbols or has_product_names or has_product_structure):
+        # If has product names or product structure with descriptions, it's showing products
+        if has_product_names or (has_product_structure and (has_list or has_price_symbols)):
             return {
                 "is_clarification": False,
                 "is_showing_products": True,
-                "reasoning": "Response has numbered product listings"
+                "reasoning": "Response describes products"
             }
         
-        # If it's a pure clarification question without product list, it's clarification
+        # If has any list with prices, it's showing products
+        if has_list and has_price_symbols:
+            return {
+                "is_clarification": False,
+                "is_showing_products": True,
+                "reasoning": "Response has product listings with prices"
+            }
+        
+        # If it's a pure clarification question without product indicators, it's clarification
         if is_pure_clarification:
             return {
                 "is_clarification": True,
@@ -161,12 +175,12 @@ class IntelligentContextHandler:
                 "reasoning": "Response is asking for clarification without products"
             }
         
-        # Default: if it has numbered list, assume products; otherwise assume clarification
-        if has_numbered_list:
+        # Default: if it has any list structure, assume products
+        if has_list:
             return {
                 "is_clarification": False,
                 "is_showing_products": True,
-                "reasoning": "Response has numbered list"
+                "reasoning": "Response has list structure"
             }
         
         return {
