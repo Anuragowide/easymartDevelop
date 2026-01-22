@@ -48,10 +48,10 @@ services:
   # Python Backend - Assistant + Retrieval + Catalog
   backend-python:
     build:
-      context: ../backend-python
+      context: ../backend-pylang
       dockerfile: Dockerfile
-    image: easymart/backend-python:latest
-    container_name: easymart-python
+    image: easymart/backend-pylang:latest
+    container_name: easymart-pylang
     ports:
       - "8000:8000"
     environment:
@@ -73,8 +73,8 @@ services:
       - HYBRID_SEARCH_ALPHA=0.5
       - MAX_SEARCH_RESULTS=10
     volumes:
-      - python-data:/app/data
-      - python-logs:/app/logs
+      - pylang-data:/app/data
+      - pylang-logs:/app/logs
     networks:
       - easymart-network
     restart: unless-stopped
@@ -170,9 +170,9 @@ networks:
         - subnet: 172.20.0.0/16
 
 volumes:
-  python-data:
+  pylang-data:
     driver: local
-  python-logs:
+  pylang-logs:
     driver: local
   # search-data:
   #   driver: local
