@@ -18,6 +18,20 @@ from app.modules.observability.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# GLOBAL ENCODER SINGLETON - load ONCE at module import, reuse forever
+_GLOBAL_ENCODER: Optional[SentenceTransformer] = None
+_GLOBAL_MODEL_NAME: Optional[str] = None
+
+
+def get_global_encoder(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
+    """Get or create global encoder singleton - loads model only ONCE"""
+    global _GLOBAL_ENCODER, _GLOBAL_MODEL_NAME
+    if _GLOBAL_ENCODER is None or _GLOBAL_MODEL_NAME != model_name:
+        logger.info(f"Loading embedding model (ONE TIME): {model_name}")
+        _GLOBAL_ENCODER = SentenceTransformer(model_name)
+        _GLOBAL_MODEL_NAME = model_name
+    return _GLOBAL_ENCODER
+
 
 class AdvancedHybridSearch:
     """
@@ -61,16 +75,12 @@ class AdvancedHybridSearch:
         self.lambda_param = lambda_param
         
         # Lazy load encoder (only when MMR is needed)
-        self._encoder = None
         self._embedding_model = embedding_model or "all-MiniLM-L6-v2"
     
     @property
     def encoder(self):
-        """Lazy load sentence transformer"""
-        if self._encoder is None:
-            logger.info(f"Loading embedding model: {self._embedding_model}")
-            self._encoder = SentenceTransformer(self._embedding_model)
-        return self._encoder
+        """Get global encoder singleton - NO reloading"""
+        return get_global_encoder(self._embedding_model)
     
     def search(
         self, 

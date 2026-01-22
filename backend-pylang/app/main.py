@@ -59,6 +59,13 @@ async def startup_event():
 
     from app.modules.catalog_index.catalog import CatalogIndexer
     from app.modules.catalog_index.sync import get_catalog_sync_service
+    from app.modules.catalog_index.indexing.advanced_hybrid_search import get_global_encoder
+    
+    # PRELOAD embedding model at startup (takes ~3-5 seconds, but only ONCE)
+    print("[Embeddings] Preloading sentence transformer model...")
+    get_global_encoder()
+    print("[Embeddings] Model loaded and cached!")
+    
     try:
         indexer = CatalogIndexer()
         product_count = indexer.get_product_count()

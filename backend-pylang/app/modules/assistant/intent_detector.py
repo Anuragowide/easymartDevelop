@@ -8,6 +8,7 @@ Extended for Easymart furniture store with policy and contact intents.
 import re
 from typing import Optional, Dict, Any
 from .intents import IntentType
+from .category_keywords import is_product_search_term
 
 
 class IntentDetector:
@@ -379,6 +380,11 @@ class IntentDetector:
         if len(message.split()) > 3:
             return IntentType.GENERAL_HELP
         
+        # FINAL CHECK: If it's a known product term (from category_keywords), treat as PRODUCT_SEARCH
+        # This catches single-word product queries like "recliner", "aquarium", etc.
+        if is_product_search_term(message_lower):
+            return IntentType.PRODUCT_SEARCH
+        
         return IntentType.OUT_OF_SCOPE
     
     def detect_intent_granularity(self, message: str) -> Dict[str, Any]:
@@ -712,7 +718,48 @@ class IntentDetector:
         message_lower = message.lower().strip()
         partial_entities = {}
         
-        # Category 1: Ultra-vague queries
+        # PRIORITY CHECK: If message contains ANY known product category, it's NOT vague
+        # The LLM will handle smart clarification for broad categories
+        # Import the comprehensive category keywords
+        try:
+            from .category_keywords import is_product_search_term
+            if is_product_search_term(message_lower):
+                return None  # NOT vague - let LLM handle smart clarification
+        except ImportError:
+            pass
+        
+        # Also check against common product terms inline
+        known_product_terms = {
+            # Furniture
+            'recliner', 'recliners', 'sofa', 'sofas', 'couch', 'chair', 'chairs', 'desk', 'desks',
+            'table', 'tables', 'bed', 'beds', 'mattress', 'mattresses', 'ottoman', 'ottomans',
+            'bookcase', 'bookcases', 'shelf', 'shelves', 'locker', 'lockers', 'cabinet', 'cabinets',
+            'stool', 'stools', 'bench', 'benches', 'workstation', 'workstations',
+            # Fitness
+            'treadmill', 'treadmills', 'dumbbell', 'dumbbells', 'kettlebell', 'kettlebells',
+            'gym', 'fitness', 'exercise', 'yoga', 'trampoline', 'trampolines',
+            # Boxing/MMA
+            'boxing', 'mma', 'martial', 'gloves', 'punching',
+            # Pets
+            'dog', 'cat', 'bird', 'fish', 'pet', 'puppy', 'kitten', 'parrot', 'rabbit',
+            'aquarium', 'aquariums', 'cage', 'cages', 'kennel', 'crate',
+            # Scooters
+            'scooter', 'scooters', 'e-scooter',
+            # Electronics
+            'cctv', 'camera', 'projector', 'speaker', 'whiteboard', 'monitor',
+        }
+        
+        # Check if any known product term is in the message
+        message_words = set(message_lower.split())
+        if message_words & known_product_terms:
+            return None  # NOT vague - let LLM handle smart clarification
+        
+        # Also check for multi-word terms
+        for term in known_product_terms:
+            if term in message_lower:
+                return None  # NOT vague
+        
+        # Category 1: Ultra-vague queries (truly needs clarification)
         ultra_vague_patterns = [
             r'^(i\s+)?(want|need|looking for|show me|find me|get me)\s+(something|anything)\s*$',
             r'^(something|anything)\s+(good|nice|cool|great|best)\s*$',
@@ -720,6 +767,8 @@ class IntentDetector:
             r'^what\s+(should i|do you)\s+(buy|recommend|suggest)\s*\??$',
             r'^(suggest|recommend)\s+something\s*$',
             r'^what\s+do\s+you\s+have\s*\??$',
+            r'^furniture\s*$',  # Just "furniture" is too broad
+            r'^products?\s*$',  # Just "product" is too broad
         ]
         
         for pattern in ultra_vague_patterns:
@@ -771,25 +820,14 @@ class IntentDetector:
                     partial_entities['room_type'] = room_match.group(1)
                 return {"vague_type": "room_setup", "partial_entities": partial_entities}
         
-        # Category 4: Category-only without specifics
-        category_only_patterns = [
-            r'^(i\s+)?(want|need|looking for|show me|find me|search for|search|get me|give me)\s+(a\s+|some\s+)?(chair|table|desk|sofa|bed|shelf|locker|stool)s?\s*$',
-        ]
+        # Category 4: REMOVED - We no longer treat "show me chair" as vague
+        # Simple product category searches should trigger search_products, not clarification
+        # The LLM will handle showing products directly
         
-        for pattern in category_only_patterns:
-            match = re.search(pattern, message_lower)
-            if match:
-                # Extract category
-                cat_match = re.search(r'(chair|table|desk|sofa|bed|shelf|locker|stool)s?', message_lower)
-                if cat_match:
-                    category = cat_match.group(1)
-                    partial_entities['category'] = category
-                return {"vague_type": "category_only", "partial_entities": partial_entities}
-        
-        # Category 5: Quality-only queries
+        # Category 5: Quality-only queries (without specific product type)
+        # e.g., "best furniture" without specifying what type
         quality_only_patterns = [
-            r'^(best|top|good|premium|quality|affordable|cheap|budget)\s+(furniture|chair|table|desk|sofa|bed)s?\s*$',
-            r'^(furniture|chair|table|desk|sofa|bed)s?\s+(that\s+is\s+)?(best|good|quality|premium|affordable)\s*$',
+            r'^(best|top|good|premium|quality|affordable|cheap|budget)\s+furniture\s*$',
         ]
         
         for pattern in quality_only_patterns:
