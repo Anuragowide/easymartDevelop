@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.modules.observability.logging_config import get_logger
+from app.modules.assistant.category_intelligence import get_category_intelligence
 
 logger = get_logger(__name__)
 
@@ -380,6 +381,7 @@ class VagueQueryHandler:
     """
     Handles vague, indirect, or slang-based user queries.
     Translates them into actionable search parameters or clarification requests.
+    Uses CategoryIntelligence for grounding in actual catalog categories.
     """
     
     def __init__(self):
@@ -399,6 +401,9 @@ class VagueQueryHandler:
                 re.compile(pattern, re.IGNORECASE): config
                 for pattern, config in patterns.items()
             }
+        
+        # Initialize category intelligence for smart category mapping
+        self.category_intel = get_category_intelligence()
     
     def analyze(self, query: str) -> VagueQueryResult:
         """
@@ -411,6 +416,33 @@ class VagueQueryHandler:
             VagueQueryResult with interpretation and suggested action
         """
         query_lower = query.lower().strip()
+        
+        # First, try CategoryIntelligence for vague phrase translation
+        vague_translation = self.category_intel.translate_vague_query(query)
+        if vague_translation.get("confidence") == "high" and vague_translation.get("categories"):
+            # We have a high-confidence match from category intelligence
+            detected_phrase = vague_translation.get("detected_phrase", "")
+            categories = vague_translation.get("categories", [])
+            search_terms = vague_translation.get("search_terms", [])
+            
+            logger.info(f"[VAGUE] CategoryIntelligence matched: '{detected_phrase}' -> categories: {categories}")
+            
+            return VagueQueryResult(
+                is_vague=True,
+                category=VagueCategory.LIFESTYLE_CONTEXT,
+                original_query=query,
+                interpreted_intent=f"Looking for products related to: {detected_phrase}",
+                suggested_query=" ".join(search_terms) if search_terms else query,
+                suggested_filters={"categories": categories},
+                suggested_tool="search_products",
+                tool_args={
+                    "query": " ".join(search_terms) if search_terms else query,
+                    "filters": {"categories": categories}
+                },
+                clarification_needed=False,
+                clarification_message=None,
+                confidence=0.85
+            )
         
         # Check each category of patterns
         best_match = None

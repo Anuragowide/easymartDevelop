@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from app.modules.observability.logging_config import get_logger
 from app.modules.retrieval.product_search import ProductSearcher
+from app.modules.assistant.category_intelligence import get_category_intelligence
 
 logger = get_logger(__name__)
 
@@ -63,8 +64,13 @@ DESCRIPTOR_KEYWORDS = ["l shape", "l-shaped", "lshape", "corner"]
 
 
 def parse_bundle_request(text: str) -> Tuple[List[BundleItem], Dict[str, Any]]:
+    """Parse bundle request using intelligent category detection."""
     items: List[BundleItem] = []
     extracted: Dict[str, Any] = {}
+    
+    # Use CategoryIntelligence for smart context detection
+    cat_intel = get_category_intelligence()
+    bundle_context = cat_intel.get_bundle_context(text)
 
     for match in ITEM_PATTERN.finditer(text):
         qty = int(match.group(1))
@@ -79,6 +85,16 @@ def parse_bundle_request(text: str) -> Tuple[List[BundleItem], Dict[str, Any]]:
             break
 
     text_lower = text.lower()
+    
+    # Use intelligent context detection from CategoryIntelligence
+    if bundle_context.get("bundle_context"):
+        extracted["bundle_context"] = bundle_context["bundle_context"]
+        extracted["allowed_categories"] = bundle_context.get("allowed_categories", [])
+        extracted["detected_items"] = bundle_context.get("detected_items", [])
+        logger.info(f"[BUNDLE] Detected context: {bundle_context['bundle_context']}, "
+                   f"categories: {len(extracted['allowed_categories'])}, "
+                   f"items: {bundle_context.get('detected_items', [])}")
+    
     for color in COLOR_KEYWORDS:
         if color in text_lower:
             extracted["color"] = color
@@ -105,6 +121,7 @@ def parse_bundle_request(text: str) -> Tuple[List[BundleItem], Dict[str, Any]]:
 class BundlePlanner:
     def __init__(self, product_searcher: Optional[ProductSearcher] = None):
         self.product_searcher = product_searcher or ProductSearcher()
+        self.category_intel = get_category_intelligence()
 
     async def build_bundle(
         self,
@@ -116,8 +133,10 @@ class BundlePlanner:
         room_type: Optional[str] = None,
         descriptor: Optional[str] = None,
         strategy: Optional[str] = None,
+        allowed_categories: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         parsed_items: List[BundleItem] = []
+        bundle_context = None
 
         if items:
             for item in items:
@@ -135,6 +154,8 @@ class BundlePlanner:
             material = material or parsed_meta.get("material")
             room_type = room_type or parsed_meta.get("room_type")
             descriptor = descriptor or parsed_meta.get("descriptor")
+            bundle_context = parsed_meta.get("bundle_context")
+            allowed_categories = allowed_categories or parsed_meta.get("allowed_categories")
 
         if not parsed_items:
             return {
@@ -154,7 +175,12 @@ class BundlePlanner:
             base_filters["material"] = material
         if room_type:
             base_filters["room_type"] = room_type
+        if allowed_categories:
+            base_filters["categories"] = allowed_categories
         base_filters["in_stock"] = True
+        
+        if bundle_context:
+            logger.info(f"[BUNDLE] Detected context: {bundle_context}, filtering to categories: {allowed_categories}")
 
         bundle_items = []
         products_for_cards = []

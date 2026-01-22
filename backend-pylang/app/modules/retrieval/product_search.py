@@ -95,16 +95,27 @@ class ProductSearcher:
             product_data = result.get("content", {})
             inventory_qty = product_data.get("inventory_quantity")
             stock_status = product_data.get("stock_status")
+            available = product_data.get("available")
+            
+            # Determine in_stock based on multiple signals:
+            # 1. Explicit stock_status from adapter
+            # 2. available flag from Shopify
+            # 3. inventory_quantity count
             if stock_status == "out_of_stock":
                 in_stock = False
             elif stock_status == "in_stock":
                 in_stock = True
-            elif inventory_qty is None:
+            elif available == 0 or available is False:
+                in_stock = False
+            elif available == 1 or available is True:
                 in_stock = True
-            elif inventory_qty == 0 and stock_status is None:
+            elif inventory_qty is not None and inventory_qty > 0:
                 in_stock = True
+            elif inventory_qty is not None and inventory_qty <= 0:
+                in_stock = False
             else:
-                in_stock = inventory_qty > 0
+                # No inventory data - assume available (unmanaged inventory)
+                in_stock = True
             formatted_product = {
                 "id": product_data.get("sku", result.get("id", "")),
                 "sku": product_data.get("sku", result.get("id", "")),
@@ -326,6 +337,21 @@ class ProductSearcher:
                 
                 if not is_valid_for_room:
                     continue  # Skip products not valid for specified room
+            
+            # Categories list filter (for bundle context filtering)
+            if "categories" in filters:
+                allowed_cats = [c.lower() for c in filters["categories"]]
+                prod_cat = (product.get("category") or "").lower()
+                prod_type = (product.get("product_type") or "").lower()
+                
+                # Check if product category matches any allowed category
+                found_in_allowed = any(
+                    allowed in prod_cat or prod_cat in allowed or
+                    allowed in prod_type or prod_type in allowed
+                    for allowed in allowed_cats
+                )
+                if not found_in_allowed:
+                    continue
             
             # Category filter (strict or loose)
             if "category" in filters:
