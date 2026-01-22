@@ -134,6 +134,144 @@ CONTEXT_KEYWORDS = {
 }
 
 # =============================================================================
+# PET TYPE SPECIFICS - Different pet types need different categories/items
+# =============================================================================
+
+PET_TYPE_SPECIFICS = {
+    "bird": {
+        "keywords": ["bird", "parrot", "parakeet", "budgie", "cockatiel", "canary", "finch", "avian"],
+        "primary_categories": ["Bird Cages & Stands"],
+        # Note: Bird-specific only - no generic pet categories that contain dog/cat items
+        "all_categories": ["Bird Cages & Stands"],
+        "search_prefix": "bird",  # prefix for generic searches
+    },
+    "dog": {
+        "keywords": ["dog", "puppy", "pup", "pooch", "doggy", "canine", "hound"],
+        "primary_categories": ["Dog Supplies"],
+        "all_categories": ["Dog Supplies", "Pet Carrier", "Pet Feeder", "Pet Fountain", "Pets"],
+        "search_prefix": "dog",
+    },
+    "cat": {
+        "keywords": ["cat", "kitten", "kitty", "feline"],
+        "primary_categories": ["Cat Supplies"],
+        "all_categories": ["Cat Supplies", "Pet Carrier", "Pet Feeder", "Pet Fountain", "Pets"],
+        "search_prefix": "cat",
+    },
+    "fish": {
+        "keywords": ["fish", "aquarium", "aquatic", "tank", "goldfish", "tropical"],
+        "primary_categories": ["Aquarium"],
+        # Note: Removed "Other Pet Supplies" as it contains traps
+        "all_categories": ["Aquarium", "Pets"],
+        "search_prefix": "aquarium",
+    },
+    "rabbit": {
+        "keywords": ["rabbit", "bunny", "hare"],
+        "primary_categories": ["Rabbit Cage"],
+        "all_categories": ["Rabbit Cage", "Pet Care Coops & Hutches", "Pet Feeder", "Pets"],
+        "search_prefix": "rabbit",
+    },
+    "chicken": {
+        "keywords": ["chicken", "hen", "rooster", "poultry", "duck", "goose"],
+        "primary_categories": ["Pet Care Coops & Hutches", "Pet Care Farm Supplies"],
+        "all_categories": ["Pet Care Coops & Hutches", "Pet Care Farm Supplies", "Pets"],
+        "search_prefix": "chicken",
+    },
+    "small_animal": {
+        "keywords": ["hamster", "guinea pig", "ferret", "gerbil", "mouse", "rat"],
+        "primary_categories": ["Rabbit Cage"],
+        # Note: Removed "Other Pet Supplies" as primary - keep only specific cages
+        "all_categories": ["Rabbit Cage", "Pet Feeder", "Pets"],
+        "search_prefix": "small animal",
+    }
+}
+
+# =============================================================================
+# BUNDLE TEMPLATES - What items are in a starter bundle for each type
+# =============================================================================
+
+BUNDLE_TEMPLATES = {
+    "bird": {
+        "name": "Bird Starter Bundle",
+        # Note: Catalog only has bird cages - no separate bowls, perches, or toys
+        # Cages typically come with perch included
+        "items": [
+            {"type": "bird cage with perch", "quantity": 1, "search_terms": ["bird cage with perch", "bird cage", "parrot cage", "aviary"]},
+        ],
+        "categories": ["Bird Cages & Stands"],
+        "note": "Most bird cages include perches. We don't currently stock separate bird bowls or toys.",
+    },
+    "dog": {
+        "name": "Puppy Starter Bundle",
+        "items": [
+            {"type": "bed", "quantity": 1, "search_terms": ["dog bed", "pet bed"]},
+            {"type": "collar", "quantity": 1, "search_terms": ["dog collar", "pet collar"]},
+            {"type": "leash", "quantity": 1, "search_terms": ["dog leash", "pet leash", "lead"]},
+            {"type": "food bowl", "quantity": 2, "search_terms": ["dog bowl", "pet bowl", "food bowl"]},
+            {"type": "toy", "quantity": 2, "search_terms": ["dog toy", "pet toy", "chew toy"]},
+        ],
+        "categories": ["Dog Supplies", "Pet Feeder", "Pets"],
+    },
+    "cat": {
+        "name": "Kitten Starter Bundle",
+        "items": [
+            {"type": "bed", "quantity": 1, "search_terms": ["cat bed", "pet bed"]},
+            {"type": "scratching post", "quantity": 1, "search_terms": ["scratching post", "cat scratcher", "cat tree"]},
+            {"type": "litter box", "quantity": 1, "search_terms": ["litter box", "litter tray", "cat litter"]},
+            {"type": "food bowl", "quantity": 2, "search_terms": ["cat bowl", "pet bowl", "cat feeder"]},
+            {"type": "toy", "quantity": 2, "search_terms": ["cat toy", "pet toy", "mouse toy"]},
+        ],
+        "categories": ["Cat Supplies", "Pet Feeder", "Pets"],
+    },
+    "fish": {
+        "name": "Aquarium Starter Bundle", 
+        "items": [
+            {"type": "tank", "quantity": 1, "search_terms": ["aquarium", "fish tank", "aquarium tank"]},
+            {"type": "filter", "quantity": 1, "search_terms": ["aquarium filter", "fish filter", "tank filter"]},
+            {"type": "light", "quantity": 1, "search_terms": ["aquarium light", "tank light", "aquarium led"]},
+            {"type": "decoration", "quantity": 2, "search_terms": ["aquarium decoration", "fish tank decor", "aquarium plant"]},
+        ],
+        "categories": ["Aquarium", "Pets", "Other Pet Supplies"],
+    },
+    "rabbit": {
+        "name": "Rabbit Starter Bundle",
+        "items": [
+            {"type": "cage", "quantity": 1, "search_terms": ["rabbit cage", "rabbit hutch", "bunny cage"]},
+            {"type": "food bowl", "quantity": 1, "search_terms": ["pet bowl", "rabbit bowl", "small animal bowl"]},
+            {"type": "water bottle", "quantity": 1, "search_terms": ["pet fountain", "water bottle", "rabbit water"]},
+            {"type": "hay rack", "quantity": 1, "search_terms": ["hay rack", "hay feeder", "rabbit feeder"]},
+        ],
+        "categories": ["Rabbit Cage", "Pet Feeder", "Pet Care Coops & Hutches", "Pets"],
+    },
+    "home_gym": {
+        "name": "Home Gym Starter Bundle",
+        "items": [
+            {"type": "dumbbells", "quantity": 1, "search_terms": ["dumbbell set", "dumbbells", "weight set"]},
+            {"type": "mat", "quantity": 1, "search_terms": ["gym mat", "exercise mat", "yoga mat"]},
+            {"type": "bench", "quantity": 1, "search_terms": ["gym bench", "weight bench", "workout bench"]},
+        ],
+        "categories": ["Dumbbells", "Flooring & Mats", "Gym Bench", "Fitness"],
+    },
+    "home_office": {
+        "name": "Home Office Starter Bundle",
+        "items": [
+            {"type": "desk", "quantity": 1, "search_terms": ["computer desk", "office desk", "desk"]},
+            {"type": "chair", "quantity": 1, "search_terms": ["office chair", "desk chair", "ergonomic chair"]},
+            {"type": "monitor arm", "quantity": 1, "search_terms": ["monitor arm", "monitor stand", "desk mount"]},
+        ],
+        "categories": ["Desks", "Chairs", "Monitor Arm"],
+    },
+    "boxing": {
+        "name": "Boxing Starter Bundle",
+        "items": [
+            {"type": "gloves", "quantity": 1, "search_terms": ["boxing gloves", "training gloves"]},
+            {"type": "hand wraps", "quantity": 1, "search_terms": ["hand wraps", "boxing wraps", "wrist wraps"]},
+            {"type": "bag", "quantity": 1, "search_terms": ["punching bag", "boxing bag", "heavy bag"]},
+        ],
+        "categories": ["Boxing & Muay Thai", "Gloves", "Fitness"],
+    },
+}
+
+# =============================================================================
 # ITEM TO CATEGORY MAPPING - What specific items map to which categories
 # =============================================================================
 
@@ -433,6 +571,95 @@ class CategoryIntelligence:
             "allowed_categories": allowed_categories,
             "detected_items": detected_items,
             "base_group_categories": base_categories
+        }
+    
+    def detect_specific_pet_type(self, request: str) -> Optional[str]:
+        """
+        Detect if a specific pet type is mentioned (bird, dog, cat, etc.)
+        
+        Returns:
+            Pet type key or None
+        """
+        request_lower = request.lower()
+        
+        for pet_type, config in PET_TYPE_SPECIFICS.items():
+            for keyword in config["keywords"]:
+                if keyword in request_lower:
+                    return pet_type
+        
+        return None
+    
+    def get_bundle_template(self, bundle_type: str) -> Optional[Dict]:
+        """Get the bundle template for a specific type."""
+        return BUNDLE_TEMPLATES.get(bundle_type)
+    
+    def get_smart_bundle_context(self, request: str) -> Dict:
+        """
+        SMART bundle analysis - detects specific pet types and returns appropriate templates.
+        
+        This is the enhanced version that prevents cross-category confusion
+        (e.g., barbell collar in puppy bundle, possum trap in bird bundle).
+        
+        Returns:
+            Dict with bundle_type, template, categories, search_prefix, etc.
+        """
+        request_lower = request.lower()
+        
+        # First, check for specific pet type
+        pet_type = self.detect_specific_pet_type(request)
+        if pet_type:
+            pet_config = PET_TYPE_SPECIFICS[pet_type]
+            template = BUNDLE_TEMPLATES.get(pet_type, {})
+            
+            return {
+                "bundle_context": f"{pet_type}_pet",
+                "bundle_type": pet_type,
+                "pet_type": pet_type,
+                "bundle_template": template,
+                "allowed_categories": pet_config.get("all_categories", []),
+                "primary_categories": pet_config.get("primary_categories", []),
+                "search_prefix": pet_config.get("search_prefix", ""),
+                "template_items": template.get("items", []),
+                "detected_items": [],
+                "is_specific_pet": True,
+            }
+        
+        # Check for other bundle types (home_gym, home_office, boxing)
+        for bundle_type, template in BUNDLE_TEMPLATES.items():
+            if bundle_type in ["bird", "dog", "cat", "fish", "rabbit"]:
+                continue  # Already handled above
+            
+            # Check if request matches this bundle type
+            type_keywords = {
+                "home_gym": ["gym", "home gym", "workout", "fitness setup", "exercise equipment"],
+                "home_office": ["home office", "office setup", "wfh", "work from home", "remote work"],
+                "boxing": ["boxing", "boxer", "fight", "combat", "muay thai", "kickboxing"],
+            }
+            
+            keywords = type_keywords.get(bundle_type, [])
+            for kw in keywords:
+                if kw in request_lower:
+                    return {
+                        "bundle_context": bundle_type,
+                        "bundle_type": bundle_type,
+                        "bundle_template": template,
+                        "allowed_categories": template.get("categories", []),
+                        "template_items": template.get("items", []),
+                        "detected_items": [],
+                        "is_specific_pet": False,
+                    }
+        
+        # Fall back to generic context detection
+        context, base_categories = self.detect_context(request)
+        
+        return {
+            "bundle_context": context,
+            "bundle_type": None,
+            "bundle_template": None,
+            "allowed_categories": base_categories or [],
+            "template_items": [],
+            "detected_items": [],
+            "is_specific_pet": False,
         }
     
     def validate_category(self, category: str) -> bool:

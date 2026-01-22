@@ -144,9 +144,11 @@ class ProductSearcher:
             }
             formatted_results.append(formatted_product)
         
-        # Apply filters if provided
+        # Apply filters if provided - make a copy to avoid mutating caller's dict
         if filters is None:
             filters = {}
+        else:
+            filters = dict(filters)  # Create a copy to avoid mutation
         filters["query_text"] = query
             
         # AUTO-DETECT FILTERS from query
@@ -353,16 +355,34 @@ class ProductSearcher:
                 if not found_in_allowed:
                     continue
             
-            # Category filter (strict or loose)
+            # Category filter (flexible matching)
             if "category" in filters:
                 target_cat = filters["category"].lower()
                 prod_cat = (product.get("category") or "").lower()
                 prod_type = (product.get("type") or "").lower() # Sometimes stored as type
+                prod_title = (product.get("name") or product.get("title") or "").lower()
                 
-                # Check category field, type field, or tags
+                # Split target into words for flexible matching
+                target_words = set(target_cat.replace("_", " ").split())
+                cat_words = set(prod_cat.replace("_", " ").split())
+                type_words = set(prod_type.replace("_", " ").split())
+                
+                # Check category field, type field, tags, OR title
+                # More flexible: check if ANY significant word matches
+                significant_words = target_words - {"home", "and", "the", "a", "for"}
+                
                 found_cat = (
+                    # Substring match in either direction
                     target_cat in prod_cat or
+                    prod_cat in target_cat or
                     target_cat in prod_type or
+                    prod_type in target_cat or
+                    # Word overlap (e.g., "furniture" in "home furniture" matches "living room furniture")
+                    bool(significant_words & cat_words) or
+                    bool(significant_words & type_words) or
+                    # Check if product title contains the product type from query
+                    any(w in prod_title for w in significant_words if len(w) > 3) or
+                    # Tag-based check
                     any(target_cat in tag for tag in prod_tags_lower) or
                     f"category_{target_cat}" in prod_tags_lower
                 )
@@ -378,10 +398,12 @@ class ProductSearcher:
                 prod_title = (product.get("name") or "").lower()
                 
                 # More flexible matching - check if color appears anywhere
+                # FIX: Check if target_color is a SUBSTRING of any tag (not exact match in list)
+                # e.g., "grey" should match "color_dark grey", "color_grey", "grey"
+                found_in_tags = any(target_color in tag for tag in prod_tags_lower)
+                
                 found_color = (
-                    target_color in prod_tags_lower or
-                    f"color_{target_color}" in prod_tags_lower or
-                    f"colour_{target_color}" in prod_tags_lower or
+                    found_in_tags or  # "grey" in any of ["color_dark grey", "color_grey", etc.]
                     target_color in prod_title or  # Strong signal if in title
                     target_color in prod_desc  # More flexible desc matching
                 )
@@ -426,6 +448,12 @@ class ProductSearcher:
                 is_in_stock = product.get("in_stock", True)
                 if is_in_stock != filters["in_stock"]:
                     continue
+            
+            # Filter out invalid $0 or missing price products
+            # These are likely data errors or placeholder products
+            price = product.get("price", 0)
+            if price is None or price <= 0:
+                continue
             
             filtered.append(result)
         

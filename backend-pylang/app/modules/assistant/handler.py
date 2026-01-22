@@ -921,6 +921,16 @@ class EasymartAssistantHandler:
                 else:
                     result = await tool.ainvoke(call_args)
 
+                # DEBUG: Log tool results
+                print(f"[DEBUG] Tool '{call_name}' args: {call_args}")
+                if isinstance(result, dict):
+                    if result.get("no_color_match"):
+                        print(f"[DEBUG] no_color_match=True, available_colors={result.get('available_colors')}")
+                    elif result.get("products"):
+                        print(f"[DEBUG] Got {len(result['products'])} products")
+                    else:
+                        print(f"[DEBUG] Result keys: {result.keys()}")
+
                 tool_steps.append((call_name, result))
                 messages.append(ToolMessage(content=json.dumps(result), tool_call_id=call_id))
 

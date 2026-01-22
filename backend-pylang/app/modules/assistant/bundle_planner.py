@@ -64,19 +64,51 @@ DESCRIPTOR_KEYWORDS = ["l shape", "l-shaped", "lshape", "corner"]
 
 
 def parse_bundle_request(text: str) -> Tuple[List[BundleItem], Dict[str, Any]]:
-    """Parse bundle request using intelligent category detection."""
+    """Parse bundle request using intelligent category detection with templates."""
     items: List[BundleItem] = []
     extracted: Dict[str, Any] = {}
     
-    # Use CategoryIntelligence for smart context detection
+    # Use CategoryIntelligence for SMART context detection with templates
     cat_intel = get_category_intelligence()
-    bundle_context = cat_intel.get_bundle_context(text)
-
-    for match in ITEM_PATTERN.finditer(text):
-        qty = int(match.group(1))
-        raw_type = match.group(2).lower()
-        item_type = ITEM_ALIASES.get(raw_type, raw_type.rstrip("s"))
-        items.append(BundleItem(item_type=item_type, quantity=qty))
+    smart_context = cat_intel.get_smart_bundle_context(text)
+    
+    # If we have a specific bundle type with a template, use template items
+    if smart_context.get("bundle_template") and smart_context.get("template_items"):
+        template_items = smart_context["template_items"]
+        search_prefix = smart_context.get("search_prefix", "")
+        
+        for item_def in template_items:
+            item_type = item_def["type"]
+            quantity = item_def.get("quantity", 1)
+            search_terms = item_def.get("search_terms", [item_type])
+            
+            items.append(BundleItem(item_type=item_type, quantity=quantity))
+        
+        extracted["bundle_template"] = smart_context["bundle_template"]
+        extracted["template_items"] = template_items
+        extracted["search_prefix"] = search_prefix
+        extracted["bundle_context"] = smart_context.get("bundle_context")
+        extracted["bundle_type"] = smart_context.get("bundle_type")
+        extracted["allowed_categories"] = smart_context.get("allowed_categories", [])
+        
+        logger.info(f"[BUNDLE] Using template for {smart_context.get('bundle_type')}: "
+                   f"{len(items)} items, categories: {extracted['allowed_categories']}")
+    else:
+        # Fall back to regex parsing for explicit items like "2 chairs and 3 tables"
+        for match in ITEM_PATTERN.finditer(text):
+            qty = int(match.group(1))
+            raw_type = match.group(2).lower()
+            item_type = ITEM_ALIASES.get(raw_type, raw_type.rstrip("s"))
+            items.append(BundleItem(item_type=item_type, quantity=qty))
+        
+        # Still use context for category filtering
+        bundle_context = cat_intel.get_bundle_context(text)
+        if bundle_context.get("bundle_context"):
+            extracted["bundle_context"] = bundle_context["bundle_context"]
+            extracted["allowed_categories"] = bundle_context.get("allowed_categories", [])
+            extracted["detected_items"] = bundle_context.get("detected_items", [])
+            logger.info(f"[BUNDLE] Detected context: {bundle_context['bundle_context']}, "
+                       f"categories: {len(extracted['allowed_categories'])}")
 
     for pattern in BUDGET_PATTERNS:
         match = pattern.search(text)
@@ -85,15 +117,6 @@ def parse_bundle_request(text: str) -> Tuple[List[BundleItem], Dict[str, Any]]:
             break
 
     text_lower = text.lower()
-    
-    # Use intelligent context detection from CategoryIntelligence
-    if bundle_context.get("bundle_context"):
-        extracted["bundle_context"] = bundle_context["bundle_context"]
-        extracted["allowed_categories"] = bundle_context.get("allowed_categories", [])
-        extracted["detected_items"] = bundle_context.get("detected_items", [])
-        logger.info(f"[BUNDLE] Detected context: {bundle_context['bundle_context']}, "
-                   f"categories: {len(extracted['allowed_categories'])}, "
-                   f"items: {bundle_context.get('detected_items', [])}")
     
     for color in COLOR_KEYWORDS:
         if color in text_lower:
@@ -137,6 +160,7 @@ class BundlePlanner:
     ) -> Dict[str, Any]:
         parsed_items: List[BundleItem] = []
         bundle_context = None
+        template_items_map: Dict[str, Dict] = {}  # Maps item type to template config
 
         if items:
             for item in items:
@@ -146,6 +170,17 @@ class BundlePlanner:
                 quantity = int(item.get("quantity", 1))
                 if item_type:
                     parsed_items.append(BundleItem(item_type=item_type, quantity=quantity))
+            
+            # Even with explicit items, we still need context detection for categories
+            # This prevents "cage" returning possum traps when user asked about parrots
+            _, context_meta = parse_bundle_request(request)
+            bundle_context = bundle_context or context_meta.get("bundle_context")
+            allowed_categories = allowed_categories or context_meta.get("allowed_categories")
+            
+            # Build template map from detected context
+            template_items = context_meta.get("template_items", [])
+            for titem in template_items:
+                template_items_map[titem["type"]] = titem
 
         if not parsed_items:
             parsed_items, parsed_meta = parse_bundle_request(request)
@@ -156,6 +191,11 @@ class BundlePlanner:
             descriptor = descriptor or parsed_meta.get("descriptor")
             bundle_context = parsed_meta.get("bundle_context")
             allowed_categories = allowed_categories or parsed_meta.get("allowed_categories")
+            
+            # Build template items map for search terms
+            template_items = parsed_meta.get("template_items", [])
+            for titem in template_items:
+                template_items_map[titem["type"]] = titem
 
         if not parsed_items:
             return {
@@ -189,28 +229,67 @@ class BundlePlanner:
         used_fallback = False
         min_total_estimate = 0.0
         candidates_by_item: List[List[Dict[str, Any]]] = []
+        
+        # Get search prefix from context (e.g., "bird" for bird bundles)
+        search_prefix = ""
+        if bundle_context:
+            smart_ctx = self.category_intel.get_smart_bundle_context(request)
+            search_prefix = smart_ctx.get("search_prefix", "")
 
         for item in parsed_items:
             filters = dict(base_filters)
             if per_unit_budget:
                 filters["price_max"] = per_unit_budget
 
-            query = item.item_type
-            if room_type:
-                query = f"{room_type} {query}"
-            if descriptor and item.item_type in ["table", "desk"]:
-                query = f"{descriptor} {item.item_type}"
-            results = await self.product_searcher.search(query=query, limit=10, filters=filters)
-            if isinstance(results, dict) and results.get("no_color_match"):
-                results = []
+            # Check if we have template search terms for this item type
+            template_config = template_items_map.get(item.item_type, {})
+            search_terms = template_config.get("search_terms", [])
+            
+            # If no template search terms, create contextual search terms
+            if not search_terms:
+                if search_prefix and item.item_type not in ["desk", "chair", "table", "bed"]:
+                    # Prefix generic terms with context (e.g., "cage" -> "bird cage")
+                    search_terms = [f"{search_prefix} {item.item_type}", item.item_type]
+                else:
+                    search_terms = [item.item_type]
+            
+            # Try each search term until we find results
+            results = []
+            for search_term in search_terms:
+                query = search_term
+                if room_type:
+                    query = f"{room_type} {query}"
+                if descriptor and item.item_type in ["table", "desk"]:
+                    query = f"{descriptor} {item.item_type}"
+                    
+                logger.info(f"[BUNDLE] Searching for '{item.item_type}' using query: '{query}'")
+                results = await self.product_searcher.search(query=query, limit=10, filters=filters)
+                if isinstance(results, dict) and results.get("no_color_match"):
+                    results = []
+                    
+                if results:
+                    logger.info(f"[BUNDLE] Found {len(results)} results for '{query}'")
+                    break  # Found results, stop trying other search terms
 
             if not results and per_unit_budget:
                 used_fallback = True
-                results = await self.product_searcher.search(query=query, limit=10, filters=base_filters)
-                if isinstance(results, dict) and results.get("no_color_match"):
-                    results = []
+                # Try without budget constraint
+                logger.info(f"[BUNDLE] Fallback search with base_filters: {base_filters}")
+                for search_term in search_terms:
+                    results = await self.product_searcher.search(query=search_term, limit=10, filters=base_filters)
+                    if isinstance(results, dict) and results.get("no_color_match"):
+                        results = []
+                    if results:
+                        logger.info(f"[BUNDLE] Fallback found {len(results)} results for '{search_term}'")
+                        # Log first result for debugging
+                        if results:
+                            first = results[0]
+                            logger.info(f"[BUNDLE] First result: {first.get('title', first.get('name', '?'))[:50]}, cat={first.get('category')}")
+                        break
 
             results = sorted(results or [], key=lambda p: p.get("price", 0))
+            if results:
+                logger.info(f"[BUNDLE] Sorted candidates for '{item.item_type}': cheapest=${results[0].get('price', 0):.2f} - {(results[0].get('title') or results[0].get('name', '?'))[:40]}")
             candidates_by_item.append(results)
 
             if not results:
