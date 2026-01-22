@@ -10,7 +10,10 @@ interface ExtendedMessageInputProps extends MessageInputProps {
 
 export function MessageInput({ onSend, isLoading, disabled = false }: ExtendedMessageInputProps) {
   const [input, setInput] = useState('');
-  const { followupChips, clearFollowupChips } = useChatStore();
+  const { followupChips, isStarterChips, clearFollowupChips } = useChatStore();
+
+  const enableFollowupChips = process.env.NEXT_PUBLIC_ENABLE_FOLLOWUP_CHIPS !== 'false';
+  const shouldShowChips = isStarterChips || enableFollowupChips;
 
   const handleSend = () => {
     if (input.trim() && !isLoading) {
@@ -39,7 +42,7 @@ export function MessageInput({ onSend, isLoading, disabled = false }: ExtendedMe
   return (
     <div className="border-t border-gray-100/50 bg-gradient-to-t from-white via-white to-transparent px-4 py-3">
       {/* Floating Follow-up Chips - Compact & Transparent */}
-      {followupChips && followupChips.length > 0 && !isLoading && (
+      {shouldShowChips && followupChips && followupChips.length > 0 && !isLoading && (
         <div className="flex flex-wrap gap-1.5 mb-2 animate-fadeIn">
           {followupChips.map((chip, index) => (
             <button

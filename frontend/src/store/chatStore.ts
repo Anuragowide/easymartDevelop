@@ -19,6 +19,7 @@ interface ChatState {
   error: string | null;
   currentContext: ConversationContext | null;
   followupChips: string[];
+  isStarterChips: boolean;
   hasInitialized: boolean;
   showStartScreen: boolean;
 
@@ -46,6 +47,7 @@ export const useChatStore = create<ChatState>()(
       error: null,
       currentContext: null,
       followupChips: [],
+      isStarterChips: false,
       hasInitialized: false,
       showStartScreen: true,
 
@@ -73,6 +75,7 @@ export const useChatStore = create<ChatState>()(
           hasInitialized: true,
           showStartScreen: false,
           followupChips: ["Search for office chairs", "Search for sofas", "Search for desks"],
+          isStarterChips: true,
           error: null,
           currentContext: null,
         });
@@ -111,6 +114,7 @@ export const useChatStore = create<ChatState>()(
             hasInitialized: true,
             showStartScreen: false,
             followupChips: ["Search for office chairs", "Search for sofas", "Search for desks"],
+            isStarterChips: true,
           });
         }
       },
@@ -173,13 +177,16 @@ export const useChatStore = create<ChatState>()(
           } : null;
 
           // Get followup chips from response
-          const followupChips = response.followupChips || [];
+          // Only store if environment variable allows it (disabled in staging/local)
+          const enableFollowupChips = process.env.NEXT_PUBLIC_ENABLE_FOLLOWUP_CHIPS !== 'false';
+          const followupChips = enableFollowupChips ? (response.followupChips || []) : [];
 
           set((state) => ({
             messages: [...state.messages, assistantMessage],
             isLoading: false,
             currentContext: context,
             followupChips: followupChips,
+            isStarterChips: false,
           }));
           
             // Always refresh cart after chat messages (in case items were added via chat)
