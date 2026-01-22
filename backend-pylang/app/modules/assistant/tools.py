@@ -113,6 +113,10 @@ class SmallSpaceSearchArgs(BaseModel):
     limit: int = Field(default=5, description="Maximum results to return")
 
 
+class InterpretVagueQueryArgs(BaseModel):
+    query: str = Field(..., description="The user's vague or indirect query to interpret")
+
+
 class EasymartAssistantTools:
     def __init__(self):
         self.product_searcher = ProductSearcher()
@@ -496,22 +500,27 @@ class EasymartAssistantTools:
                         "title": name,
                         "name": name,
                         "price": price,
-                        "image": product.get("image_url", ""),
+                        "image": product.get("image_url", "") or item.get("image_url", ""),
                         "quantity": qty,
                         "item_total": item_total,
                         "added_at": item.get("added_at")
                     })
                 else:
+                    # Fallback to session item data when product not found in database
                     price = float(item.get("price") or 0.0)
                     qty = item.get("quantity", 1)
+                    item_total = price * qty
+                    total_price += item_total
                     cart_details.append({
                         "product_id": pid,
                         "id": pid,
-                        "title": item.get("name") or pid or "Unknown Product",
+                        "title": item.get("name") or item.get("title") or pid or "Unknown Product",
+                        "name": item.get("name") or item.get("title") or pid or "Unknown Product",
                         "quantity": qty,
                         "price": price,
-                        "image": "",
-                        "item_total": price * qty
+                        "image": item.get("image_url") or "",
+                        "item_total": item_total,
+                        "added_at": item.get("added_at")
                     })
 
             return {
@@ -570,8 +579,42 @@ class EasymartAssistantTools:
             return {"error": "product_id required for this action", "success": False}
 
         product_info = await self.product_searcher.get_product(product_id)
-        if not product_info and product_snapshot:
-            product_info = product_snapshot
+        
+        # If product_snapshot is provided, use it as fallback or merge with database data
+        if product_snapshot:
+            if not product_info:
+                product_info = product_snapshot
+            else:
+                # Merge: prefer database data but fill in missing fields from snapshot
+                for key in ["price", "image_url", "title"]:
+                    if not product_info.get(key) and product_snapshot.get(key):
+                        product_info[key] = product_snapshot[key]
+        
+        # FALLBACK: If product still not found, check session's last_shown_products and last_bundle_items
+        if not product_info:
+            # Try to find product in last_shown_products
+            for p in (session.last_shown_products or []):
+                if p.get("sku") == product_id or p.get("id") == product_id:
+                    product_info = {
+                        "title": p.get("name") or p.get("title"),
+                        "price": p.get("price"),
+                        "image_url": p.get("image_url"),
+                        "category": p.get("category"),
+                        "vendor": p.get("vendor"),
+                    }
+                    break
+            
+            # Try to find product in last_bundle_items
+            if not product_info:
+                for item in (session.metadata.get("last_bundle_items") or []):
+                    if item.get("product_id") == product_id:
+                        product_info = {
+                            "title": item.get("name"),
+                            "price": item.get("price") or item.get("unit_price"),
+                            "image_url": item.get("image_url"),
+                        }
+                        break
+        
         product_name = product_info.get("title", product_id) if product_info else product_id
         product_category = product_info.get("category") if product_info else None
         product_vendor = product_info.get("vendor") if product_info else None
@@ -902,6 +945,37 @@ class EasymartAssistantTools:
             session.metadata["last_bundle_total"] = result.get("bundle", {}).get("total_estimate")
         return result
 
+    def interpret_vague_query(self, query: str) -> Dict[str, Any]:
+        """
+        Interpret a vague, indirect, or slang-based user query.
+        
+        This tool analyzes queries that don't directly mention products but imply needs:
+        - Symptom/Problem: "My back hurts" -> ergonomic chair
+        - Spatial constraints: "shoe box apartment" -> compact furniture  
+        - Slang/Subjective: "boujee stuff" -> luxury items
+        - Lifestyle context: "starting a streaming channel" -> gaming setup
+        - Negation: "desks that aren't wood" -> metal/glass desks
+        - Sentiment: "I hate what I bought" -> return policy
+        
+        Args:
+            query: The user's vague or indirect query
+            
+        Returns:
+            Dictionary with:
+            - is_vague: Whether the query was identified as vague
+            - category: Type of vagueness detected
+            - interpreted_intent: What the user likely means
+            - suggested_query: Translated search query
+            - suggested_filters: Recommended filters
+            - suggested_tool: Which tool to call next
+            - tool_args: Arguments for the suggested tool
+            - clarification_needed: Whether to ask for more info
+            - clarification_message: Question to ask user
+            - confidence: How confident the interpretation is (0-1)
+        """
+        from app.modules.assistant.vague_query_handler import analyze_vague_query
+        return analyze_vague_query(query)
+
 
 _assistant_tools: Optional[EasymartAssistantTools] = None
 
@@ -992,6 +1066,24 @@ async def search_small_space_tool(**kwargs) -> Dict[str, Any]:
     return await get_assistant_tools().search_small_space(**kwargs)
 
 
+@tool("interpret_vague_query", args_schema=InterpretVagueQueryArgs)
+def interpret_vague_query_tool(**kwargs) -> Dict[str, Any]:
+    """
+    Interpret vague, indirect, or slang-based user queries.
+    
+    Use this tool FIRST when a user's message is:
+    - Problem-based: "My back hurts", "I can't sleep", "My apartment is cluttered"
+    - Spatial/physical: "shoe box apartment", "family of 8", "awkward corner"
+    - Slang/subjective: "boujee stuff", "broke student", "industrial loft look"
+    - Lifestyle-based: "starting streaming", "cat scratches everything", "work from home"
+    - Negation: "not wood", "no wheels", "isn't leather"
+    - Sentiment: "I hate it", "want to return", "terrible purchase"
+    
+    Returns interpretation with suggested search query and filters to use.
+    """
+    return get_assistant_tools().interpret_vague_query(**kwargs)
+
+
 def get_langchain_tools():
     return [
         search_products_tool,
@@ -1006,5 +1098,6 @@ def get_langchain_tools():
         check_product_fit_tool,
         build_bundle_tool,
         build_cheapest_bundle_tool,
-        search_small_space_tool
+        search_small_space_tool,
+        interpret_vague_query_tool
     ]

@@ -124,6 +124,14 @@ Product references:
 - Resolve references like "option 1", "first one", "the second chair" using the shown products.
 
 Tool usage:
+- **interpret_vague_query**: Use this FIRST when the user's message is indirect, slang-based, or problem-focused rather than product-focused. Examples:
+  * Symptom/Problem: "My back is killing me" → needs ergonomic chair
+  * Spatial constraints: "I live in a shoe box studio" → needs compact furniture
+  * Slang/Subjective: "Show me the boujee stuff" → needs luxury items, sort by price high
+  * Lifestyle context: "I'm starting a streaming channel" → needs gaming desk/chair
+  * Negation: "Desks that aren't wood" → search for metal/glass desks
+  * Sentiment: "I bought this last week and I hate it" → return policy info
+  This tool will translate the vague query into specific search parameters.
 - search_products for any product discovery.
 - get_product_specs for questions about dimensions, materials, colors, weight capacity, etc.
 - check_product_fit for any fit/space questions.

@@ -363,6 +363,20 @@ class EasymartAssistantHandler:
         self.session_store.delete_session(session_id)
 
     def _extract_products(self, steps, session) -> List[Dict[str, Any]]:
+        # Define non-product tools that should never show product cards
+        NON_PRODUCT_TOOLS = {
+            "get_policy_info",
+            "get_contact_info", 
+            "calculate_shipping",
+            "update_cart"  # Cart operations show cart summary, not product cards
+        }
+        
+        # If only non-product tools were called, don't show any products
+        if steps:
+            tool_names = [name for name, _ in steps]
+            if tool_names and all(name in NON_PRODUCT_TOOLS for name in tool_names):
+                return []
+        
         # Special handling for single-product detail tools FIRST
         # When user asks about a specific product, return ONLY that product
         for name, observation in reversed(steps or []):
@@ -393,8 +407,12 @@ class EasymartAssistantHandler:
             if isinstance(observation, dict) and observation.get("products"):
                 return observation.get("products")
         
-        # For other cases, return all shown products
-        return session.last_shown_products or []
+        # If no tools were called or no product-specific results, don't show old products
+        # Only return last_shown_products if there were actual product-related tool calls
+        if not steps:
+            return []
+            
+        return []
 
     def _build_cart_summary(self, session) -> Optional[Dict[str, Any]]:
         if not session.cart_items:
@@ -507,6 +525,13 @@ class EasymartAssistantHandler:
             "add bundle",
             "add all to cart",
             "add all items",
+            # Handle common typos
+            "add this bundell",
+            "add this bundel",
+            "add the bundell",
+            "add the bundel",
+            "add bundell",
+            "add bundel",
         ]
         return any(phrase in message_lower for phrase in bundle_phrases)
 
