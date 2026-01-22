@@ -128,12 +128,14 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=http://node.gowideai.com
+        - NEXT_PUBLIC_ENABLE_FOLLOWUP_CHIPS=false
     image: easymart/frontend:latest
     container_name: easymart-frontend
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://node.gowideai.com
+      - NEXT_PUBLIC_ENABLE_FOLLOWUP_CHIPS=false
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
     depends_on:

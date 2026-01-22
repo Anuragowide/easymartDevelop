@@ -301,6 +301,16 @@ class ProductSearcher:
                     if any(tok in query_text for tok in ["office", "gaming", "desk", "table", "chair"]):
                         continue
 
+            # RECLINER FIX: Exclude office chairs when searching for recliners
+            if "recliner" in query_text:
+                # Skip if product has office/executive/ergonomic indicators
+                office_indicators = ["office", "executive", "ergonomic", "desk chair", "task chair", "computer chair"]
+                if any(indicator in prod_title or indicator in prod_desc for indicator in office_indicators):
+                    continue
+                # Skip if tags explicitly mark it as office furniture
+                if any(tag in prod_tags_lower for tag in ["type_office chairs", "type_office chair", "category_office"]):
+                    continue
+            
             primary_types = [
                 "chair", "desk", "table", "sofa", "bed", "shelf", "cabinet",
                 "locker", "stool", "workstation"
