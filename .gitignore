@@ -1,188 +1,48 @@
-# ============================================================================
-# EasyMart v1 - Master .gitignore
-# ============================================================================
-
-# ============================================================================
-# SECURITY - NEVER COMMIT THESE! 🔒
-# ============================================================================
+﻿# Environment variables
 .env
 .env.local
 .env.*.local
 .env.production
-.env.development
-*.pem
-*.key
-*.cert
-*.p12
-secrets/
-credentials/
+*.env
 
-# ============================================================================
-# Node.js
-# ============================================================================
+# Dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 .pnpm-store/
-.npm
+.venv/
+__pycache__/
+*.pyc
+*.pyo
 
 # Build outputs
-dist/
-dist-ssr/
-build/
-out/
 .next/
-.nuxt/
-.cache/
-
-# Testing
-coverage/
-*.lcov
-.nyc_output/
-
-# ============================================================================
-# Python
-# ============================================================================
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Large index files (BM25, ChromaDB, etc.)
-*.pkl
-**/data/bm25/
-**/data/chromadb/
-*.so
-.Python
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.pytest_cache/
-.mypy_cache/
-.dmypy.json
-dmypy.json
-htmlcov/
-.coverage
-.coverage.*
-nosetests.xml
-coverage.xml
-*.cover
+dist/
+build/
 *.log
 
-# Python build
-*.egg-info/
-dist/
-build/
-eggs/
-.eggs/
-*.egg
-
-# ============================================================================
-# IDEs and Editors
-# ============================================================================
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-*.sublime-project
-*.sublime-workspace
+
+# OS
 .DS_Store
 Thumbs.db
 
-# ============================================================================
-# Docker
-# ============================================================================
-.dockerignore
+# Keys and certificates
+*.key
+*.pem
+*.crt
+keys/
 
-# ============================================================================
+# Database
+*.db
+*.sqlite
+
 # Logs
-# ============================================================================
 logs/
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-# ============================================================================
-# OS
-# ============================================================================
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-# ============================================================================
-# Temporary files
-# ============================================================================
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-*~
-
-# ============================================================================
-# Database
-# ============================================================================
-*.sqlite
-*.sqlite3
-*.db
-
-# ============================================================================
-# Elasticsearch data (if running locally)
-# ============================================================================
-elasticsearch-data/
-esdata/
-
-# ============================================================================
-# TypeScript
-# ============================================================================
-*.tsbuildinfo
-.eslintcache
-
-# ============================================================================
-# Project-specific
-# ============================================================================
-# Test files with real credentials (if any)
-test-shopify.js
-test-*.local.js
-
-# Backup files
-*.backup
-backup/
-
-# ============================================================================
-# CI/CD (keep these commented - uncomment if needed)
-# ============================================================================
-# .github/workflows/*.local.yml
-
-# ============================================================================
-# Optional: Lock files (Uncomment if team decides not to commit)
-# ============================================================================
-# package-lock.json
-# yarn.lock
-# pnpm-lock.yaml
-
-# ============================================================================
-# Keep these files (explicitly NOT ignored)
-# ============================================================================
-!.env.example
-!.dockerignore
-!.eslintrc.json
-!.prettierrc
-!.gitignore
+# ChromaDB
+chroma/

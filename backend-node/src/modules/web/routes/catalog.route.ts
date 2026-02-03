@@ -1,55 +1,22 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { getAllProducts } from "../../shopify_adapter/products";
 import { logger } from "../../observability/logger";
 import { config } from "../../../config";
+import * as shopify from "../../shopify_adapter";
+import { createSalesforceAdapter } from "../../salesforce_adapter";
 
-interface NormalizedProduct {
-  sku: string;
-  title: string;
-  description: string;
-  price: number;
-  compare_at_price?: number;
-  currency: string;
-  category: string;
-  product_type?: string;
-  tags: string[];
-  image_url?: string;
-  vendor: string;
-  handle: string;
-  product_url: string;
-  status?: string;
-  options?: any[];
-  variants?: any[];
-  images?: any[];
-  available?: boolean;
-  inventory_managed?: boolean;
-  barcode?: string;
-  specs?: Record<string, any>;
-  stock_status?: string;
-}
-
-/**
- * Normalize Shopify product to internal catalog format
- */
-function normalizeShopifyProduct(product: any): NormalizedProduct {
+// Normalizer for Shopify products (keeps existing behavior)
+function normalizeShopifyProduct(product: any) {
   const firstVariant = product.variants?.[0] || {};
   const firstImage = product.images?.[0];
-
-  // Determine stock status:
-  // - If inventory_management is null, Shopify doesn't track inventory = always available
-  // - If inventory_management is set, use actual inventory_quantity
   const inventoryManaged = firstVariant.inventory_management !== null;
   const inventoryQuantity = firstVariant.inventory_quantity || 0;
   const isInStock = !inventoryManaged || inventoryQuantity > 0;
-  const isAvailable = typeof firstVariant.available === "boolean" ? firstVariant.available : isInStock;
-  
-  // For unmanaged inventory, report as 999 (available) instead of 0
   const reportedQuantity = inventoryManaged ? inventoryQuantity : 999;
 
   return {
     sku: firstVariant.sku || product.handle,
     title: product.title,
-    description: product.body_html?.replace(/<[^>]*>/g, "") || "", // Strip HTML for main description
+    description: product.body_html?.replace(/<[^>]*>/g, "") || "",
     price: parseFloat(firstVariant.price || "0"),
     compare_at_price: parseFloat(firstVariant.compare_at_price || "0") || undefined,
     currency: "AUD",
@@ -65,23 +32,18 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
     options: product.options || [],
     variants: product.variants || [],
     images: product.images || [],
-    available: isAvailable,
+    available: typeof firstVariant.available === "boolean" ? firstVariant.available : isInStock,
     inventory_managed: inventoryManaged,
     barcode: firstVariant.barcode,
     specs: {
-      // Core dimensions
       weight: firstVariant.weight,
       weight_unit: firstVariant.weight_unit,
       inventory_quantity: reportedQuantity,
       inventory_managed: inventoryManaged,
       barcode: firstVariant.barcode,
-
-      // Extended fields
-      specifications: product.body_html?.replace(/<[^>]*>/g, "") || "", // Map description to specifications for now
-      features: product.tags, // Map tags to features
-      material: product.options?.find((o: any) => o.name === "Material")?.values?.join(", "), // Try to find Material option
-
-      // Full raw data for deep inspection if needed
+      specifications: product.body_html?.replace(/<[^>]*>/g, "") || "",
+      features: product.tags,
+      material: product.options?.find((o: any) => o.name === "Material")?.values?.join(", "),
       options: product.options,
       variants: product.variants,
       images: product.images,
@@ -90,78 +52,170 @@ function normalizeShopifyProduct(product: any): NormalizedProduct {
   };
 }
 
+// Minimal in-file adapter selector (singleton)
+// Replace getAdapter() with this block
+let _adapter: any = null;
+function getAdapter() {
+  if (_adapter) return _adapter;
+  const active = (config.ACTIVE_PLATFORM || "shopify").toLowerCase();
+
+  if (active === "salesforce") {
+    const sfConfig = {
+      tokenUrl: config.SALESFORCE_TOKEN_URL,
+      clientId: config.SALESFORCE_JWT_CLIENT_ID || config.SALESFORCE_CLIENT_ID,
+      jwtUsername: config.SALESFORCE_JWT_USERNAME,
+      jwtPrivateKey: config.SALESFORCE_JWT_PRIVATE_KEY,
+      username: config.SALESFORCE_USERNAME,
+      password: config.SALESFORCE_PASSWORD,
+      securityToken: config.SALESFORCE_SECURITY_TOKEN,
+      apiVersion: config.SALESFORCE_API_VERSION || "v57.0",
+      siteBaseUrl: config.SALESFORCE_SITE_BASE_URL,
+      webstoreId: config.SALESFORCE_WEBSTORE_ID,
+    };
+    const sf = createSalesforceAdapter({ config: sfConfig });
+    _adapter = {
+      products: {
+        search: (q: string, limit = 10) => sf.products.search(q, limit),
+        getById: (id: string) => sf.products.getById(id),
+      },
+      cart: {
+        getCart: (id: string) => sf.cart.getCart(id),
+        addToCart: (p: string, q: number, id: string) => sf.cart.addToCart(p, q, id),
+        updateCartItem: (cartItemId: string, qty: number, id: string) => sf.cart.updateCartItem(cartItemId, qty, id),
+        removeFromCart: (cartItemId: string, id: string) => sf.cart.removeFromCart(cartItemId, id),
+      },
+      client: sf.client,
+    };
+  } else {
+    _adapter = {
+      products: {
+        search: shopify.searchProducts,
+        getById: shopify.getProductDetails,
+        getAllProducts: shopify.getAllProducts,
+      },
+      cart: {
+        getCart: shopify.getCart,
+        addToCart: shopify.addToCart,
+        updateCartItem: shopify.updateCartItem,
+        removeFromCart: (sessionId: string, variantId: number) => shopify.removeFromCart(sessionId, variantId),
+        clearCart: shopify.clearCart,
+      },
+      client: (shopify as any).shopifyClient,
+    };
+  }
+
+  return _adapter;
+}
+
 export default async function catalogRoutes(fastify: FastifyInstance) {
-  /**
-   * GET /api/internal/catalog/export
-   * Export all products in normalized format for Python catalog indexer
-   */
   fastify.get("/api/internal/catalog/export", async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       logger.info("Catalog export requested");
+      const adapter = getAdapter();
+      const active = (config.ACTIVE_PLATFORM || "shopify").toLowerCase();
 
-      const allProducts = [];
-      let sinceId: number | undefined = undefined;
-      let hasMore = true;
-      let pageCount = 0;
-      const MAX_PAGES = 10; // Safety limit
-
-      // Paginate through all products
-      while (hasMore && pageCount < MAX_PAGES) {
-        const products = await getAllProducts(250, sinceId);
-
-        if (products.length === 0) {
-          hasMore = false;
-          break;
+      if (active === "shopify" && adapter.products.getAllProducts) {
+        // Shopify paging logic
+        let sinceId: number | undefined = undefined;
+        let hasMore = true;
+        let pageCount = 0;
+        const MAX_PAGES = 10;
+        const allProducts: any[] = [];
+        while (hasMore && pageCount < MAX_PAGES) {
+          const products: any[] = await adapter.products.getAllProducts(250, sinceId);
+          if (!products || products.length === 0) {
+            hasMore = false;
+            break;
+          }
+          allProducts.push(...products.map((p: any) => normalizeShopifyProduct(p)));
+          sinceId = products[products.length - 1].id;
+          pageCount++;
         }
-
-        allProducts.push(...products);
-        sinceId = products[products.length - 1].id;
-        pageCount++;
-
-        logger.info(`Fetched page ${pageCount}`, {
-          productsInPage: products.length,
-          totalSoFar: allProducts.length,
-        });
+        return reply.send({ products: allProducts });
+      } else {
+        // For Salesforce, use POST route
+        return reply.code(400).send({ error: "Salesforce export should use POST" });
       }
-
-      // Normalize all products
-      const normalized = allProducts.map(normalizeShopifyProduct);
-
-      logger.info("Catalog export complete", {
-        totalProducts: normalized.length,
-        pagesProcessed: pageCount,
-      });
-
-      return reply.code(200).send(normalized);
     } catch (error: any) {
-      logger.error("Catalog export failed (returning empty list for fallback)", { error: error.message });
-      // Return empty list so consumer can fallback to other sources (e.g. local CSV)
-      return reply.code(200).send([]);
+      logger.error("Catalog stats failed", { error: error.message });
+      return reply.code(500).send({ error: "Failed to get catalog stats", message: error.message });
     }
   });
 
-  /**
-   * GET /api/internal/catalog/stats
-   * Get catalog statistics
-   */
-  fastify.get("/api/internal/catalog/stats", async (_request: FastifyRequest, reply: FastifyReply) => {
+  // Debug: forward arbitrary body to Salesforce search (returns raw Apex response)
+  fastify.post("/api/internal/catalog/debug-search", async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const products = await getAllProducts(1);
+      const adapter = getAdapter();
+      const active = (config.ACTIVE_PLATFORM || "shopify").toLowerCase();
+      const body = (request.body as any) || {};
+      logger.info("Debug search requested", { body });
+      if (active === "shopify" && adapter.products.getAllProducts) {
+        // Shopify paging logic
+        let sinceId: number | undefined = undefined;
+        let hasMore = true;
+        let pageCount = 0;
+        const MAX_PAGES = 10;
+        const allProducts: any[] = [];
+        while (hasMore && pageCount < MAX_PAGES) {
+          const products: any[] = await adapter.products.getAllProducts(250, sinceId);
+          if (!products || products.length === 0) {
+            hasMore = false;
+            break;
+          }
+          allProducts.push(...products.map((p: any) => normalizeShopifyProduct(p)));
+          sinceId = products[products.length - 1].id;
+          pageCount++;
+        }
+        return reply.send({ products: allProducts });
+      } else {
+        // Forward to Python Salesforce search endpoint
+        const { query, page = 1, pageSize = 10 } = body;
+        const axios = adapter.client.getAxios();
+        try {
+          const resp = await axios.post(
+            `${config.PYTHON_BASE_URL}/internal/salesforce/search`,
+            { query, page, pageSize }
+          );
+          return reply.code(resp.status).send(resp.data);
+        } catch (err: any) {
+          logger.error("Debug search failed", {
+            error: err?.message || String(err),
+            upstreamStatus: err?.response?.status,
+            upstreamBody: err?.response?.data,
+          });
+          return reply.code(err?.response?.status || 500).send({ error: err?.message || String(err), upstream: err?.response?.data });
+        }
+      }
+    } catch (err: any) {
+      logger.error("Debug product failed", { error: err?.message || String(err) });
+      return reply.code(500).send({ error: err?.message || String(err) });
+    }
+  });
 
-      return reply.code(200).send({
-        status: "available",
-        sample_product: products[0] ? {
-          id: products[0].id,
-          title: products[0].title,
-          handle: products[0].handle,
-        } : null,
+  // POST: Salesforce export with query
+  fastify.post("/api/internal/catalog/export", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const adapter = getAdapter();
+      const active = (config.ACTIVE_PLATFORM || "shopify").toLowerCase();
+      if (active === "salesforce") {
+        const { query, page = 1, pageSize = 10 } = (request.body as any) || {};
+        // Forward to Python Salesforce exporter using GET (Python expects GET /export)
+        const axios = adapter.client.getAxios();
+        const resp = await axios.get(`${config.PYTHON_BASE_URL}/internal/salesforce/export`, {
+          params: { query, page, pageSize },
+        });
+        return reply.code(resp.status).send(resp.data);
+      } else {
+        // For Shopify, fallback to GET logic or error
+        return reply.code(400).send({ error: "Shopify export should use GET" });
+      }
+    } catch (err: any) {
+      logger.error("POST catalog export failed", {
+        error: err?.message || String(err),
+        upstreamStatus: err?.response?.status,
+        upstreamBody: err?.response?.data,
       });
-    } catch (error: any) {
-      logger.error("Catalog stats failed", { error: error.message });
-      return reply.code(500).send({
-        error: "Failed to get catalog stats",
-        message: error.message,
-      });
+      return reply.code(err?.response?.status || 500).send({ error: err?.message || String(err), upstream: err?.response?.data });
     }
   });
 }

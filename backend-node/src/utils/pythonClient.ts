@@ -88,9 +88,33 @@ class PythonAssistantClient {
         hasActions: !!response.data.suggested_actions,
       });
 
+      // Determine products: prefer assistant-provided, otherwise fallback to direct search for product_search intent
+      let productsToMap: any[] = [];
+      const assistantProducts = Array.isArray(response.data?.products) ? response.data.products : [];
+      const intent = response.data?.intent || response.data?.metadata?.intent;
+
+      if (assistantProducts.length > 0) {
+        productsToMap = assistantProducts;
+      } else if (intent === 'product_search') {
+        try {
+          logger.info("Fallback: fetching products from Python search", { sessionId: request.sessionId });
+          const fallbackResp = await this.client.post(
+            '/internal/salesforce/search',
+            { query: request.message, page: 1, pageSize: 6 }
+          );
+          productsToMap = Array.isArray(fallbackResp.data?.products) ? fallbackResp.data.products : [];
+          logger.info("Fallback: got products", { count: productsToMap.length });
+        } catch (e: any) {
+          logger.warn("Fallback search failed", { error: e?.message || String(e) });
+          productsToMap = [];
+        }
+      } else {
+        productsToMap = assistantProducts;
+      }
+
       // Transform Python response to match Node backend format
       // Also transform product fields: name→title, image_url→image, add url
-      const transformedProducts = (response.data.products || []).map((product: any) => ({
+      const transformedProducts = (productsToMap || []).map((product: any) => ({
         id: product.id || product.sku,  // Use id or fallback to sku
         sku: product.sku,               // Keep sku for reference
         title: product.name || product.title,  // name → title

@@ -6,9 +6,11 @@ from fastapi import FastAPI
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from dotenv import load_dotenv
+load_dotenv()
 from app.core.config import get_settings
 from app.modules.observability.logging_config import setup_logging
-from app.api import health_router, assistant_router
+from app.api import health_router, assistant_router, salesforce_router
 
 settings = get_settings()
 
@@ -36,6 +38,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(assistant_router)
+app.include_router(salesforce_router)
 
 
 @app.get("/")

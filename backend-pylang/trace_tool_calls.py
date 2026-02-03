@@ -58,7 +58,7 @@ async def main():
     
     # Run the test
     request = AssistantRequest(
-        message="show me queen size bed frame",
+        message="show me office chairs",
         session_id="trace-test",
         user_id="test-user"
     )

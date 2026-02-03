@@ -1,0 +1,159 @@
+# Docker Compose - EasyMart for 1 vCPU Digital Ocean Droplet
+# Optimized for low-resource deployment
+
+version: '3.8'
+
+services:
+  # Node.js Backend - Web Layer
+  backend-node:
+    build:
+      context: ../backend-node
+      dockerfile: Dockerfile
+    image: easymart/backend-node:latest
+    container_name: easymart-node
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - PYTHON_BASE_URL=http://backend-python:8000
+      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2024-01}
+    depends_on:
+      backend-python:
+        condition: service_healthy
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Python Backend - AI Assistant (main resource consumer)
+  backend-python:
+    build:
+      context: ../backend-pylang
+      dockerfile: Dockerfile.slim
+    image: easymart/backend-pylang:slim
+    container_name: easymart-pylang
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=Easymart Assistant
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - NODE_BACKEND_URL=http://backend-node:3001
+      # OpenAI (recommended for 1 vCPU - lighter than local models)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_PROVIDER=openai
+      - OPENAI_MODEL=gpt-4o-mini
+      # Salesforce
+      - SALESFORCE_CLIENT_ID=${SALESFORCE_CLIENT_ID}
+      - SALESFORCE_CLIENT_SECRET=${SALESFORCE_CLIENT_SECRET}
+      - SALESFORCE_USERNAME=${SALESFORCE_USERNAME}
+      - SALESFORCE_PASSWORD=${SALESFORCE_PASSWORD}
+      - SALESFORCE_SECURITY_TOKEN=${SALESFORCE_SECURITY_TOKEN}
+      - SALESFORCE_PRIVATE_KEY_PATH=${SALESFORCE_PRIVATE_KEY_PATH:-/app/keys/salesforce.key}
+      # Embeddings
+      - EMBEDDING_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
+      - EMBEDDING_DIMENSION=384
+      # Search optimization for low memory
+      - HYBRID_SEARCH_ALPHA=0.5
+      - MAX_SEARCH_RESULTS=10
+    volumes:
+      - pylang-data:/app/data
+      - pylang-logs:/app/logs
+      - ./keys:/app/keys:ro
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+
+  # Frontend - Next.js (lightweight)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://YOUR_DROPLET_IP:3001}
+        - NEXT_PUBLIC_ENABLE_FOLLOWUP_CHIPS=true
+    image: easymart/frontend:latest
+    container_name: easymart-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+    depends_on:
+      backend-node:
+        condition: service_healthy
+    networks:
+      - easymart-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  easymart-network:
+    driver: bridge
+
+volumes:
+  pylang-data:
+    driver: local
+  pylang-logs:
+    driver: local
